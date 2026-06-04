@@ -1,0 +1,42 @@
+# OLX Romania vendor manifest.
+#
+# Field-path convention: a value under `fields` is a dot/bracket path into a
+# single item node. A path may be prefixed with "!" to mean the logical NOT of
+# the located boolean — e.g. `isPrivateOwner: "!business"` because OLX flags
+# *companies* (business=true), and a private owner is simply the negation.
+# The "!" is interpreted later by the pipeline normalizer, not here.
+
+vendor: OLX
+domain: olx.ro
+engine: json-extractor
+rate_limit_ms: 2500
+
+# Search results listing (the SERP grid of ads).
+search_mapping:
+  payload_locator: "script#__NEXT_DATA__"
+  json_path_to_items: "props.pageProps.data.listing.items"
+  fields:
+    id: "id"
+    title: "title"
+    price: "price.value"
+    currency: "price.currency"
+    url: "url"
+    imageUrl: "photos[0].link"
+    isPrivateOwner: "!business"
+    location: "location.city.name"
+    inStock: "active"
+
+# Single product / ad detail page.
+product_mapping:
+  payload_locator: "script#__NEXT_DATA__"
+  json_path: "props.pageProps.ad"
+  fields:
+    id: "id"
+    title: "title"
+    price: "price.value"
+    currency: "price.currency"
+    url: "url"
+    imageUrl: "photos[0].link"
+    isPrivateOwner: "!business"
+    location: "location.city.name"
+    inStock: "active"

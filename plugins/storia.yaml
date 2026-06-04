@@ -1,0 +1,42 @@
+# Storia Romania vendor manifest (real-estate marketplace).
+#
+# Field-path convention: a value under `fields` is a dot/bracket path into a
+# single item node. A path may be prefixed with "!" to mean the logical NOT of
+# the located boolean — e.g. `isPrivateOwner: "!agency"` because Storia flags
+# *agencies* (agency=true), and a private owner is simply the negation.
+# The "!" is interpreted later by the pipeline normalizer, not here.
+
+vendor: Storia
+domain: storia.ro
+engine: json-extractor
+rate_limit_ms: 3000
+
+# Search results listing (the SERP grid of property ads).
+search_mapping:
+  payload_locator: "script#__NEXT_DATA__"
+  json_path_to_items: "props.pageProps.data.searchAds.items"
+  fields:
+    id: "id"
+    title: "title"
+    price: "totalPrice.value"
+    currency: "totalPrice.currency"
+    url: "slug"
+    imageUrl: "images[0].large"
+    isPrivateOwner: "!agency"
+    location: "location.address.city.name"
+    inStock: "isActive"
+
+# Single property detail page.
+product_mapping:
+  payload_locator: "script#__NEXT_DATA__"
+  json_path: "props.pageProps.ad"
+  fields:
+    id: "id"
+    title: "title"
+    price: "characteristics.price.value"
+    currency: "characteristics.price.currency"
+    url: "url"
+    imageUrl: "images[0].large"
+    isPrivateOwner: "!agency"
+    location: "location.address.city.name"
+    inStock: "isActive"

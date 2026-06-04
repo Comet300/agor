@@ -1,0 +1,42 @@
+# AutoVit Romania vendor manifest (automotive marketplace).
+#
+# Field-path convention: a value under `fields` is a dot/bracket path into a
+# single item node. A path may be prefixed with "!" to mean the logical NOT of
+# the located boolean — e.g. `isPrivateOwner: "!business"` because AutoVit flags
+# *dealers* (business=true), and a private owner is simply the negation.
+# The "!" is interpreted later by the pipeline normalizer, not here.
+
+vendor: AutoVit
+domain: autovit.ro
+engine: json-extractor
+rate_limit_ms: 3000
+
+# Search results listing (the SERP grid of car ads).
+search_mapping:
+  payload_locator: "script#__NEXT_DATA__"
+  json_path_to_items: "props.pageProps.urqlState.results.edges"
+  fields:
+    id: "node.id"
+    title: "node.title"
+    price: "node.price.amount.value"
+    currency: "node.price.amount.currencyCode"
+    url: "node.url"
+    imageUrl: "node.thumbnail.x1"
+    isPrivateOwner: "!node.sellerType.business"
+    location: "node.location.city"
+    inStock: "node.active"
+
+# Single advert detail page.
+product_mapping:
+  payload_locator: "script#__NEXT_DATA__"
+  json_path: "props.pageProps.advert"
+  fields:
+    id: "id"
+    title: "title"
+    price: "price.amount.value"
+    currency: "price.amount.currencyCode"
+    url: "url"
+    imageUrl: "images[0].x1"
+    isPrivateOwner: "!seller.business"
+    location: "location.city"
+    inStock: "active"
