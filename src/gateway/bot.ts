@@ -3,10 +3,16 @@
  *
  * Wires the grammY long-polling bot to the {@link Orchestrator} and the
  * persistence {@link Store}. This is the only place that touches the Telegram
- * API; all message bodies come from the PURE renderers in `./render`, and all
- * domain work is delegated to the orchestrator / store.
+ * API; all message bodies come from the typed message catalog (`tr(lang)`) and
+ * the PURE renderers in `./render`, and all domain work is delegated to the
+ * orchestrator / store.
  *
- * Conversational state: a single command-less affordance — pasting a URL
+ * Localization: every reply is resolved per update via {@link langFor} — the
+ * stored chat preference, else the Telegram `language_code`, else the RO default.
+ * Background notifications resolve the recipient chat's language in the notifier,
+ * since alerts are produced without an incoming update context.
+ *
+ * Conversational state: a single command-less affordance — sending a URL
  * registers a watch — plus inline-keyboard callbacks for tuning. The only
  * stateful interaction is the exclusion-keyword prompt, tracked per-chat in a
  * module-level {@link pendingExclusion} map (the next plain text from that chat
@@ -23,6 +29,8 @@ import { parseExclusionInput } from '../pipeline';
 import { renderNotification, renderRegistrationCard } from './render';
 import { registrationKeyboard } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
+import { type Lang, tr, isLang } from './strings';
+import { resolveLang } from './lang';
 
 /**
  * Chats awaiting an exclusion-keyword reply, keyed by chat id → monitor id.
@@ -41,9 +49,25 @@ function looksLikeUrl(text: string): boolean {
   }
 }
 
+/**
+ * Route a non-pending plain-text message: an http(s) link is a watch, a leading
+ * slash is an unrecognized command (the known ones are handled above), anything
+ * else is unrelated chatter.
+ */
+export function classifyMessage(text: string): 'url' | 'command' | 'other' {
+  if (looksLikeUrl(text)) return 'url';
+  if (text.trim().startsWith('/')) return 'command';
+  return 'other';
+}
+
 /** Whether a string is one of the three valid seller-visibility values. */
 function isSellerVisibility(v: string): v is SellerVisibility {
   return v === 'private' || v === 'company' || v === 'both';
+}
+
+/** Resolve the language for a chat from its stored preference + Telegram locale. */
+function langFor(store: Store, chatId: number, telegramCode?: string): Lang {
+  return resolveLang(store.chatPrefs.getLang(chatId), telegramCode);
 }
 
 /**
@@ -55,20 +79,26 @@ async function handleTrack(
   orchestrator: Orchestrator,
   chatId: number,
   rawUrl: string,
+  lang: Lang,
   reply: (text: string, keyboard?: import('./render').RenderedMessage['keyboard']) => Promise<unknown>,
 ): Promise<void> {
   const result = await orchestrator.register({ chatId, rawUrl });
   if (!result.ok) {
-    await reply(result.error);
+    await reply(tr(lang).track_error);
     return;
   }
 
-  const card = renderRegistrationCard({
-    monitorId: result.monitor.id,
-    vendor: result.monitor.vendor,
-    summary: result.monitor.url,
-    baselineCount: result.baselineCount,
-  });
+  const card = renderRegistrationCard(
+    {
+      monitorId: result.monitor.id,
+      vendor: result.monitor.vendor,
+      summary: result.monitor.url,
+      baselineCount: result.baselineCount,
+      sellerVisibility: result.monitor.filters.sellerVisibility,
+      intervalMinutes: Math.round(result.monitor.intervalMs / 60000),
+    },
+    lang,
+  );
   await reply(card.text, card.keyboard);
 }
 
@@ -82,56 +112,94 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
   // ── Commands ──────────────────────────────────────────────────────────────
 
   bot.command('start', async (ctx) => {
-    await ctx.reply(
-      'Welcome to agor.\n\n' +
-        'Paste a marketplace search or product link (OLX, AutoVit, Storia…) ' +
-        'and I will watch it for new listings, price drops and stock changes.\n\n' +
-        'Try /help for the full command list.',
-    );
+    const lang = langFor(store, ctx.chat.id, ctx.from?.language_code);
+    await ctx.reply(tr(lang).start_welcome);
   });
 
   bot.command('help', async (ctx) => {
-    await ctx.reply(
-      'How to use agor:\n\n' +
-        '• Paste any http(s) listing link, or use /track <url>, to start a watch.\n' +
-        '• After registering, tune the seller type and exclusion keywords, then ' +
-        'tap “Start monitoring”.\n' +
-        '• /list — show every watch in this chat.\n' +
-        '• Tap “Price history” on any alert to get a price chart.',
-    );
+    const lang = langFor(store, ctx.chat.id, ctx.from?.language_code);
+    await ctx.reply(tr(lang).help_body);
   });
 
   bot.command('track', async (ctx) => {
     const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId, ctx.from?.language_code);
     const rawUrl = (ctx.match ?? '').trim();
     try {
       if (!rawUrl) {
-        await ctx.reply('Usage: /track <url>');
+        await ctx.reply(tr(lang).track_usage);
         return;
       }
-      await handleTrack(orchestrator, chatId, rawUrl, (text, keyboard) =>
+      await handleTrack(orchestrator, chatId, rawUrl, lang, (text, keyboard) =>
         ctx.reply(text, keyboard ? { reply_markup: keyboard } : undefined),
       );
     } catch (err) {
-      await ctx.reply('Sorry — I could not register that watch. Please try again.');
+      await ctx.reply(tr(lang).track_error);
     }
   });
 
   bot.command('list', async (ctx) => {
+    const lang = langFor(store, ctx.chat.id, ctx.from?.language_code);
     try {
       const monitors = store.monitors.listByChat(ctx.chat.id);
       if (monitors.length === 0) {
-        await ctx.reply('No watches yet. Paste a listing link to create one.');
+        await ctx.reply(tr(lang).list_empty);
         return;
       }
-      const lines = monitors.map(
-        (m) =>
-          `#${m.id} · ${m.vendor} · ${m.type} · ` +
-          `seller=${m.filters.sellerVisibility}\n${m.url}`,
+      const lines = monitors.map((m) =>
+        tr(lang).list_item({
+          id: m.id,
+          vendor: m.vendor,
+          type: m.type,
+          seller: m.filters.sellerVisibility,
+          url: m.url,
+        }),
       );
-      await ctx.reply(`Your watches:\n\n${lines.join('\n\n')}`);
+      await ctx.reply(`${tr(lang).list_intro}\n\n${lines.join('\n\n')}`);
     } catch (err) {
-      await ctx.reply('Sorry — I could not list your watches.');
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  bot.command('remove', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId, ctx.from?.language_code);
+    try {
+      const arg = (ctx.match ?? '').trim();
+      const id = Number(arg);
+      if (!arg || !Number.isInteger(id)) {
+        await ctx.reply(tr(lang).remove_usage);
+        return;
+      }
+      const monitor = store.monitors.get(id);
+      if (!monitor || monitor.chatId !== chatId) {
+        await ctx.reply(tr(lang).remove_not_found);
+        return;
+      }
+      store.monitors.delete(id);
+      await ctx.reply(tr(lang).remove_done(id));
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  bot.command('lang', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId, ctx.from?.language_code);
+    try {
+      const arg = (ctx.match ?? '').trim().toLowerCase();
+      if (!arg) {
+        await ctx.reply(tr(lang).lang_current(tr(lang).lang_name));
+        return;
+      }
+      if (!isLang(arg)) {
+        await ctx.reply(tr(lang).lang_usage);
+        return;
+      }
+      store.chatPrefs.setLang(chatId, arg);
+      await ctx.reply(tr(arg).lang_set(tr(arg).lang_name));
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
     }
   });
 
@@ -139,58 +207,113 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
 
   // Seller visibility: sv:<monitorId>:<private|company|both>
   bot.callbackQuery(/^sv:(\d+):(private|company|both)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0, ctx.from?.language_code);
     try {
       const monitorId = Number(ctx.match[1]);
       const visibility = ctx.match[2] ?? '';
       if (!isSellerVisibility(visibility)) {
-        await ctx.answerCallbackQuery('Unknown option.');
+        await ctx.answerCallbackQuery(tr(lang).cb_unknown_option);
         return;
       }
 
       const monitor = store.monitors.get(monitorId);
       if (!monitor) {
-        await ctx.answerCallbackQuery('That watch no longer exists.');
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
 
       monitor.filters.sellerVisibility = visibility;
       store.monitors.update(monitor);
 
-      await ctx.answerCallbackQuery(`Seller filter: ${visibility}`);
+      await ctx.answerCallbackQuery(tr(lang).cb_seller_set(visibility));
       // Re-render the keyboard with the now-active option marked so the user sees
       // the new state. Passing the changed markup also avoids Telegram's
       // "message is not modified" 400 that re-sending identical markup triggers.
       await ctx.editMessageReplyMarkup({
-        reply_markup: registrationKeyboard(monitorId, visibility),
+        reply_markup: registrationKeyboard(
+          monitorId,
+          lang,
+          visibility,
+          Math.round(monitor.intervalMs / 60000),
+        ),
       });
     } catch (err) {
-      await ctx.answerCallbackQuery('Could not update that setting.');
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
+  // Check frequency: fq:<monitorId>:<minutes>
+  bot.callbackQuery(/^fq:(\d+):(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0, ctx.from?.language_code);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const minutes = Number(ctx.match[2]);
+
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+
+      monitor.intervalMs = minutes * 60000;
+      store.monitors.update(monitor);
+      store.monitors.setSchedule(monitor.id, Date.now() + monitor.intervalMs, monitor.fastTier);
+
+      await ctx.answerCallbackQuery(tr(lang).cb_freq_set(minutes));
+      await ctx.editMessageReplyMarkup({
+        reply_markup: registrationKeyboard(
+          monitorId,
+          lang,
+          monitor.filters.sellerVisibility,
+          minutes,
+        ),
+      });
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
     }
   });
 
   // Exclusion keywords: ex:<monitorId> → prompt + remember the pending state.
   bot.callbackQuery(/^ex:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0, ctx.from?.language_code);
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
       if (!monitor) {
-        await ctx.answerCallbackQuery('That watch no longer exists.');
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
       pendingExclusion.set(ctx.chat?.id ?? monitor.chatId, monitorId);
       await ctx.answerCallbackQuery();
-      await ctx.reply(
-        'Send a comma-separated list of keywords to exclude (e.g. `damaged, salvage, parts`).',
-      );
+      await ctx.reply(tr(lang).exclusion_prompt);
     } catch (err) {
-      await ctx.answerCallbackQuery('Could not start the exclusion prompt.');
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
+  // Remove monitor: rm:<monitorId> — only if owned by this chat.
+  bot.callbackQuery(/^rm:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id ?? 0;
+    const lang = langFor(store, chatId, ctx.from?.language_code);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== chatId) {
+        await ctx.answerCallbackQuery(tr(lang).remove_not_found);
+        return;
+      }
+      store.monitors.delete(monitorId);
+      await ctx.answerCallbackQuery(tr(lang).cb_removed);
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
     }
   });
 
   // Start monitoring: go:<monitorId>
   bot.callbackQuery(/^go:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0, ctx.from?.language_code);
     try {
-      await ctx.answerCallbackQuery('Monitoring started');
+      await ctx.answerCallbackQuery(tr(lang).cb_monitoring_started);
     } catch {
       // Best effort — an expired callback query is not worth surfacing.
     }
@@ -198,6 +321,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
 
   // Price history: pg:<vendor>:<id> OR pg:<id>
   bot.callbackQuery(/^pg:/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0, ctx.from?.language_code);
     try {
       // Last colon-segment is always the item id (vendor may be empty/omitted).
       const data = ctx.callbackQuery.data;
@@ -222,10 +346,10 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
       if (result.ok) {
         await ctx.replyWithPhoto(new InputFile(result.png));
       } else {
-        await ctx.reply('Not enough history yet.');
+        await ctx.reply(tr(lang).price_history_insufficient);
       }
     } catch (err) {
-      await ctx.reply('Could not render the price history.');
+      await ctx.reply(tr(lang).price_history_error);
     }
   });
 
@@ -233,6 +357,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
 
   bot.on('message:text', async (ctx) => {
     const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId, ctx.from?.language_code);
     const text = ctx.message.text;
 
     try {
@@ -242,32 +367,36 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
         pendingExclusion.delete(chatId);
         const monitor = store.monitors.get(pendingMonitorId);
         if (!monitor) {
-          await ctx.reply('That watch no longer exists.');
+          await ctx.reply(tr(lang).cb_watch_gone);
           return;
         }
         monitor.filters.exclusionKeywords = parseExclusionInput(text);
         store.monitors.update(monitor);
         const kw = monitor.filters.exclusionKeywords;
         await ctx.reply(
-          kw.length > 0
-            ? `Excluding: ${kw.join(', ')}`
-            : 'Cleared all exclusion keywords.',
+          kw.length > 0 ? tr(lang).exclusion_set(kw.join(', ')) : tr(lang).exclusion_cleared,
         );
         return;
       }
 
-      // 2. A plain http(s) URL registers a new watch.
-      if (looksLikeUrl(text)) {
-        await handleTrack(orchestrator, chatId, text, (t, keyboard) =>
+      // 2. Route by message kind.
+      const kind = classifyMessage(text);
+      if (kind === 'url') {
+        await handleTrack(orchestrator, chatId, text, lang, (t, keyboard) =>
           ctx.reply(t, keyboard ? { reply_markup: keyboard } : undefined),
         );
         return;
       }
+      if (kind === 'command') {
+        // An unrecognized slash-command (the six known ones are handled above).
+        await ctx.reply(tr(lang).unknown_command);
+        return;
+      }
 
       // 3. Anything else: gentle nudge toward the supported flow.
-      await ctx.reply('Send me a listing link to watch, or /help for usage.');
+      await ctx.reply(tr(lang).send_link_hint);
     } catch (err) {
-      await ctx.reply('Sorry — something went wrong handling that message.');
+      await ctx.reply(tr(lang).generic_error);
     }
   });
 
@@ -276,16 +405,21 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
 
 /**
  * Build the notification sink the orchestrator dispatches through: render each
- * {@link Notification} with the PURE renderer and send it to its chat.
+ * {@link Notification} with the PURE renderer (in the recipient chat's resolved
+ * language) and send it to its chat.
  *
  * For a `cross_post`, the original alert (identified by `messageRef`) is edited
  * in place to append the new source. For all other kinds a fresh message is
  * sent and its {@link MessageRef} is returned so the orchestrator can later edit
  * it when a cross-post arrives.
  */
-export function makeNotifier(bot: Bot): (n: Notification) => Promise<MessageRef | void> {
+export function makeNotifier(
+  bot: Bot,
+  store: Store,
+): (n: Notification) => Promise<MessageRef | void> {
   return async (n: Notification) => {
-    const { text, keyboard } = renderNotification(n);
+    const lang = resolveLang(store.chatPrefs.getLang(n.chatId), undefined);
+    const { text, keyboard } = renderNotification(n, lang);
 
     if (n.kind === 'cross_post' && n.messageRef) {
       try {

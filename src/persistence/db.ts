@@ -67,6 +67,11 @@ export function migrate(db: DB): void {
       observed_at INTEGER
     );
 
+    CREATE TABLE IF NOT EXISTS chat_prefs (
+      chat_id INTEGER PRIMARY KEY,
+      lang    TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_monitors_next_due_at
       ON monitors (next_due_at);
 

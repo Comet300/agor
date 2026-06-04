@@ -11,6 +11,7 @@ import {
   renderRegistrationCard,
   type RenderedMessage,
 } from '../src/gateway/render';
+import { tr } from '../src/gateway/strings';
 
 /** Minimal enriched-item factory; tests override only what they assert on. */
 function makeItem(overrides: Partial<EnrichedItem> = {}): EnrichedItem {
@@ -43,17 +44,17 @@ describe('renderNotification — new_listing', () => {
     });
     const n: Notification = { kind: 'new_listing', chatId: 99, item };
 
-    const msg = renderNotification(n);
+    const msg = renderNotification(n, 'en');
 
     // Title + formatted price.
     expect(msg.text).toContain('BMW E46 320d');
     expect(msg.text).toContain(formatMoney(item.price, item.currency)); // "4 300 EUR"
 
-    // Deal badge for a great_deal item.
-    expect(msg.text).toContain('🔥 Great Deal');
+    // Deal badge for a great_deal item (EN copy from the catalog).
+    expect(msg.text).toContain(tr('en').badge_great_deal);
 
     // The offer draft (already backtick-wrapped) is appended verbatim.
-    expect(msg.text).toContain(draftOffer(item));
+    expect(msg.text).toContain(draftOffer(item, 'en'));
 
     // Open URL button to the listing.
     const btns = buttons(msg);
@@ -73,7 +74,7 @@ describe('renderNotification — new_listing', () => {
 
   it('omits the call button when no phone is present', () => {
     const item = makeItem({ phone: undefined });
-    const msg = renderNotification({ kind: 'new_listing', chatId: 1, item });
+    const msg = renderNotification({ kind: 'new_listing', chatId: 1, item }, 'en');
 
     const call = buttons(msg).find((b) => 'url' in b && b.url.startsWith('tel:'));
     expect(call).toBeUndefined();
@@ -83,7 +84,7 @@ describe('renderNotification — new_listing', () => {
     const item = makeItem({
       alternativeSources: [{ vendor: 'autovit.ro', url: 'https://autovit.ro/x' }],
     });
-    const msg = renderNotification({ kind: 'new_listing', chatId: 1, item });
+    const msg = renderNotification({ kind: 'new_listing', chatId: 1, item }, 'en');
 
     expect(msg.text).toContain('Also on:');
     expect(msg.text).toContain('autovit.ro');
@@ -98,12 +99,15 @@ describe('renderNotification — price_drop', () => {
       currentPrice: 3800,
       savings: 500,
     };
-    const msg = renderNotification({
-      kind: 'price_drop',
-      chatId: 7,
-      item,
-      priceDrop,
-    });
+    const msg = renderNotification(
+      {
+        kind: 'price_drop',
+        chatId: 7,
+        item,
+        priceDrop,
+      },
+      'en',
+    );
 
     expect(msg.text).toContain(formatMoney(4300, 'RON')); // old
     expect(msg.text).toContain(formatMoney(3800, 'RON')); // new
@@ -114,21 +118,26 @@ describe('renderNotification — price_drop', () => {
 describe('renderNotification — back_in_stock', () => {
   it('shows the BACK IN STOCK banner', () => {
     const item = makeItem({ inStock: true });
-    const msg = renderNotification({ kind: 'back_in_stock', chatId: 3, item });
+    const msg = renderNotification({ kind: 'back_in_stock', chatId: 3, item }, 'en');
 
-    expect(msg.text).toContain('🟢 BACK IN STOCK');
+    expect(msg.text).toContain(tr('en').back_in_stock_title);
     expect(msg.text).toContain(item.title);
   });
 });
 
 describe('renderRegistrationCard', () => {
-  it('exposes sv / ex / go callback buttons', () => {
-    const msg = renderRegistrationCard({
-      monitorId: 42,
-      vendor: 'olx.ro',
-      summary: 'https://olx.ro/search?q=golf',
-      baselineCount: 12,
-    });
+  it('exposes sv / fq / ex / rm / go callback buttons', () => {
+    const msg = renderRegistrationCard(
+      {
+        monitorId: 42,
+        vendor: 'olx.ro',
+        summary: 'https://olx.ro/search?q=golf',
+        baselineCount: 12,
+        sellerVisibility: 'both',
+        intervalMinutes: 10,
+      },
+      'en',
+    );
 
     const data = buttons(msg)
       .filter((b) => 'callback_data' in b)
@@ -138,8 +147,32 @@ describe('renderRegistrationCard', () => {
     expect(data).toContain('sv:42:private');
     expect(data).toContain('sv:42:company');
     expect(data).toContain('sv:42:both');
-    // Exclusion prompt + go-live.
+    // Frequency presets + exclusion prompt + remove + go-live.
+    expect(data).toContain('fq:42:5');
+    expect(data).toContain('fq:42:60');
     expect(data).toContain('ex:42');
+    expect(data).toContain('rm:42');
     expect(data).toContain('go:42');
+  });
+
+  it('uses EN copy and marks the active frequency preset', () => {
+    const msg = renderRegistrationCard(
+      {
+        monitorId: 42,
+        vendor: 'olx.ro',
+        summary: 'https://olx.ro/search?q=golf',
+        baselineCount: 1,
+        sellerVisibility: 'private',
+        intervalMinutes: 30,
+      },
+      'en',
+    );
+
+    expect(msg.text).toContain(tr('en').reg_watching('olx.ro'));
+    expect(msg.text).toContain(tr('en').reg_baseline(1));
+
+    const labels = buttons(msg).map((b) => ('text' in b ? b.text : ''));
+    expect(labels).toContain(`✅ ${tr('en').btn_freq(30)}`);
+    expect(labels).toContain(`✅ ${tr('en').btn_private}`);
   });
 });

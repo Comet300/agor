@@ -61,7 +61,7 @@ async function main(): Promise<void> {
   // notifier once, not per-message).
   if (config.botToken) {
     bot = buildBot(orchestrator, store, config.botToken);
-    botNotifier = makeNotifier(bot);
+    botNotifier = makeNotifier(bot, store);
   }
 
   // 6. Start the scheduler heartbeat, then (if present) the long-polling bot.

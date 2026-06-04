@@ -4,13 +4,21 @@
  * Factored out of {@link ../gateway/render} so the button layouts can be reused
  * and reasoned about in isolation. Everything here is pure: it only constructs
  * {@link InlineKeyboard} instances from plain data — no Bot, no I/O.
+ *
+ * Labels come from the typed message catalog via `tr(lang)`; the callback-data
+ * wire format is fixed (colon-delimited ASCII, numeric ids, < 64 bytes) and does
+ * NOT vary by language.
  */
 import type { EnrichedItem, SellerVisibility } from '../contracts';
 import { InlineKeyboard } from 'grammy';
 import { buildCallLink } from '../features/contactOffer';
+import { type Lang, tr } from './strings';
 
 /** Telegram hard-caps callback_data at 64 bytes. */
 const CALLBACK_DATA_LIMIT = 64;
+
+/** The fixed set of check-frequency presets, in minutes. */
+export const FREQUENCY_PRESETS: readonly number[] = [5, 10, 30, 60];
 
 /**
  * Callback data for the "Price history" button: `pg:<vendor>:<id>`.
@@ -31,43 +39,61 @@ export function priceHistoryData(item: EnrichedItem): string {
  *   - 📞 Call  (tel: URL button, only when a phone is present & parseable),
  *   - 📊 Price history (callback button -> {@link priceHistoryData}).
  */
-export function quickActionsKeyboard(item: EnrichedItem): InlineKeyboard {
+export function quickActionsKeyboard(item: EnrichedItem, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
   const kb = new InlineKeyboard();
-  kb.url('🔗 Open', item.url);
+  kb.url(t.btn_open, item.url);
 
   const tel = buildCallLink(item.phone);
-  if (tel) kb.url('📞 Call', tel);
+  if (tel) kb.url(t.btn_call, tel);
 
-  kb.text('📊 Price history', priceHistoryData(item));
+  kb.text(t.btn_price_history, priceHistoryData(item));
   return kb;
 }
 
 /**
  * Build the post-registration tuning keyboard. The currently-selected seller
- * visibility is marked with a check so the keyboard reflects state after a
- * toggle (and so re-rendering after a change produces a real markup diff rather
- * than Telegram's "message is not modified" error).
+ * visibility AND check frequency are marked with a check so the keyboard reflects
+ * state after a toggle (and so re-rendering after a change produces a real markup
+ * diff rather than Telegram's "message is not modified" error).
  *
  * Callback data layout:
  *   - seller visibility -> `sv:<monitorId>:<private|company|both>`
+ *   - check frequency   -> `fq:<monitorId>:<minutes>`
  *   - exclusion prompt  -> `ex:<monitorId>`
+ *   - remove monitor    -> `rm:<monitorId>`
  *   - start monitoring  -> `go:<monitorId>`
  */
 export function registrationKeyboard(
   monitorId: number,
+  lang: Lang,
   activeVisibility: SellerVisibility = 'both',
+  activeMinutes = 0,
 ): InlineKeyboard {
-  const mark = (label: string, value: SellerVisibility): string =>
+  const t = tr(lang);
+  const markSeller = (label: string, value: SellerVisibility): string =>
     value === activeVisibility ? `✅ ${label}` : label;
-  return new InlineKeyboard()
+  const markFreq = (label: string, minutes: number): string =>
+    minutes === activeMinutes ? `✅ ${label}` : label;
+
+  const kb = new InlineKeyboard()
     // Seller visibility row (active option marked).
-    .text(mark('👤 Private', 'private'), `sv:${monitorId}:private`)
-    .text(mark('🏢 Company', 'company'), `sv:${monitorId}:company`)
-    .text(mark('👥 Both', 'both'), `sv:${monitorId}:both`)
+    .text(markSeller(t.btn_private, 'private'), `sv:${monitorId}:private`)
+    .text(markSeller(t.btn_company, 'company'), `sv:${monitorId}:company`)
+    .text(markSeller(t.btn_both, 'both'), `sv:${monitorId}:both`)
+    .row();
+
+  // Frequency presets row (active minutes marked).
+  for (const minutes of FREQUENCY_PRESETS) {
+    kb.text(markFreq(t.btn_freq(minutes), minutes), `fq:${monitorId}:${minutes}`);
+  }
+
+  return kb
     .row()
-    // Exclusion keywords prompt.
-    .text('🚫 Exclusion keywords', `ex:${monitorId}`)
+    // Exclusion keywords prompt + remove monitor.
+    .text(t.btn_exclusion, `ex:${monitorId}`)
+    .text(t.btn_remove, `rm:${monitorId}`)
     .row()
     // Go live.
-    .text('▶️ Start monitoring', `go:${monitorId}`);
+    .text(t.btn_start, `go:${monitorId}`);
 }
