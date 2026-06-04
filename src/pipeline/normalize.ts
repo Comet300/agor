@@ -105,12 +105,73 @@ function coerceString(value: unknown): string {
   return String(value).trim();
 }
 
+/** A resolved field: its raw value plus whether a leading "!" should negate it. */
+type FieldValue = { negate: boolean; value: unknown };
+/** Accessor that yields a field's raw value for one node/record. */
+type FieldAccessor = (field: string) => FieldValue;
+
+/**
+ * Build one {@link IScrapedItem} from a field accessor, applying coercion by the
+ * TARGET field name. Returns `null` for a node missing a required identity field
+ * (id/title/url) or an unparseable price. Shared by both engines.
+ */
+function buildItem(
+  get: FieldAccessor,
+  fields: Record<string, string>,
+  vendor: string,
+): IScrapedItem | null {
+  // ── Required identity fields ──────────────────────────────────────────────
+  const id = coerceString(get('id').value);
+  const title = coerceString(get('title').value);
+  const url = coerceString(get('url').value);
+  if (id === '' || title === '' || url === '') return null;
+
+  // ── Price (required, parseable) ───────────────────────────────────────────
+  const price = parsePrice(get('price').value);
+  if (price == null) return null;
+
+  // ── Booleans ──────────────────────────────────────────────────────────────
+  const priv = get('isPrivateOwner');
+  const isPrivateOwner = coercePrivateOwner(priv.value, priv.negate);
+
+  // inStock defaults to TRUE when the field is undeclared/unresolved.
+  const stock = get('inStock');
+  const inStock =
+    'inStock' in fields && stock.value !== undefined
+      ? stock.negate
+        ? !Boolean(stock.value)
+        : Boolean(stock.value)
+      : true;
+
+  // ── Optional string fields ────────────────────────────────────────────────
+  const currency = coerceString(get('currency').value);
+  const location = coerceString(get('location').value);
+  const imageUrl = coerceString(get('imageUrl').value);
+  const phone = coerceString(get('phone').value);
+
+  const item: IScrapedItem = {
+    id,
+    title,
+    price,
+    currency,
+    url,
+    isPrivateOwner,
+    inStock,
+    vendor,
+  };
+  if (location !== '') item.location = location;
+  if (imageUrl !== '') item.imageUrl = imageUrl;
+  if (phone !== '') item.phone = phone;
+  return item;
+}
+
 /**
  * Normalize raw payload nodes into well-formed {@link IScrapedItem}s.
  *
- * For each node we resolve every mapped field path via {@link resolvePath},
- * coerce by the TARGET field name, and drop any node that is missing a required
- * identity field (id/title/url) or whose price cannot be parsed.
+ * Engine-aware: for `json-extractor` each field is resolved from the node via its
+ * JSON path (honouring the leading "!" convention); for `dom-selector` the record
+ * is already keyed by field name (the scraping engine resolved the CSS selectors,
+ * `@attr`, and `!`), so values are read directly. Both share {@link buildItem}.
  */
 export function normalizeItems(
   rawNodes: unknown[],
@@ -123,58 +184,20 @@ export function normalizeItems(
   const items: IScrapedItem[] = [];
 
   for (const node of rawNodes) {
-    // Resolve a field's raw value, honouring the leading "!" path convention.
-    const get = (field: string): { negate: boolean; value: unknown } => {
-      const path = fields[field];
-      if (path == null) return { negate: false, value: undefined };
-      const { negate, path: real } = splitNot(path);
-      return { negate, value: resolvePath(node, real) };
-    };
+    const get: FieldAccessor =
+      plugin.engine === 'dom-selector'
+        ? // dom-selector records are keyed by field name; `!`/`@attr` already applied.
+          (field) => ({ negate: false, value: (node as Record<string, unknown>)?.[field] })
+        : // json-extractor resolves a JSON path, honouring the leading "!" convention.
+          (field) => {
+            const path = fields[field];
+            if (path == null) return { negate: false, value: undefined };
+            const { negate, path: real } = splitNot(path);
+            return { negate, value: resolvePath(node, real) };
+          };
 
-    // ── Required identity fields ────────────────────────────────────────────
-    const id = coerceString(get('id').value);
-    const title = coerceString(get('title').value);
-    const url = coerceString(get('url').value);
-    if (id === '' || title === '' || url === '') continue;
-
-    // ── Price (required, parseable) ─────────────────────────────────────────
-    const price = parsePrice(get('price').value);
-    if (price == null) continue;
-
-    // ── Booleans ────────────────────────────────────────────────────────────
-    const priv = get('isPrivateOwner');
-    const isPrivateOwner = coercePrivateOwner(priv.value, priv.negate);
-
-    // inStock defaults to TRUE when the path is missing/unresolved.
-    const stock = get('inStock');
-    const inStock =
-      'inStock' in fields && stock.value !== undefined
-        ? stock.negate
-          ? !Boolean(stock.value)
-          : Boolean(stock.value)
-        : true;
-
-    // ── Optional string fields ──────────────────────────────────────────────
-    const currency = coerceString(get('currency').value);
-    const location = coerceString(get('location').value);
-    const imageUrl = coerceString(get('imageUrl').value);
-    const phone = coerceString(get('phone').value);
-
-    const item: IScrapedItem = {
-      id,
-      title,
-      price,
-      currency,
-      url,
-      isPrivateOwner,
-      inStock,
-      vendor: plugin.vendor,
-    };
-    if (location !== '') item.location = location;
-    if (imageUrl !== '') item.imageUrl = imageUrl;
-    if (phone !== '') item.phone = phone;
-
-    items.push(item);
+    const item = buildItem(get, fields, plugin.vendor);
+    if (item) items.push(item);
   }
 
   return items;

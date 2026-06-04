@@ -1,0 +1,37 @@
+# Example dom-selector vendor manifest (HTML-only marketplace, no embedded JSON).
+#
+# For engine: dom-selector the mapping is reinterpreted as CSS:
+#   - search json_path_to_items / product json_path = the item-container selector
+#   - each fields.<name> = a CSS selector relative to the item element, where a
+#     trailing @attr reads an attribute and a leading ! negates element presence.
+vendor: DomVendor
+domain: domvendor.example
+engine: dom-selector
+rate_limit_ms: 3000
+
+search_mapping:
+  payload_locator: ""           # unused for dom-selector
+  json_path_to_items: "li.listing-card"
+  fields:
+    id: "@data-listing-id"
+    title: "h2.title a"
+    price: "span.price"
+    currency: "span.price-currency"
+    url: "h2.title a@href"
+    imageUrl: "img.thumb@src"
+    isPrivateOwner: "!.seller-badge--company"
+    location: "span.location"
+    inStock: "!.label-sold"
+
+product_mapping:
+  payload_locator: ""
+  json_path: "div.product-detail"
+  fields:
+    id: "@data-listing-id"
+    title: "h1.product-title"
+    price: "span.price"
+    currency: "span.price-currency"
+    url: "link[rel=canonical]@href"
+    isPrivateOwner: "!.seller-badge--company"
+    location: "span.location"
+    inStock: "!.label-sold"

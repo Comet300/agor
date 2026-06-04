@@ -12,29 +12,49 @@ import type { IVendorPlugin } from '../contracts';
 /** A non-empty mapping of `IScrapedItem` field name → path within an item node. */
 const FieldMap = z.record(z.string(), z.string());
 
-/** `search_mapping`: locates the payload and the array of item nodes within it. */
+/**
+ * `search_mapping`: locates the payload and the array of item nodes within it.
+ * `payload_locator` may be empty for `dom-selector` (which parses the whole HTML);
+ * a top-level refinement enforces it for `json-extractor`.
+ */
 const SearchMappingSchema = z.object({
-  payload_locator: z.string().min(1),
+  payload_locator: z.string(),
   json_path_to_items: z.string().min(1),
   fields: FieldMap,
 });
 
 /** `product_mapping`: locates the payload and a single item node within it. */
 const ProductMappingSchema = z.object({
-  payload_locator: z.string().min(1),
+  payload_locator: z.string(),
   json_path: z.string().min(1),
   fields: FieldMap,
 });
 
 /** zod schema matching {@link IVendorPlugin} one-to-one. */
-export const VendorPluginSchema = z.object({
-  vendor: z.string().min(1),
-  domain: z.string().min(1),
-  engine: z.enum(['json-extractor', 'dom-selector']),
-  rate_limit_ms: z.number().int().positive(),
-  search_mapping: SearchMappingSchema,
-  product_mapping: ProductMappingSchema,
-});
+export const VendorPluginSchema = z
+  .object({
+    vendor: z.string().min(1),
+    domain: z.string().min(1),
+    engine: z.enum(['json-extractor', 'dom-selector']),
+    rate_limit_ms: z.number().int().positive(),
+    search_mapping: SearchMappingSchema,
+    product_mapping: ProductMappingSchema,
+  })
+  .superRefine((plugin, ctx) => {
+    // json-extractor cannot locate its payload without a non-empty locator;
+    // dom-selector ignores it (it parses the full HTML), so empty is allowed.
+    if (plugin.engine === 'json-extractor') {
+      for (const m of ['search_mapping', 'product_mapping'] as const) {
+        if (plugin[m].payload_locator.trim() === '') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [m, 'payload_locator'],
+            message: 'payload_locator is required for json-extractor',
+          });
+        }
+      }
+    }
+  });
 
 /**
  * Validate an already-deserialized manifest object against the plugin schema.

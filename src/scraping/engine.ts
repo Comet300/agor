@@ -19,6 +19,7 @@ import type { IVendorPlugin } from '../contracts';
 import { resolvePath } from '../util/jsonPath';
 import { browserHeaders } from './headers';
 import { extractPayload } from './extract';
+import { domExtractSearch, domExtractProduct } from './domExtract';
 import { ProxyPool } from './proxyPool';
 
 /** Outcome of a single HTTP fetch (status + decoded text body). */
@@ -141,14 +142,16 @@ export class ScrapingEngine {
     return { benched };
   }
 
-  /** Shared request → extract → resolve pipeline for both scrape kinds. */
+  /**
+   * Shared request → soft-ban handling pipeline. The body→nodes extraction is
+   * supplied by the caller, which selects JSON-path or DOM-selector extraction
+   * based on `plugin.engine`.
+   */
   private async scrape(
     plugin: IVendorPlugin,
     url: string,
     now: number,
-    locator: string,
-    jsonPath: string,
-    coerce: (located: unknown) => unknown[],
+    extract: (body: string) => unknown[],
   ): Promise<ScrapeOutcome> {
     await this.respectRateLimit(plugin, now);
 
@@ -164,53 +167,51 @@ export class ScrapingEngine {
       return { ok: false, status: result.status, rawNodes: [], benched };
     }
 
-    const payload = extractPayload(result.body, locator);
-    const located = resolvePath(payload, jsonPath);
     return {
       ok: true,
       status: result.status,
-      rawNodes: coerce(located),
+      rawNodes: extract(result.body),
       benched,
     };
   }
 
   /**
-   * Scrape a search-results page: resolves `json_path_to_items` to an array of
-   * raw item nodes (coerced to `[]` when the path is missing or not an array).
+   * Scrape a search-results page. For `json-extractor` plugins this resolves
+   * `json_path_to_items` to an array; for `dom-selector` plugins it extracts
+   * item records via CSS selectors. Both yield raw nodes the normalizer consumes.
    */
   scrapeSearch(
     plugin: IVendorPlugin,
     url: string,
     now: number,
   ): Promise<ScrapeOutcome> {
+    if (plugin.engine === 'dom-selector') {
+      return this.scrape(plugin, url, now, (body) => domExtractSearch(body, plugin));
+    }
     const { payload_locator, json_path_to_items } = plugin.search_mapping;
-    return this.scrape(
-      plugin,
-      url,
-      now,
-      payload_locator,
-      json_path_to_items,
-      (located) => (Array.isArray(located) ? located : []),
-    );
+    return this.scrape(plugin, url, now, (body) => {
+      const located = resolvePath(extractPayload(body, payload_locator), json_path_to_items);
+      return Array.isArray(located) ? located : [];
+    });
   }
 
   /**
-   * Scrape a single product page: resolves `json_path` to one node, wrapped as
-   * `[node]` (or `[]` when the node is absent).
+   * Scrape a single product page. For `json-extractor` plugins this resolves
+   * `json_path` to one node; for `dom-selector` plugins it extracts one record
+   * from the product root selector. Either is wrapped as `[node]` (or `[]`).
    */
   scrapeProduct(
     plugin: IVendorPlugin,
     url: string,
     now: number,
   ): Promise<ScrapeOutcome> {
+    if (plugin.engine === 'dom-selector') {
+      return this.scrape(plugin, url, now, (body) => domExtractProduct(body, plugin));
+    }
     const { payload_locator, json_path } = plugin.product_mapping;
-    return this.scrape(
-      plugin,
-      url,
-      now,
-      payload_locator,
-      json_path,
-      (located) => (located == null ? [] : [located]),
-    );
+    return this.scrape(plugin, url, now, (body) => {
+      const located = resolvePath(extractPayload(body, payload_locator), json_path);
+      return located == null ? [] : [located];
+    });
   }
 }
