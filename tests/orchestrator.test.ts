@@ -119,6 +119,9 @@ function makeConfig(over: Partial<AppConfig> = {}): AppConfig {
     benchmarkMinSample: 4,
     proxyBenchCooldownMs: 300_000,
     logLevel: 'info',
+    webhookUrl: undefined,
+    webhookPort: 8443,
+    webhookSecret: undefined,
     ...over,
   };
 }

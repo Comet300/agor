@@ -6,10 +6,13 @@
  *          → (optional) Telegram bot + notifier → orchestrator.
  *
  * When `BOT_TOKEN` is absent we log a warning and wire a no-op notifier so the
- * scheduler still runs (useful for fixture / headless operation). Import-time is
- * side-effect free: nothing runs until `main()` is awaited, and `main()` never
- * throws when the token is missing.
+ * scheduler still runs (useful for fixture / headless operation). Nothing runs
+ * until `main()` is awaited, and `main()` never throws when the token is missing.
+ *
+ * `dotenv/config` loads a local `.env` (if present) into `process.env` before
+ * config is read; it silently no-ops when there is no file (CI / inline env).
  */
+import 'dotenv/config';
 import type { MessageRef, Notification } from './contracts';
 import { loadConfig } from './config';
 import { openStore } from './persistence';
@@ -18,6 +21,7 @@ import { ProxyPool } from './scraping/proxyPool';
 import { ScrapingEngine } from './scraping/engine';
 import { Orchestrator } from './orchestrator';
 import { buildBot, makeNotifier } from './gateway/bot';
+import { selectMode, startWebhook } from './gateway/webhook';
 
 async function main(): Promise<void> {
   // 1. Configuration (env-driven, validated).
@@ -64,14 +68,28 @@ async function main(): Promise<void> {
     botNotifier = makeNotifier(bot, store);
   }
 
-  // 6. Start the scheduler heartbeat, then (if present) the long-polling bot.
+  // 6. Start the scheduler heartbeat, then (if present) the bot in the
+  //    configured mode: webhook when a URL is set, otherwise long-polling.
   orchestrator.start();
 
   if (bot) {
-    console.info('[agor] starting Telegram long-polling…');
-    // bot.start() resolves only when the bot stops, so this keeps the process
-    // alive. Errors inside the polling loop are surfaced to the top-level catch.
-    await bot.start();
+    if (selectMode(config) === 'webhook' && config.webhookUrl) {
+      await startWebhook(bot, {
+        url: config.webhookUrl,
+        port: config.webhookPort,
+        secret: config.webhookSecret,
+      });
+      console.info(
+        `[agor] webhook listening on :${config.webhookPort}, registered ${config.webhookUrl}`,
+      );
+      // The listening HTTP server keeps the process alive.
+    } else {
+      // Clear any previously-registered webhook so polling is not refused.
+      await bot.api.deleteWebhook();
+      console.info('[agor] starting Telegram long-polling…');
+      // bot.start() resolves only when the bot stops, keeping the process alive.
+      await bot.start();
+    }
   } else {
     console.info('[agor] scheduler started (no bot). Press Ctrl+C to exit.');
   }
