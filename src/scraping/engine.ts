@@ -167,12 +167,17 @@ export class ScrapingEngine {
       return { ok: false, status: result.status, rawNodes: [], benched };
     }
 
-    return {
-      ok: true,
-      status: result.status,
-      rawNodes: extract(result.body),
-      benched,
-    };
+    // Extraction can fail if the vendor changed its embedded-state shape. Treat
+    // that as a soft failure (empty, retriable cycle) rather than throwing into
+    // the scheduler.
+    let rawNodes: unknown[];
+    try {
+      rawNodes = extract(result.body);
+    } catch {
+      return { ok: false, status: result.status, rawNodes: [], benched };
+    }
+
+    return { ok: true, status: result.status, rawNodes, benched };
   }
 
   /**

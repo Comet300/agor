@@ -9,7 +9,6 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { PluginRegistry } from '../src/registry/index';
 import type { IVendorPlugin } from '../src/contracts/index';
 import { ProxyPool } from '../src/scraping/proxyPool';
 import { browserHeaders } from '../src/scraping/headers';
@@ -19,10 +18,28 @@ import { ScrapingEngine, type Fetcher } from '../src/scraping/engine';
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureBody = readFileSync(join(here, 'fixtures', 'olx-search.html'), 'utf8');
 
-/** Load the real OLX manifest so tests bind to the shipped field paths. */
-const olx: IVendorPlugin = PluginRegistry.load(join(here, '..', 'plugins')).getByDomain(
-  'olx.ro',
-)!;
+/**
+ * A synthetic json-extractor plugin matching the `__NEXT_DATA__` fixture. The
+ * engine only uses the locator + json path (fields are the pipeline's concern),
+ * so these tests exercise the ENGINE independently of any shipped manifest —
+ * real-manifest calibration is covered by olx.test.ts.
+ */
+const synth: IVendorPlugin = {
+  vendor: 'fixture',
+  domain: 'fixture.test',
+  engine: 'json-extractor',
+  rate_limit_ms: 0,
+  search_mapping: {
+    payload_locator: 'script#__NEXT_DATA__',
+    json_path_to_items: 'props.pageProps.data.listing.items',
+    fields: { id: 'id', title: 'title', price: 'price', url: 'url' },
+  },
+  product_mapping: {
+    payload_locator: 'script#__NEXT_DATA__',
+    json_path: 'props.pageProps.ad',
+    fields: { id: 'id', title: 'title', price: 'price', url: 'url' },
+  },
+};
 
 /** A fetcher that always returns the OLX search fixture with status 200. */
 const okFetcher: Fetcher = async () => ({ status: 200, body: fixtureBody });
@@ -88,11 +105,35 @@ describe('extractPayload', () => {
     expect(() => extractPayload(fixtureBody, 'script#__MISSING__')).toThrow();
   });
 
-  it('parses a window.<NAME> assignment', () => {
+  it('parses a window.<NAME> object-literal assignment', () => {
     const body = '<script>window.__STATE__ = {"a":{"b":[1,2]},"s":"};{"};</script>';
     const payload = extractPayload(body, 'window.__STATE__') as any;
     expect(payload.a.b).toEqual([1, 2]);
     expect(payload.s).toBe('};{');
+  });
+
+  it('parses a string-encoded window.<NAME> (double-encoded JSON, OLX-style)', () => {
+    const inner = JSON.stringify({ listing: { listing: { ads: [{ id: 7 }] } } });
+    const body = `<script>window.__PRERENDERED_STATE__= ${JSON.stringify(inner)};</script>`;
+    const payload = extractPayload(body, 'window.__PRERENDERED_STATE__') as any;
+    expect(payload.listing.listing.ads[0].id).toBe(7);
+  });
+
+  it('throws on a string-encoded global whose contents are not JSON', () => {
+    const body = '<script>window.__X__ = "ro";</script>';
+    expect(() => extractPayload(body, 'window.__X__')).toThrow();
+  });
+
+  it('skips decoys (=== guard, substring prefix) and finds the real assignment', () => {
+    const inner = JSON.stringify({ ads: [{ id: 'real' }] });
+    const body =
+      '<script>' +
+      'if (typeof window.__PRERENDERED_STATE__ === "undefined") { init(); }\n' +
+      'subwindow.__PRERENDERED_STATE__ = "decoy";\n' +
+      `window.__PRERENDERED_STATE__ = ${JSON.stringify(inner)};` +
+      '</script>';
+    const payload = extractPayload(body, 'window.__PRERENDERED_STATE__') as any;
+    expect(payload.ads[0].id).toBe('real');
   });
 });
 
@@ -124,7 +165,7 @@ describe('ScrapingEngine.scrapeSearch', () => {
       sleep: noSleep,
     });
 
-    const outcome = await engine.scrapeSearch(olx, 'https://www.olx.ro/search', 0);
+    const outcome = await engine.scrapeSearch(synth, 'https://www.olx.ro/search', 0);
     expect(outcome.ok).toBe(true);
     expect(outcome.status).toBe(200);
     expect(outcome.rawNodes.length).toBeGreaterThanOrEqual(2);
@@ -149,7 +190,7 @@ describe('ScrapingEngine.scrapeSearch', () => {
       sleep: noSleep,
     });
 
-    const outcome = await engine.scrapeSearch(olx, 'https://www.olx.ro/search', 0);
+    const outcome = await engine.scrapeSearch(synth, 'https://www.olx.ro/search', 0);
     expect(outcome.benched).toContain('p1');
     expect(seen).toEqual(['p1', 'p2']); // rotated to a different proxy
     expect(outcome.ok).toBe(true); // second proxy delivered the payload
@@ -166,7 +207,7 @@ describe('ScrapingEngine.scrapeSearch', () => {
       sleep: noSleep,
     });
 
-    const outcome = await engine.scrapeSearch(olx, 'https://www.olx.ro/search', 0);
+    const outcome = await engine.scrapeSearch(synth, 'https://www.olx.ro/search', 0);
     expect(outcome.ok).toBe(false);
     expect(outcome.status).toBe(403);
     expect(outcome.rawNodes).toEqual([]);
@@ -191,7 +232,7 @@ describe('ScrapingEngine.scrapeProduct', () => {
       sleep: noSleep,
     });
 
-    const outcome = await engine.scrapeProduct(olx, 'https://www.olx.ro/d/ad', 0);
+    const outcome = await engine.scrapeProduct(synth, 'https://www.olx.ro/d/ad', 0);
     expect(outcome.ok).toBe(true);
     expect(outcome.rawNodes).toHaveLength(1);
     expect((outcome.rawNodes[0] as any).id).toBe('9000');

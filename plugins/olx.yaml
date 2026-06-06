@@ -1,10 +1,17 @@
 # OLX Romania vendor manifest.
 #
+# OLX embeds its state in `window.__PRERENDERED_STATE__`, assigned as a
+# DOUBLE-ENCODED JSON string (a JS string literal whose contents are escaped
+# JSON). The scraping engine's `window.<NAME>` locator decodes that. Verified
+# against a live SERP + product page (2026-06): search items live at
+# `listing.listing.ads`, the product ad at `ad.ad`.
+#
 # Field-path convention: a value under `fields` is a dot/bracket path into a
 # single item node. A path may be prefixed with "!" to mean the logical NOT of
-# the located boolean — e.g. `isPrivateOwner: "!business"` because OLX flags
-# *companies* (business=true), and a private owner is simply the negation.
-# The "!" is interpreted later by the pipeline normalizer, not here.
+# the located boolean — e.g. `isPrivateOwner: "!isBusiness"` because OLX flags
+# *companies* (isBusiness=true), and a private owner is the negation. The "!" is
+# interpreted by the pipeline normalizer. An ad with no price (e.g. a "Schimb"
+# exchange listing has `price.regularPrice: null`) is dropped during normalize.
 
 vendor: OLX
 domain: olx.ro
@@ -13,30 +20,30 @@ rate_limit_ms: 2500
 
 # Search results listing (the SERP grid of ads).
 search_mapping:
-  payload_locator: "script#__NEXT_DATA__"
-  json_path_to_items: "props.pageProps.data.listing.items"
+  payload_locator: "window.__PRERENDERED_STATE__"
+  json_path_to_items: "listing.listing.ads"
   fields:
     id: "id"
     title: "title"
-    price: "price.value"
-    currency: "price.currency"
+    price: "price.regularPrice.value"
+    currency: "price.regularPrice.currencyCode"
     url: "url"
-    imageUrl: "photos[0].link"
-    isPrivateOwner: "!business"
-    location: "location.city.name"
-    inStock: "active"
+    imageUrl: "photos[0]"
+    isPrivateOwner: "!isBusiness"
+    location: "location.cityName"
+    inStock: "isActive"
 
 # Single product / ad detail page.
 product_mapping:
-  payload_locator: "script#__NEXT_DATA__"
-  json_path: "props.pageProps.ad"
+  payload_locator: "window.__PRERENDERED_STATE__"
+  json_path: "ad.ad"
   fields:
     id: "id"
     title: "title"
-    price: "price.value"
-    currency: "price.currency"
+    price: "price.regularPrice.value"
+    currency: "price.regularPrice.currencyCode"
     url: "url"
-    imageUrl: "photos[0].link"
-    isPrivateOwner: "!business"
-    location: "location.city.name"
-    inStock: "active"
+    imageUrl: "photos[0]"
+    isPrivateOwner: "!isBusiness"
+    location: "location.cityName"
+    inStock: "isActive"

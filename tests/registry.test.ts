@@ -37,9 +37,9 @@ describe('PluginRegistry.load', () => {
     expect(olx).toBeDefined();
     expect(olx?.engine).toBe('json-extractor');
     expect(olx?.rate_limit_ms).toBe(2500);
-    expect(olx?.search_mapping.payload_locator).toBe('script#__NEXT_DATA__');
+    expect(olx?.search_mapping.payload_locator).toBe('window.__PRERENDERED_STATE__');
     // The "!" NOT-prefix convention survives load untouched.
-    expect(olx?.search_mapping.fields.isPrivateOwner).toBe('!business');
+    expect(olx?.search_mapping.fields.isPrivateOwner).toBe('!isBusiness');
   });
 
   it('matchUrl resolves a www subdomain to OLX', () => {
