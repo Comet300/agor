@@ -15,19 +15,19 @@ All user-facing text (commands, cards, notifications, errors, button labels) SHA
 - **THEN** `t(lang, key, params)` returns the localized string with those values interpolated
 
 ### Requirement: Language resolution and switching
-The chat language SHALL resolve as: stored chat preference, else the Telegram `language_code` (`en*` ⇒ `en`, otherwise `ro`), else the `ro` default. `/lang ro|en` SHALL persist the preference; `/lang` with no argument SHALL report the current language.
+The chat language SHALL resolve as: the stored chat preference if set, otherwise the Romanian (`ro`) default. The Telegram `language_code` SHALL NOT influence the language. `/lang ro|en` SHALL persist the preference; `/lang` with no argument SHALL report the current language.
 
-#### Scenario: Romanian default
-- **WHEN** a chat has no stored preference and no/`ro`/other Telegram locale
+#### Scenario: Romanian default regardless of Telegram locale
+- **WHEN** a chat has no stored preference, whatever the Telegram `language_code`
 - **THEN** the bot replies in Romanian
-
-#### Scenario: English from Telegram locale
-- **WHEN** a chat has no stored preference and the Telegram `language_code` starts with `en`
-- **THEN** the bot replies in English
 
 #### Scenario: Explicit override persists
 - **WHEN** a user sends `/lang en` (or `/lang ro`)
 - **THEN** the preference is stored and all subsequent replies and background notifications for that chat use that language
+
+#### Scenario: English only by explicit opt-in
+- **WHEN** an English-locale user has not sent `/lang en`
+- **THEN** they receive Romanian until they explicitly switch
 
 ### Requirement: Localized background notifications
 Background alerts SHALL be rendered in the recipient chat's resolved language, looked up by the notifier (since alerts are produced without an incoming update context).
