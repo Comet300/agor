@@ -1,20 +1,15 @@
 /**
- * Per-chat language resolution.
+ * Per-chat language resolution — Romanian-first.
  *
- * Order: an explicitly stored chat preference wins; otherwise the Telegram
- * `language_code` (anything starting with `en` ⇒ English) decides; otherwise the
- * Romanian default for the target market.
+ * An explicitly stored chat preference wins; otherwise the Romanian default
+ * applies. The Telegram client locale is intentionally NOT consulted: this is a
+ * Romanian-audience bot, and English is an explicit opt-in via `/lang en`.
  */
 import { type Lang, isLang } from './strings';
 
 export const DEFAULT_LANG: Lang = 'ro';
 
-/**
- * @param stored        The chat's saved preference, if any (`undefined` = unset).
- * @param telegramCode  `ctx.from?.language_code` from the incoming update.
- */
-export function resolveLang(stored: string | undefined, telegramCode?: string): Lang {
-  if (isLang(stored)) return stored;
-  if (telegramCode && telegramCode.toLowerCase().startsWith('en')) return 'en';
-  return DEFAULT_LANG;
+/** @param stored The chat's saved preference, if any (`undefined` = unset). */
+export function resolveLang(stored: string | undefined): Lang {
+  return isLang(stored) ? stored : DEFAULT_LANG;
 }

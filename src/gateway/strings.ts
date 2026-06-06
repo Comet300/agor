@@ -27,7 +27,15 @@ export interface Catalog {
   track_error: string;
   list_empty: string;
   list_intro: string;
-  list_item: (p: { id: number; vendor: string; type: string; seller: string; url: string }) => string;
+  list_item: (p: {
+    id: number;
+    vendor: string;
+    type: string;
+    seller: string;
+    url: string;
+    /** Comma-joined exclusion keywords; empty string when none. */
+    exclusions: string;
+  }) => string;
   remove_usage: string;
   remove_done: (id: number) => string;
   remove_not_found: string;
@@ -99,8 +107,10 @@ const ro: Catalog = {
   track_error: 'Nu am putut înregistra urmărirea. Te rog încearcă din nou.',
   list_empty: 'Nicio urmărire încă. Trimite un link de anunț ca să creezi una.',
   list_intro: 'Urmăririle tale:',
-  list_item: ({ id, vendor, type, seller, url }) =>
-    `#${id} · ${vendor} · ${type} · vânzător=${seller}\n${url}`,
+  list_item: ({ id, vendor, type, seller, url, exclusions }) =>
+    `#${id} · ${vendor} · ${type} · vânzător=${seller}` +
+    (exclusions ? ` · excluse: ${exclusions}` : '') +
+    `\n${url}`,
   remove_usage: 'Folosire: /remove <id>',
   remove_done: (id) => `Urmărirea #${id} a fost oprită.`,
   remove_not_found: 'Urmărirea nu există sau nu îți aparține.',
@@ -169,8 +179,10 @@ const en: Catalog = {
   track_error: 'Sorry — I could not register that watch. Please try again.',
   list_empty: 'No watches yet. Send a listing link to create one.',
   list_intro: 'Your watches:',
-  list_item: ({ id, vendor, type, seller, url }) =>
-    `#${id} · ${vendor} · ${type} · seller=${seller}\n${url}`,
+  list_item: ({ id, vendor, type, seller, url, exclusions }) =>
+    `#${id} · ${vendor} · ${type} · seller=${seller}` +
+    (exclusions ? ` · excluded: ${exclusions}` : '') +
+    `\n${url}`,
   remove_usage: 'Usage: /remove <id>',
   remove_done: (id) => `Watch #${id} stopped.`,
   remove_not_found: 'That watch does not exist or is not yours.',
@@ -219,6 +231,34 @@ const en: Catalog = {
   price_drop: ({ title, oldPrice, newPrice, savings }) =>
     `📉 Price drop on ${title}: ${oldPrice} → ${newPrice} (save ${savings})`,
   back_in_stock_title: '🟢 BACK IN STOCK',
+};
+
+/**
+ * The Telegram command menu (the `/` autocomplete) per language, registered via
+ * setMyCommands. Command tokens are shared; only descriptions are localized.
+ */
+export interface CommandMenuEntry {
+  command: string;
+  description: string;
+}
+
+export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
+  ro: [
+    { command: 'start', description: 'Pornește botul' },
+    { command: 'track', description: 'Urmărește un link de anunț' },
+    { command: 'list', description: 'Arată urmăririle din acest chat' },
+    { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
+    { command: 'lang', description: 'Schimbă limba (/lang ro|en)' },
+    { command: 'help', description: 'Cum se folosește botul' },
+  ],
+  en: [
+    { command: 'start', description: 'Start the bot' },
+    { command: 'track', description: 'Watch a listing link' },
+    { command: 'list', description: 'Show this chat’s watches' },
+    { command: 'remove', description: 'Stop a watch (/remove <id>)' },
+    { command: 'lang', description: 'Change language (/lang ro|en)' },
+    { command: 'help', description: 'How to use the bot' },
+  ],
 };
 
 /** All catalogs, keyed by language. */

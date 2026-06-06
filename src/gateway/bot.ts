@@ -7,8 +7,9 @@
  * the PURE renderers in `./render`, and all domain work is delegated to the
  * orchestrator / store.
  *
- * Localization: every reply is resolved per update via {@link langFor} — the
- * stored chat preference, else the Telegram `language_code`, else the RO default.
+ * Localization: Romanian-first. Every reply is resolved per update via
+ * {@link langFor} — the stored chat preference, else the Romanian default (the
+ * Telegram client locale is not consulted; English is opt-in via /lang en).
  * Background notifications resolve the recipient chat's language in the notifier,
  * since alerts are produced without an incoming update context.
  *
@@ -65,9 +66,9 @@ function isSellerVisibility(v: string): v is SellerVisibility {
   return v === 'private' || v === 'company' || v === 'both';
 }
 
-/** Resolve the language for a chat from its stored preference + Telegram locale. */
-function langFor(store: Store, chatId: number, telegramCode?: string): Lang {
-  return resolveLang(store.chatPrefs.getLang(chatId), telegramCode);
+/** Resolve the language for a chat from its stored preference (Romanian-first). */
+function langFor(store: Store, chatId: number): Lang {
+  return resolveLang(store.chatPrefs.getLang(chatId));
 }
 
 /**
@@ -112,18 +113,18 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
   // ── Commands ──────────────────────────────────────────────────────────────
 
   bot.command('start', async (ctx) => {
-    const lang = langFor(store, ctx.chat.id, ctx.from?.language_code);
+    const lang = langFor(store, ctx.chat.id);
     await ctx.reply(tr(lang).start_welcome);
   });
 
   bot.command('help', async (ctx) => {
-    const lang = langFor(store, ctx.chat.id, ctx.from?.language_code);
+    const lang = langFor(store, ctx.chat.id);
     await ctx.reply(tr(lang).help_body);
   });
 
   bot.command('track', async (ctx) => {
     const chatId = ctx.chat.id;
-    const lang = langFor(store, chatId, ctx.from?.language_code);
+    const lang = langFor(store, chatId);
     const rawUrl = (ctx.match ?? '').trim();
     try {
       if (!rawUrl) {
@@ -139,7 +140,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
   });
 
   bot.command('list', async (ctx) => {
-    const lang = langFor(store, ctx.chat.id, ctx.from?.language_code);
+    const lang = langFor(store, ctx.chat.id);
     try {
       const monitors = store.monitors.listByChat(ctx.chat.id);
       if (monitors.length === 0) {
@@ -153,6 +154,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
           type: m.type,
           seller: m.filters.sellerVisibility,
           url: m.url,
+          exclusions: m.filters.exclusionKeywords.join(', '),
         }),
       );
       await ctx.reply(`${tr(lang).list_intro}\n\n${lines.join('\n\n')}`);
@@ -163,7 +165,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
 
   bot.command('remove', async (ctx) => {
     const chatId = ctx.chat.id;
-    const lang = langFor(store, chatId, ctx.from?.language_code);
+    const lang = langFor(store, chatId);
     try {
       const arg = (ctx.match ?? '').trim();
       const id = Number(arg);
@@ -185,7 +187,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
 
   bot.command('lang', async (ctx) => {
     const chatId = ctx.chat.id;
-    const lang = langFor(store, chatId, ctx.from?.language_code);
+    const lang = langFor(store, chatId);
     try {
       const arg = (ctx.match ?? '').trim().toLowerCase();
       if (!arg) {
@@ -207,7 +209,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
 
   // Seller visibility: sv:<monitorId>:<private|company|both>
   bot.callbackQuery(/^sv:(\d+):(private|company|both)$/, async (ctx) => {
-    const lang = langFor(store, ctx.chat?.id ?? 0, ctx.from?.language_code);
+    const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
       const monitorId = Number(ctx.match[1]);
       const visibility = ctx.match[2] ?? '';
@@ -244,7 +246,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
 
   // Check frequency: fq:<monitorId>:<minutes>
   bot.callbackQuery(/^fq:(\d+):(\d+)$/, async (ctx) => {
-    const lang = langFor(store, ctx.chat?.id ?? 0, ctx.from?.language_code);
+    const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
       const monitorId = Number(ctx.match[1]);
       const minutes = Number(ctx.match[2]);
@@ -275,7 +277,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
 
   // Exclusion keywords: ex:<monitorId> → prompt + remember the pending state.
   bot.callbackQuery(/^ex:(\d+)$/, async (ctx) => {
-    const lang = langFor(store, ctx.chat?.id ?? 0, ctx.from?.language_code);
+    const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
@@ -294,7 +296,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
   // Remove monitor: rm:<monitorId> — only if owned by this chat.
   bot.callbackQuery(/^rm:(\d+)$/, async (ctx) => {
     const chatId = ctx.chat?.id ?? 0;
-    const lang = langFor(store, chatId, ctx.from?.language_code);
+    const lang = langFor(store, chatId);
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
@@ -311,7 +313,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
 
   // Start monitoring: go:<monitorId>
   bot.callbackQuery(/^go:(\d+)$/, async (ctx) => {
-    const lang = langFor(store, ctx.chat?.id ?? 0, ctx.from?.language_code);
+    const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
       await ctx.answerCallbackQuery(tr(lang).cb_monitoring_started);
     } catch {
@@ -321,7 +323,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
 
   // Price history: pg:<vendor>:<id> OR pg:<id>
   bot.callbackQuery(/^pg:/, async (ctx) => {
-    const lang = langFor(store, ctx.chat?.id ?? 0, ctx.from?.language_code);
+    const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
       // Last colon-segment is always the item id (vendor may be empty/omitted).
       const data = ctx.callbackQuery.data;
@@ -357,7 +359,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
 
   bot.on('message:text', async (ctx) => {
     const chatId = ctx.chat.id;
-    const lang = langFor(store, chatId, ctx.from?.language_code);
+    const lang = langFor(store, chatId);
     const text = ctx.message.text;
 
     try {
@@ -418,7 +420,7 @@ export function makeNotifier(
   store: Store,
 ): (n: Notification) => Promise<MessageRef | void> {
   return async (n: Notification) => {
-    const lang = resolveLang(store.chatPrefs.getLang(n.chatId), undefined);
+    const lang = resolveLang(store.chatPrefs.getLang(n.chatId));
     const { text, keyboard } = renderNotification(n, lang);
 
     if (n.kind === 'cross_post' && n.messageRef) {

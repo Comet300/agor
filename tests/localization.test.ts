@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { messages, tr } from '../src/gateway/strings';
+import { messages, tr, commandMenu } from '../src/gateway/strings';
 import { resolveLang, DEFAULT_LANG } from '../src/gateway/lang';
 import { registrationKeyboard } from '../src/gateway/keyboards';
 import { classifyMessage } from '../src/gateway/bot';
@@ -27,22 +27,42 @@ describe('message routing (classifyMessage)', () => {
   });
 });
 
-describe('resolveLang resolution order', () => {
-  it('a stored preference wins over the Telegram locale', () => {
-    expect(resolveLang('en', 'ro')).toBe('en');
-    expect(resolveLang('ro', 'en-US')).toBe('ro');
+describe('resolveLang (Romanian-first)', () => {
+  it('a stored preference wins', () => {
+    expect(resolveLang('en')).toBe('en');
+    expect(resolveLang('ro')).toBe('ro');
   });
 
-  it('falls back to the Telegram locale when nothing is stored (en* => en)', () => {
-    expect(resolveLang(undefined, 'en')).toBe('en');
-    expect(resolveLang(undefined, 'en-GB')).toBe('en');
-  });
-
-  it('falls back to the ro default otherwise', () => {
-    expect(resolveLang(undefined, undefined)).toBe(DEFAULT_LANG);
-    expect(resolveLang(undefined, 'fr')).toBe('ro');
-    expect(resolveLang('xx', 'fr')).toBe('ro'); // invalid stored value ignored
+  it('defaults to Romanian when nothing is stored', () => {
+    expect(resolveLang(undefined)).toBe('ro');
+    expect(resolveLang(undefined)).toBe(DEFAULT_LANG);
     expect(DEFAULT_LANG).toBe('ro');
+  });
+
+  it('ignores an invalid stored value and falls back to Romanian', () => {
+    expect(resolveLang('xx')).toBe('ro');
+  });
+});
+
+describe('command menu', () => {
+  it('ro and en expose the same command set, each with a description', () => {
+    const ro = commandMenu.ro.map((c) => c.command).sort();
+    const en = commandMenu.en.map((c) => c.command).sort();
+    expect(ro).toEqual(en);
+    for (const c of [...commandMenu.ro, ...commandMenu.en]) {
+      expect(c.description.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('list_item exclusions', () => {
+  const base = { id: 3, vendor: 'OLX', type: 'search', seller: 'both', url: 'https://x' };
+  it('appends exclusion keywords when present', () => {
+    expect(tr('ro').list_item({ ...base, exclusions: 'lovit, dube' })).toContain('excluse: lovit, dube');
+    expect(tr('en').list_item({ ...base, exclusions: 'damaged' })).toContain('excluded: damaged');
+  });
+  it('omits the segment when there are no exclusions', () => {
+    expect(tr('ro').list_item({ ...base, exclusions: '' })).not.toContain('excluse');
   });
 });
 

@@ -21,6 +21,7 @@ import { ProxyPool } from './scraping/proxyPool';
 import { ScrapingEngine } from './scraping/engine';
 import { Orchestrator } from './orchestrator';
 import { buildBot, makeNotifier } from './gateway/bot';
+import { commandMenu } from './gateway/strings';
 import { selectMode, startWebhook } from './gateway/webhook';
 
 async function main(): Promise<void> {
@@ -66,6 +67,14 @@ async function main(): Promise<void> {
   if (config.botToken) {
     bot = buildBot(orchestrator, store, config.botToken);
     botNotifier = makeNotifier(bot, store);
+    // Register the localized "/" command menu (Romanian default, English for
+    // en-locale Telegram clients). Best-effort: a failure must not abort boot.
+    try {
+      await bot.api.setMyCommands(commandMenu.ro);
+      await bot.api.setMyCommands(commandMenu.en, { language_code: 'en' });
+    } catch (err) {
+      console.warn('[agor] could not register command menu:', err);
+    }
   }
 
   // 6. Start the scheduler heartbeat, then (if present) the bot in the
