@@ -1,10 +1,13 @@
 # Storia Romania vendor manifest (real-estate marketplace).
 #
-# Field-path convention: a value under `fields` is a dot/bracket path into a
-# single item node. A path may be prefixed with "!" to mean the logical NOT of
-# the located boolean — e.g. `isPrivateOwner: "!agency"` because Storia flags
-# *agencies* (agency=true), and a private owner is simply the negation.
-# The "!" is interpreted later by the pipeline normalizer, not here.
+# Storia ships its SERP in __NEXT_DATA__ at props.pageProps.data.searchAds.items
+# with a direct `isPrivateOwner` boolean. The only per-item link is a templated
+# `[lang]/ad/<slug>`, so the real deep link is built from `slug` via a TEMPLATE
+# field: any fields value containing {sub.path} is interpolated by the normalizer.
+# The product page exposes the ad at props.pageProps.ad, with the price number at
+# target.Price (ad.price itself carries no amount) and an absolute `url`.
+#
+# Verified against a live SERP + product page (2026-06).
 
 vendor: Storia
 domain: storia.ro
@@ -20,11 +23,10 @@ search_mapping:
     title: "title"
     price: "totalPrice.value"
     currency: "totalPrice.currency"
-    url: "slug"
-    imageUrl: "images[0].large"
-    isPrivateOwner: "!agency"
+    url: "https://www.storia.ro/ro/oferta/{slug}"
+    imageUrl: "images[0].medium"
+    isPrivateOwner: "isPrivateOwner"
     location: "location.address.city.name"
-    inStock: "isActive"
 
 # Single property detail page.
 product_mapping:
@@ -33,10 +35,9 @@ product_mapping:
   fields:
     id: "id"
     title: "title"
-    price: "characteristics.price.value"
-    currency: "characteristics.price.currency"
+    price: "target.Price"
+    currency: "target.Currency"
     url: "url"
-    imageUrl: "images[0].large"
-    isPrivateOwner: "!agency"
+    imageUrl: "images[0].thumbnail"
+    isPrivateOwner: "advertiserType"
     location: "location.address.city.name"
-    inStock: "isActive"

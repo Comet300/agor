@@ -85,10 +85,18 @@ function parsePrice(raw: unknown): number | null {
 function coercePrivateOwner(value: unknown, negate: boolean): boolean {
   if (typeof value === 'string') {
     const v = value.trim().toLowerCase();
-    if (v === 'company' || v === 'business' || v === 'agency') {
+    // Professional/corporate sellers (incl. AutoVit's "ProfessionalSeller").
+    if (
+      v.includes('professional') ||
+      v === 'company' ||
+      v === 'business' ||
+      v === 'agency' ||
+      v === 'dealer'
+    ) {
       return negate ? true : false;
     }
-    if (v === 'private') {
+    // Private owners (incl. AutoVit's "PrivateSeller", and the plain "private").
+    if (v.includes('private')) {
       return negate ? false : true;
     }
   }
@@ -192,6 +200,14 @@ export function normalizeItems(
           (field) => {
             const path = fields[field];
             if (path == null) return { negate: false, value: undefined };
+            // Template field: a value with {sub.path} placeholders is built by
+            // interpolating each resolved sub-path (e.g. Storia's offer URL).
+            if (path.includes('{')) {
+              const value = path.replace(/\{([^}]+)\}/g, (_, sub: string) =>
+                coerceString(resolvePath(node, sub.trim())),
+              );
+              return { negate: false, value };
+            }
             const { negate, path: real } = splitNot(path);
             return { negate, value: resolvePath(node, real) };
           };
