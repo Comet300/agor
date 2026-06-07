@@ -14,6 +14,7 @@
 
 import type { Monitor } from '../contracts';
 import type { Store } from '../persistence';
+import { log } from '../logging/logger';
 
 /** Everything the scheduler needs handed to it; nothing is imported globally. */
 export interface SchedulerDeps {
@@ -108,6 +109,7 @@ export class Scheduler {
     // process every monitor individually (each owns its own chat/filters), but
     // batching keeps the iteration aligned with one-target-one-batch semantics.
     const batches = groupByDestination(due);
+    log('scheduler').debug({ due: due.length, batches: batches.size }, 'tick');
 
     for (const batch of batches.values()) {
       for (const monitor of batch) {
@@ -115,6 +117,7 @@ export class Scheduler {
           await this.deps.runMonitor(monitor);
         } catch (err) {
           // Isolate the failure: report it and keep going so siblings still run.
+          log('scheduler').error({ monitorId: monitor.id, err: (err as Error).message }, 'monitor cycle threw');
           this.deps.onError?.(monitor, err);
         } finally {
           // Always re-arm — a failed cycle must not leave the monitor stuck due.

@@ -206,6 +206,53 @@ You can also stop the Cloudflare Tunnel; long-polling needs no tunnel.
 
 ---
 
+## Logging & Grafana Cloud (Loki)
+
+agor logs every poll (and registrations, alerts, proxy benches, failures) as
+structured JSON. It always writes to **stdout** (so `pm2 logs agor` shows it),
+and **also ships to Grafana Cloud Loki** when you configure it.
+
+The headline event — one per poll — looks like:
+
+```json
+{"level":30,"service":"agor","component":"cycle","monitorId":1,"vendor":"OLX",
+ "ok":true,"status":200,"itemsActive":11,"newItems":0,"notifications":0,
+ "durationMs":4042,"msg":"poll"}
+```
+
+### Ship to Grafana Cloud
+
+1. Create a **free** Grafana Cloud account (grafana.com) — the free tier includes Loki.
+2. Create a **write token**: grafana.com → **Administration → Users and access →
+   Access Policies** → **Create access policy** (realm = your stack; scope
+   **`logs:write`**) → **Add token** → copy the `glc_…` value.
+   *A read token (e.g. the one shown on the Loki data-source page) returns
+   `401 invalid scope` — you need `logs:write`.*
+3. From the Loki **"Send Logs / Details"** panel, note the **URL** and **User**.
+4. In `.env`:
+
+   ```bash
+   LOKI_URL=https://logs-prod-039.grafana.net   # your push host
+   LOKI_USER=1640288                            # numeric instance id
+   LOKI_TOKEN=glc_xxx                           # the logs:write token
+   LOG_SERVICE=agor
+   LOG_ENV=pi
+   LOG_LEVEL=info                               # debug for fetch-level detail
+   ```
+
+5. `pm2 restart agor`. Within ~5s logs appear in Grafana → **Explore → Loki**,
+   query `{service="agor"}`. Useful queries:
+   - all polls: `{service="agor"} | json | component="cycle"`
+   - failures: `{service="agor"} | json | ok="false"`
+   - proxy benches: `{service="agor"} | json | component="engine" | msg=~".*benched.*"`
+
+Logs batch every 5s; if Loki is unreachable they buffer (bounded) and stdout/PM2
+still has everything. Leaving any of the three `LOKI_*` empty = stdout-only.
+
+> More robust alternative: run **Grafana Alloy** on the Pi to tail PM2's log
+> files and push to Loki (disk-buffered). The app-direct push above is the
+> lowest-friction option and needs no agent.
+
 ## ARM / native-binary notes
 
 - **64-bit OS is strongly recommended** — `better-sqlite3` and `@napi-rs/canvas`

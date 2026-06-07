@@ -14,6 +14,7 @@ import type { PluginRegistry } from '../registry';
 import type { ScrapingEngine } from '../scraping/engine';
 import { normalizeItems } from '../pipeline';
 import { scrubUrl } from '../util/url';
+import { log } from '../logging/logger';
 
 /** What the caller supplies to register a new watch. */
 export interface RegisterInput {
@@ -134,6 +135,17 @@ export class RegistrationService {
     }
 
     // 5. Return success — explicitly firing no notifications.
+    log('registration').info(
+      {
+        monitorId: registered.id,
+        vendor: plugin.vendor,
+        type,
+        chatId: input.chatId,
+        baselineCount: items.length,
+        fastTier: registered.fastTier,
+      },
+      'monitor registered',
+    );
     return { ok: true, monitor: registered, baselineCount: items.length };
   }
 }

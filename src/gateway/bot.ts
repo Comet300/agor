@@ -32,6 +32,7 @@ import { registrationKeyboard } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
+import { log } from '../logging/logger';
 
 /**
  * Chats awaiting an exclusion-keyword reply, keyed by chat id → monitor id.
@@ -428,13 +429,27 @@ export function makeNotifier(
         await bot.api.editMessageText(n.messageRef.chatId, n.messageRef.messageId, text, {
           reply_markup: keyboard,
         });
-      } catch {
+        log('notifier').info({ chatId: n.chatId, kind: n.kind, itemId: n.item.id }, 'alert edited');
+      } catch (err) {
         // The original may be gone or unchanged; appending a source is best-effort.
+        log('notifier').warn(
+          { chatId: n.chatId, kind: n.kind, err: (err as Error).message },
+          'alert edit failed',
+        );
       }
       return;
     }
 
-    const msg = await bot.api.sendMessage(n.chatId, text, { reply_markup: keyboard });
-    return { chatId: n.chatId, messageId: msg.message_id };
+    try {
+      const msg = await bot.api.sendMessage(n.chatId, text, { reply_markup: keyboard });
+      log('notifier').info({ chatId: n.chatId, kind: n.kind, itemId: n.item.id }, 'alert sent');
+      return { chatId: n.chatId, messageId: msg.message_id };
+    } catch (err) {
+      log('notifier').error(
+        { chatId: n.chatId, kind: n.kind, err: (err as Error).message },
+        'alert send failed',
+      );
+      return;
+    }
   };
 }

@@ -23,14 +23,30 @@ import { Orchestrator } from './orchestrator';
 import { buildBot, makeNotifier } from './gateway/bot';
 import { commandMenu } from './gateway/strings';
 import { selectMode, startWebhook } from './gateway/webhook';
+import { configureLogging, hasLoki, log } from './logging/logger';
 
 async function main(): Promise<void> {
-  // 1. Configuration (env-driven, validated).
+  // 1. Configuration (env-driven, validated), then logging (so everything after
+  //    this point is structured and shipped to Loki when configured).
   const config = loadConfig();
+  configureLogging(config);
+  log('boot').info(
+    {
+      mode: selectMode(config),
+      dbPath: config.databasePath,
+      hasBotToken: Boolean(config.botToken),
+      proxies: config.proxyUrls.length,
+      lokiEnabled: hasLoki(config),
+      logLevel: config.logLevel,
+      env: config.logEnv,
+    },
+    'starting agor',
+  );
 
   // 2. Persistence + vendor manifests.
   const store = openStore(config.databasePath);
   const registry = PluginRegistry.load('plugins');
+  log('boot').info({ vendors: registry.all().length }, 'plugins loaded');
 
   // 3. Scraping stack: a rotating proxy pool feeding the engine.
   const pool = new ProxyPool(config.proxyUrls, config.proxyBenchCooldownMs);
@@ -53,7 +69,7 @@ async function main(): Promise<void> {
     // runs — and crucially RETURNS its MessageRef so cross-post edits work.
     notify = (n) => (botNotifier ? botNotifier(n) : Promise.resolve());
   } else {
-    console.warn('[agor] BOT_TOKEN not set — running with a no-op notifier (no Telegram delivery).');
+    log('boot').warn('BOT_TOKEN not set — running with a no-op notifier (no Telegram delivery)');
     notify = async () => {
       /* no-op: nothing to deliver without a bot. */
     };
@@ -73,7 +89,7 @@ async function main(): Promise<void> {
       await bot.api.setMyCommands(commandMenu.ro);
       await bot.api.setMyCommands(commandMenu.en, { language_code: 'en' });
     } catch (err) {
-      console.warn('[agor] could not register command menu:', err);
+      log('boot').warn({ err: (err as Error).message }, 'could not register command menu');
     }
   }
 
@@ -88,23 +104,23 @@ async function main(): Promise<void> {
         port: config.webhookPort,
         secret: config.webhookSecret,
       });
-      console.info(
-        `[agor] webhook listening on :${config.webhookPort}, registered ${config.webhookUrl}`,
+      log('boot').info(
+        { port: config.webhookPort, url: config.webhookUrl },
+        'webhook listening; the HTTP server keeps the process alive',
       );
-      // The listening HTTP server keeps the process alive.
     } else {
       // Clear any previously-registered webhook so polling is not refused.
       await bot.api.deleteWebhook();
-      console.info('[agor] starting Telegram long-polling…');
+      log('boot').info('starting Telegram long-polling');
       // bot.start() resolves only when the bot stops, keeping the process alive.
       await bot.start();
     }
   } else {
-    console.info('[agor] scheduler started (no bot). Press Ctrl+C to exit.');
+    log('boot').info('scheduler started (no bot); Ctrl+C to exit');
   }
 }
 
 main().catch((err) => {
-  console.error('[agor] fatal error:', err);
+  log('boot').error({ err: (err as Error).message }, 'fatal error');
   process.exitCode = 1;
 });

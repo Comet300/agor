@@ -21,6 +21,7 @@ import { browserHeaders } from './headers';
 import { extractPayload } from './extract';
 import { domExtractSearch, domExtractProduct } from './domExtract';
 import { ProxyPool } from './proxyPool';
+import { log } from '../logging/logger';
 
 /** Outcome of a single HTTP fetch (status + decoded text body). */
 export interface FetchResult {
@@ -46,6 +47,16 @@ export interface ScrapeOutcome {
 
 /** HTTP statuses that indicate a proxy-level soft ban worth rotating away from. */
 const SOFT_BAN_STATUSES = new Set([429, 403]);
+
+/** Proxy host:port for logging, with any embedded `user:pass@` credentials stripped. */
+function proxyHost(proxyUrl: string | undefined): string | undefined {
+  if (!proxyUrl) return undefined;
+  try {
+    return new URL(proxyUrl).host;
+  } catch {
+    return '[proxy]';
+  }
+}
 
 /**
  * Default {@link Fetcher} built on undici. Routes through a {@link ProxyAgent}
@@ -125,6 +136,10 @@ export class ScrapingEngine {
       const result = await this.fetcher(url, { headers, proxyUrl });
 
       if (SOFT_BAN_STATUSES.has(result.status)) {
+        log('engine').warn(
+          { url, status: result.status, proxy: proxyHost(proxyUrl), attempt },
+          'soft-ban: proxy benched, rotating',
+        );
         // Bench the offending proxy and rotate to a different one (retry once).
         if (proxyUrl !== undefined) {
           this.pool.bench(proxyUrl, now);
@@ -173,10 +188,18 @@ export class ScrapingEngine {
     let rawNodes: unknown[];
     try {
       rawNodes = extract(result.body);
-    } catch {
+    } catch (err) {
+      log('engine').warn(
+        { vendor: plugin.vendor, url, status: result.status, reason: 'extract_failed', err: (err as Error).message },
+        'payload extraction failed (vendor layout change?)',
+      );
       return { ok: false, status: result.status, rawNodes: [], benched };
     }
 
+    log('engine').debug(
+      { vendor: plugin.vendor, url, status: result.status, items: rawNodes.length },
+      'fetch ok',
+    );
     return { ok: true, status: result.status, rawNodes, benched };
   }
 

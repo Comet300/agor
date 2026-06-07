@@ -23,6 +23,7 @@ import {
   applyExclusion,
   DedupBuffer,
 } from '../pipeline';
+import { log } from '../logging/logger';
 
 /** Dependencies a cycle run needs; nothing is read globally. */
 interface CycleDeps {
@@ -61,11 +62,34 @@ export class MonitorCycle {
     const plugin =
       this.deps.registry.matchUrl(monitor.url) ??
       this.deps.registry.getByDomain(monitor.vendor);
-    if (!plugin) return [];
+    if (!plugin) {
+      log('cycle').warn(
+        { monitorId: monitor.id, vendor: monitor.vendor, type: monitor.type, ok: false, reason: 'no_plugin' },
+        'poll failed',
+      );
+      return [];
+    }
 
     return monitor.type === 'search'
       ? this.runSearch(monitor, plugin)
       : this.runProduct(monitor, plugin);
+  }
+
+  /** Emit exactly one structured event per poll (info on success, warn on failure). */
+  private logPoll(
+    monitor: Monitor,
+    startedAt: number,
+    fields: { ok: boolean; status?: number; itemsActive?: number; newItems?: number; notifications?: number; reason?: string },
+  ): void {
+    const event = {
+      monitorId: monitor.id,
+      vendor: monitor.vendor,
+      type: monitor.type,
+      durationMs: this.now() - startedAt,
+      ...fields,
+    };
+    if (fields.ok) log('cycle').info(event, 'poll');
+    else log('cycle').warn(event, 'poll failed');
   }
 
   /** Search monitor: emit `new_listing` for each genuinely new, enriched ad. */
@@ -75,7 +99,10 @@ export class MonitorCycle {
   ): Promise<Notification[]> {
     const at = this.now();
     const outcome = await this.deps.engine.scrapeSearch(plugin, monitor.url, at);
-    if (!outcome.ok) return [];
+    if (!outcome.ok) {
+      this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: 'scrape_failed' });
+      return [];
+    }
 
     // The pipeline does the heavy lifting: normalize -> exclude -> seller filter
     // (=> active) -> delta vs known ids -> dedup -> benchmark/deal-tag.
@@ -130,6 +157,13 @@ export class MonitorCycle {
       }
     }
 
+    this.logPoll(monitor, at, {
+      ok: true,
+      status: outcome.status,
+      itemsActive: out.active.length,
+      newItems: out.newEnriched.length,
+      notifications: notifications.length,
+    });
     return notifications;
   }
 
@@ -140,11 +174,17 @@ export class MonitorCycle {
   ): Promise<Notification[]> {
     const at = this.now();
     const outcome = await this.deps.engine.scrapeProduct(plugin, monitor.url, at);
-    if (!outcome.ok) return [];
+    if (!outcome.ok) {
+      this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: 'scrape_failed' });
+      return [];
+    }
 
     // A product page yields exactly one node; bail if it failed to normalize.
     const item = normalizeItems(outcome.rawNodes, plugin, 'product')[0];
-    if (!item) return [];
+    if (!item) {
+      this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: 'normalize_empty' });
+      return [];
+    }
 
     // Honour the user's filters even for a single product: a seller-type or
     // exclusion-keyword change can make a previously-watched item irrelevant.
@@ -154,6 +194,13 @@ export class MonitorCycle {
     const visible = applySellerFilter(afterExclusion, monitor.filters.sellerVisibility);
     if (visible.length === 0) {
       this.deps.store.items.upsert(monitor.id, item, at);
+      this.logPoll(monitor, at, {
+        ok: true,
+        status: outcome.status,
+        itemsActive: 0,
+        newItems: 0,
+        notifications: 0,
+      });
       return [];
     }
 
@@ -201,6 +248,13 @@ export class MonitorCycle {
     // place it on the fast (out-of-stock) tier when it re-arms the schedule.
     monitor.fastTier = item.inStock === false;
 
+    this.logPoll(monitor, at, {
+      ok: true,
+      status: outcome.status,
+      itemsActive: 1,
+      newItems: notifications.length,
+      notifications: notifications.length,
+    });
     return notifications;
   }
 }

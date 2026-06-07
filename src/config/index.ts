@@ -19,7 +19,15 @@ const EnvSchema = z.object({
   DEDUP_WINDOW_MS: z.coerce.number().int().positive().default(86_400_000),
   BENCHMARK_MIN_SAMPLE: z.coerce.number().int().positive().default(4),
   PROXY_BENCH_COOLDOWN_MS: z.coerce.number().int().positive().default(300_000),
-  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  LOG_LEVEL: z
+    .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'])
+    .default('info'),
+  // Grafana Cloud Loki log shipping (all three required to ship; else stdout-only).
+  LOKI_URL: z.string().optional(),
+  LOKI_USER: z.string().optional(),
+  LOKI_TOKEN: z.string().optional(),
+  LOG_SERVICE: z.string().default('agor'),
+  LOG_ENV: z.string().default('prod'),
   // Webhook mode (production): when WEBHOOK_URL is set the bot serves updates
   // from an HTTP listener instead of long-polling.
   WEBHOOK_URL: z.string().optional(),
@@ -36,7 +44,17 @@ export interface AppConfig {
   dedupWindowMs: number;
   benchmarkMinSample: number;
   proxyBenchCooldownMs: number;
-  logLevel: 'debug' | 'info' | 'warn' | 'error';
+  logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent';
+  /** Grafana Cloud Loki: push host (e.g. https://logs-prod-039.grafana.net). */
+  lokiUrl?: string;
+  /** Loki tenant/instance id (Basic-auth username). */
+  lokiUser?: string;
+  /** Loki write token (Basic-auth password; needs logs:write scope). */
+  lokiToken?: string;
+  /** Log label: service name. */
+  logService: string;
+  /** Log label: environment (e.g. pi, prod). */
+  logEnv: string;
   /** Public HTTPS URL Telegram posts updates to; absent ⇒ long-polling. */
   webhookUrl?: string;
   /** Local port the webhook HTTP listener binds. */
@@ -57,6 +75,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     benchmarkMinSample: parsed.BENCHMARK_MIN_SAMPLE,
     proxyBenchCooldownMs: parsed.PROXY_BENCH_COOLDOWN_MS,
     logLevel: parsed.LOG_LEVEL,
+    lokiUrl: parsed.LOKI_URL || undefined,
+    lokiUser: parsed.LOKI_USER || undefined,
+    lokiToken: parsed.LOKI_TOKEN || undefined,
+    logService: parsed.LOG_SERVICE,
+    logEnv: parsed.LOG_ENV,
     webhookUrl: parsed.WEBHOOK_URL || undefined,
     webhookPort: parsed.WEBHOOK_PORT,
     webhookSecret: parsed.WEBHOOK_SECRET || undefined,
