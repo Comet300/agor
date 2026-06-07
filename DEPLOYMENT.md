@@ -249,6 +249,15 @@ The headline event — one per poll — looks like:
 Logs batch every 5s; if Loki is unreachable they buffer (bounded) and stdout/PM2
 still has everything. Leaving any of the three `LOKI_*` empty = stdout-only.
 
+### Dashboard
+
+Import the ready-made dashboard: Grafana → **Dashboards → New → Import** →
+**Upload JSON file** → `grafana/agor-logs.json` → pick your **Loki** datasource →
+Import. It shows polls (total/failed), alerts sent, proxy benches, poll-outcome
+rate, poll duration (p50/p95), new-listings detected, recent failures, and a
+live poll stream, with a **Vendor** filter. (Needs a `logs:write` token so logs
+actually reach Loki.)
+
 > More robust alternative: run **Grafana Alloy** on the Pi to tail PM2's log
 > files and push to Loki (disk-buffered). The app-direct push above is the
 > lowest-friction option and needs no agent.
