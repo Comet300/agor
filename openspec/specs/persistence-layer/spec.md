@@ -39,3 +39,14 @@ The persistence layer SHALL store a per-chat language preference, keyed by chat 
 - **WHEN** a chat has never set a language
 - **THEN** the preference lookup returns undefined, letting the resolver fall back to the Telegram locale / `ro` default
 
+### Requirement: Consecutive-failure persistence
+The persistence layer SHALL store a per-monitor consecutive-failure count, defaulting to zero, readable on the monitor and updatable independently, so the failure/recovery state survives restarts.
+
+#### Scenario: Failure count round-trips
+- **WHEN** a monitor's consecutive-failure count is set to 3
+- **THEN** loading that monitor reports a count of 3
+
+#### Scenario: Default zero
+- **WHEN** a monitor is created
+- **THEN** its consecutive-failure count is 0
+
