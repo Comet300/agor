@@ -44,6 +44,7 @@ export function migrate(db: DB): void {
       interval_ms  INTEGER,
       fast_tier    INTEGER,
       next_due_at  INTEGER,
+      consecutive_failures INTEGER DEFAULT 0,
       created_at   INTEGER
     );
 
@@ -78,4 +79,11 @@ export function migrate(db: DB): void {
     CREATE INDEX IF NOT EXISTS idx_price_history_monitor_item
       ON price_history (monitor_id, item_id);
   `);
+
+  // Idempotent column add for databases created before this column existed
+  // (CREATE TABLE IF NOT EXISTS does not alter an existing table).
+  const cols = db.prepare('PRAGMA table_info(monitors)').all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === 'consecutive_failures')) {
+    db.exec('ALTER TABLE monitors ADD COLUMN consecutive_failures INTEGER DEFAULT 0');
+  }
 }

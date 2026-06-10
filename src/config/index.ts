@@ -19,6 +19,7 @@ const EnvSchema = z.object({
   DEDUP_WINDOW_MS: z.coerce.number().int().positive().default(86_400_000),
   BENCHMARK_MIN_SAMPLE: z.coerce.number().int().positive().default(4),
   PROXY_BENCH_COOLDOWN_MS: z.coerce.number().int().positive().default(300_000),
+  FAILURE_ALERT_THRESHOLD: z.coerce.number().int().positive().default(3),
   LOG_LEVEL: z
     .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'])
     .default('info'),
@@ -44,6 +45,8 @@ export interface AppConfig {
   dedupWindowMs: number;
   benchmarkMinSample: number;
   proxyBenchCooldownMs: number;
+  /** Consecutive unhealthy cycles before the chat is told a watch is failing. */
+  failureAlertThreshold: number;
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent';
   /** Grafana Cloud Loki: push host (e.g. https://logs-prod-039.grafana.net). */
   lokiUrl?: string;
@@ -74,6 +77,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     dedupWindowMs: parsed.DEDUP_WINDOW_MS,
     benchmarkMinSample: parsed.BENCHMARK_MIN_SAMPLE,
     proxyBenchCooldownMs: parsed.PROXY_BENCH_COOLDOWN_MS,
+    failureAlertThreshold: parsed.FAILURE_ALERT_THRESHOLD,
     logLevel: parsed.LOG_LEVEL,
     lokiUrl: parsed.LOKI_URL || undefined,
     lokiUser: parsed.LOKI_USER || undefined,

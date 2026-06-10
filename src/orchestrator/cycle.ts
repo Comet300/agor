@@ -38,6 +38,15 @@ interface CycleDeps {
   now?: () => number;
 }
 
+/** The outcome of one polling cycle — notifications plus the health-relevant stats. */
+export interface CycleResult {
+  notifications: Notification[];
+  ok: boolean;
+  status: number;
+  itemsActive: number;
+  newItems: number;
+}
+
 export class MonitorCycle {
   private readonly deps: CycleDeps;
   /** Resolved clock seam — always defined after the constructor. */
@@ -49,14 +58,16 @@ export class MonitorCycle {
   }
 
   /**
-   * Run one polling cycle for `monitor` and return the notifications it produced.
+   * Run one polling cycle for `monitor` and return its {@link CycleResult} — the
+   * notifications it produced plus ok/status/item counts the orchestrator uses
+   * for dispatch, failure surfacing, and `/check`.
    *
    * NOTE on `fastTier`: for product monitors this method MUTATES
    * `monitor.fastTier` in place to reflect the latest stock (out-of-stock => the
    * faster polling tier). It does NOT persist that flag — the scheduler does, via
    * `reschedule`, when it re-arms the monitor after this cycle returns.
    */
-  async run(monitor: Monitor): Promise<Notification[]> {
+  async run(monitor: Monitor): Promise<CycleResult> {
     // Resolve the plugin from the monitor's own URL (fall back to its vendor
     // domain mapping if the URL no longer matches a manifest).
     const plugin =
@@ -67,7 +78,7 @@ export class MonitorCycle {
         { monitorId: monitor.id, vendor: monitor.vendor, type: monitor.type, ok: false, reason: 'no_plugin' },
         'poll failed',
       );
-      return [];
+      return { notifications: [], ok: false, status: 0, itemsActive: 0, newItems: 0 };
     }
 
     return monitor.type === 'search'
@@ -96,12 +107,12 @@ export class MonitorCycle {
   private async runSearch(
     monitor: Monitor,
     plugin: NonNullable<ReturnType<PluginRegistry['matchUrl']>>,
-  ): Promise<Notification[]> {
+  ): Promise<CycleResult> {
     const at = this.now();
     const outcome = await this.deps.engine.scrapeSearch(plugin, monitor.url, at);
     if (!outcome.ok) {
       this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: 'scrape_failed' });
-      return [];
+      return { notifications: [], ok: false, status: outcome.status, itemsActive: 0, newItems: 0 };
     }
 
     // The pipeline does the heavy lifting: normalize -> exclude -> seller filter
@@ -164,26 +175,32 @@ export class MonitorCycle {
       newItems: out.newEnriched.length,
       notifications: notifications.length,
     });
-    return notifications;
+    return {
+      notifications,
+      ok: true,
+      status: outcome.status,
+      itemsActive: out.active.length,
+      newItems: out.newEnriched.length,
+    };
   }
 
   /** Product monitor: detect `price_drop` and `back_in_stock` for the one ad. */
   private async runProduct(
     monitor: Monitor,
     plugin: NonNullable<ReturnType<PluginRegistry['matchUrl']>>,
-  ): Promise<Notification[]> {
+  ): Promise<CycleResult> {
     const at = this.now();
     const outcome = await this.deps.engine.scrapeProduct(plugin, monitor.url, at);
     if (!outcome.ok) {
       this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: 'scrape_failed' });
-      return [];
+      return { notifications: [], ok: false, status: outcome.status, itemsActive: 0, newItems: 0 };
     }
 
     // A product page yields exactly one node; bail if it failed to normalize.
     const item = normalizeItems(outcome.rawNodes, plugin, 'product')[0];
     if (!item) {
       this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: 'normalize_empty' });
-      return [];
+      return { notifications: [], ok: false, status: outcome.status, itemsActive: 0, newItems: 0 };
     }
 
     // Honour the user's filters even for a single product: a seller-type or
@@ -201,7 +218,7 @@ export class MonitorCycle {
         newItems: 0,
         notifications: 0,
       });
-      return [];
+      return { notifications: [], ok: true, status: outcome.status, itemsActive: 0, newItems: 0 };
     }
 
     // Compare against the last known snapshot to detect transitions.
@@ -255,6 +272,12 @@ export class MonitorCycle {
       newItems: notifications.length,
       notifications: notifications.length,
     });
-    return notifications;
+    return {
+      notifications,
+      ok: true,
+      status: outcome.status,
+      itemsActive: 1,
+      newItems: notifications.length,
+    };
   }
 }

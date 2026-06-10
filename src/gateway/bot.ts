@@ -186,6 +186,33 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
     }
   });
 
+  bot.command('check', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const arg = (ctx.match ?? '').trim();
+      const id = Number(arg);
+      if (!arg || !Number.isInteger(id)) {
+        await ctx.reply(tr(lang).check_usage);
+        return;
+      }
+      const monitor = store.monitors.get(id);
+      if (!monitor || monitor.chatId !== chatId) {
+        await ctx.reply(tr(lang).check_not_found);
+        return;
+      }
+      // Poll now (alerts + health notices fire as in a real cycle); reply summary.
+      const result = await orchestrator.runMonitorOnce(id);
+      await ctx.reply(
+        result.ok
+          ? tr(lang).check_ok({ items: result.itemsActive, new: result.newItems })
+          : tr(lang).check_failed,
+      );
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
   bot.command('lang', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
@@ -429,7 +456,7 @@ export function makeNotifier(
         await bot.api.editMessageText(n.messageRef.chatId, n.messageRef.messageId, text, {
           reply_markup: keyboard,
         });
-        log('notifier').info({ chatId: n.chatId, kind: n.kind, itemId: n.item.id }, 'alert edited');
+        log('notifier').info({ chatId: n.chatId, kind: n.kind, itemId: n.item?.id }, 'alert edited');
       } catch (err) {
         // The original may be gone or unchanged; appending a source is best-effort.
         log('notifier').warn(
@@ -442,7 +469,7 @@ export function makeNotifier(
 
     try {
       const msg = await bot.api.sendMessage(n.chatId, text, { reply_markup: keyboard });
-      log('notifier').info({ chatId: n.chatId, kind: n.kind, itemId: n.item.id }, 'alert sent');
+      log('notifier').info({ chatId: n.chatId, kind: n.kind, itemId: n.item?.id }, 'alert sent');
       return { chatId: n.chatId, messageId: msg.message_id };
     } catch (err) {
       log('notifier').error(

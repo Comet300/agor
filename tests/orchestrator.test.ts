@@ -118,6 +118,7 @@ function makeConfig(over: Partial<AppConfig> = {}): AppConfig {
     dedupWindowMs: 86_400_000,
     benchmarkMinSample: 4,
     proxyBenchCooldownMs: 300_000,
+    failureAlertThreshold: 3,
     logLevel: 'silent',
     logService: 'agor',
     logEnv: 'test',
@@ -228,19 +229,19 @@ describe('10.1 search registration + new-listing detection', () => {
       ]),
     );
 
-    const round1 = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    const round1 = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
 
     // Exactly one new_listing, and only for the genuinely new item C.
     expect(round1).toHaveLength(1);
     expect(round1[0]!.kind).toBe('new_listing');
     expect(round1[0]!.chatId).toBe(99);
-    expect(round1[0]!.item.id).toBe('C');
+    expect(round1[0]!.item!.id).toBe('C');
     // Dispatched through the notify sink as well.
     expect(h.notify).toHaveBeenCalledTimes(1);
 
     // ── Cycle 2: identical page, nothing new -> zero notifications. ──
     h.setNow(3_000);
-    const round2 = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    const round2 = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     expect(round2).toHaveLength(0);
     // No additional dispatch happened.
     expect(h.notify).toHaveBeenCalledTimes(1);
@@ -279,7 +280,7 @@ describe('10.2 product registration + price-drop detection', () => {
     // ── Cycle 1: price drops 1000 -> 850. ──
     h.setNow(2_000);
     h.setBody(productDoc({ ...base, price: 850 }));
-    const drop = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    const drop = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
 
     expect(drop).toHaveLength(1);
     expect(drop[0]!.kind).toBe('price_drop');
@@ -293,13 +294,13 @@ describe('10.2 product registration + price-drop detection', () => {
     // ── Cycle 2: price rises 850 -> 900 -> no notification (still recorded). ──
     h.setNow(3_000);
     h.setBody(productDoc({ ...base, price: 900 }));
-    const rise = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    const rise = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     expect(rise).toHaveLength(0);
 
     // ── Cycle 3: price equal to last (900) -> no notification. ──
     h.setNow(4_000);
     h.setBody(productDoc({ ...base, price: 900 }));
-    const equal = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    const equal = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     expect(equal).toHaveLength(0);
 
     // The price was recorded each cycle: last logged price is 900, and a drop
@@ -309,7 +310,7 @@ describe('10.2 product registration + price-drop detection', () => {
     // ── Cycle 4: drop again 900 -> 700, savings measured vs the latest 900. ──
     h.setNow(5_000);
     h.setBody(productDoc({ ...base, price: 700 }));
-    const drop2 = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    const drop2 = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     expect(drop2).toHaveLength(1);
     expect(drop2[0]!.priceDrop?.savings).toBe(200);
   });
@@ -347,14 +348,14 @@ describe('10.3 product back-in-stock detection + fast tier', () => {
     // ── Cycle 1: item goes OUT of stock. fastTier becomes true, no notification. ──
     h.setNow(2_000);
     h.setBody(productDoc({ ...base, available: false }));
-    const oos = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    const oos = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     expect(oos).toHaveLength(0); // out-of-stock alone is never notified
 
     // The cycle mutates monitor.fastTier in place on the object it loaded; to
     // observe it the orchestrator must hand us the same monitor. We re-load it
     // through a cycle on a monitor instance to confirm the in-place mutation.
     const loaded = h.store.monitors.get(res.monitor.id)!;
-    const notesOos = await h.orchestrator.cycle.run(loaded);
+    const notesOos = (await h.orchestrator.cycle.run(loaded)).notifications;
     expect(notesOos).toHaveLength(0);
     // The cycle set fastTier on the in-memory monitor (still OOS).
     expect(loaded.fastTier).toBe(true);
@@ -363,12 +364,12 @@ describe('10.3 product back-in-stock detection + fast tier', () => {
     h.setNow(3_000);
     h.setBody(productDoc({ ...base, available: true }));
     const restock = h.store.monitors.get(res.monitor.id)!;
-    const back = await h.orchestrator.cycle.run(restock);
+    const back = (await h.orchestrator.cycle.run(restock)).notifications;
 
     expect(back).toHaveLength(1);
     expect(back[0]!.kind).toBe('back_in_stock');
     expect(back[0]!.chatId).toBe(11);
-    expect(back[0]!.item.id).toBe('P9');
+    expect(back[0]!.item!.id).toBe('P9');
     // Now in stock again -> fastTier cleared on the in-memory monitor.
     expect(restock.fastTier).toBe(false);
   });
@@ -431,12 +432,12 @@ describe('10.4 search filters + deal tagging', () => {
       ]),
     );
 
-    const notes = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    const notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
 
     // Only the clean private item survives the filters to become a notification.
     expect(notes).toHaveLength(1);
     expect(notes[0]!.kind).toBe('new_listing');
-    expect(notes[0]!.item.id).toBe('K');
+    expect(notes[0]!.item!.id).toBe('K');
   });
 
   it('attaches a deal tag once the active sample reaches minSample', async () => {
@@ -462,10 +463,10 @@ describe('10.4 search filters + deal tagging', () => {
       ]),
     );
 
-    const notes = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    const notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     expect(notes).toHaveLength(5);
 
-    const byId = new Map(notes.map((n) => [n.item.id, n.item]));
+    const byId = new Map(notes.map((n) => [n.item!.id, n.item!]));
 
     // The confident benchmark is attached to every enriched new item.
     const bargain = byId.get('BARGAIN')!;
@@ -494,11 +495,11 @@ describe('10.4 search filters + deal tagging', () => {
       ]),
     );
 
-    const notes = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    const notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     expect(notes).toHaveLength(2);
     for (const n of notes) {
-      expect(n.item.benchmark?.confident).toBe(false);
-      expect(n.item.dealTag).toBeUndefined();
+      expect(n.item!.benchmark?.confident).toBe(false);
+      expect(n.item!.dealTag).toBeUndefined();
     }
   });
 });
@@ -548,7 +549,7 @@ describe('cross-platform dedup appends the source to the original alert', () => 
         { id: 'X1', title: 'Same Phone', price: 1000, currency: 'RON', url: 'https://www.synth.test/X1', city: 'Cluj' },
       ]),
     );
-    const first = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    const first = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     expect(first).toHaveLength(1);
     expect(first[0]!.kind).toBe('new_listing');
 
@@ -560,7 +561,7 @@ describe('cross-platform dedup appends the source to the original alert', () => 
         { id: 'Y1', title: 'Same Phone', price: 1000, currency: 'RON', url: 'https://www.synth.test/Y1', city: 'Cluj' },
       ]),
     );
-    const second = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    const second = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
 
     // Y is NOT a fresh new_listing; instead the original alert is edited.
     expect(second.some((n) => n.kind === 'new_listing')).toBe(false);
@@ -569,9 +570,108 @@ describe('cross-platform dedup appends the source to the original alert', () => 
     // It targets the original message (messageId 100, the first send).
     expect(cross!.messageRef).toEqual({ chatId: 7, messageId: 100 });
     // The edited card carries the new vendor source.
-    expect(cross!.item.alternativeSources).toContainEqual({
+    expect(cross!.item!.alternativeSources).toContainEqual({
       vendor: 'synth',
       url: 'https://www.synth.test/Y1',
     });
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Watch health — failure surfacing + recovery (watch-health-and-check)
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('watch health: failure surfacing and /check semantics', () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = makeHarness();
+  });
+
+  /** Register a search watch with one baseline item. */
+  async function registerSearch(): Promise<number> {
+    h.setBody(searchDoc([{ id: 'A', title: 'iPhone 13', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' }]));
+    const res = await h.orchestrator.register({ chatId: 5, rawUrl: SEARCH_URL });
+    if (!res.ok) throw new Error('register failed');
+    return res.monitor.id;
+  }
+
+  it('notifies watch_failing exactly once at the threshold, then watch_recovered once', async () => {
+    const id = await registerSearch();
+
+    // 5 consecutive failing cycles (HTTP 500 -> scrape ok:false).
+    h.setBody('boom');
+    for (let i = 0; i < 5; i++) {
+      h.setNow(2_000 + i);
+      const r = await h.orchestrator.runMonitorOnce(id);
+      expect(r.ok).toBe(false);
+    }
+
+    // Exactly ONE failing notice (at the 3rd consecutive failure), not five.
+    const failing = h.notes.filter((n) => n.kind === 'watch_failing');
+    expect(failing).toHaveLength(1);
+    expect(failing[0]!.health).toMatchObject({ monitorId: id, vendor: 'synth', consecutiveFailures: 3 });
+    expect(h.store.monitors.get(id)!.consecutiveFailures).toBe(5);
+
+    // Recovery: a healthy cycle -> exactly one recovered notice, counter reset.
+    h.setBody(searchDoc([{ id: 'A', title: 'iPhone 13', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' }]));
+    h.setNow(10_000);
+    const ok = await h.orchestrator.runMonitorOnce(id);
+    expect(ok.ok).toBe(true);
+    expect(h.notes.filter((n) => n.kind === 'watch_recovered')).toHaveLength(1);
+    expect(h.store.monitors.get(id)!.consecutiveFailures).toBe(0);
+  });
+
+  it('treats a search going empty (after having listings) as unhealthy', async () => {
+    const id = await registerSearch();
+
+    h.setBody(searchDoc([])); // ok:true but zero items, with a prior baseline
+    for (let i = 0; i < 3; i++) {
+      h.setNow(2_000 + i);
+      await h.orchestrator.runMonitorOnce(id);
+    }
+    expect(h.notes.filter((n) => n.kind === 'watch_failing')).toHaveLength(1);
+  });
+
+  it('does NOT alarm for a brand-new search that is legitimately empty', async () => {
+    h.setBody(searchDoc([])); // empty baseline, no prior listings
+    const res = await h.orchestrator.register({ chatId: 5, rawUrl: SEARCH_URL });
+    if (!res.ok) throw new Error('register failed');
+
+    for (let i = 0; i < 4; i++) {
+      h.setNow(2_000 + i);
+      await h.orchestrator.runMonitorOnce(res.monitor.id);
+    }
+    expect(h.notes.filter((n) => n.kind === 'watch_failing')).toHaveLength(0);
+  });
+
+  it('does NOT alarm a product whose item is filtered out by the user (ok, 0 items)', async () => {
+    h.setBody(productDoc({ id: 'P1', title: 'Widget', price: 100, currency: 'RON', url: PRODUCT_URL, business: true, available: true }));
+    const res = await h.orchestrator.register({ chatId: 5, rawUrl: PRODUCT_URL, type: 'product' });
+    if (!res.ok) throw new Error('register failed');
+
+    // User restricts to private sellers; the (company) product is filtered out.
+    const m = h.store.monitors.get(res.monitor.id)!;
+    m.filters.sellerVisibility = 'private';
+    h.store.monitors.update(m);
+
+    for (let i = 0; i < 4; i++) {
+      h.setNow(2_000 + i);
+      const r = await h.orchestrator.runMonitorOnce(res.monitor.id);
+      expect(r.ok).toBe(true); // intentional filtering is healthy
+    }
+    expect(h.notes.filter((n) => n.kind === 'watch_failing')).toHaveLength(0);
+  });
+
+  it('runMonitorOnce returns the CycleResult summary /check renders', async () => {
+    const id = await registerSearch();
+    h.setBody(searchDoc([
+      { id: 'A', title: 'iPhone 13', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' },
+      { id: 'B', title: 'Pixel 8', price: 1800, currency: 'RON', url: 'https://www.synth.test/B', city: 'Iasi' },
+    ]));
+    h.setNow(2_000);
+    const r = await h.orchestrator.runMonitorOnce(id);
+    expect(r).toMatchObject({ ok: true, itemsActive: 2, newItems: 1 });
+    // Unknown monitor -> failed empty result (check_not_found is handled in bot.ts).
+    expect((await h.orchestrator.runMonitorOnce(99_999)).ok).toBe(false);
   });
 });

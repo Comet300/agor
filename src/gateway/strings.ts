@@ -7,6 +7,8 @@
  * `tr(lang).<key>` (a plain string, or a function for parameterized messages).
  */
 
+import type { WatchHealth } from '../contracts';
+
 export type Lang = 'ro' | 'en';
 
 export const LANGS: readonly Lang[] = ['ro', 'en'];
@@ -46,6 +48,12 @@ export interface Catalog {
   unknown_command: string;
   send_link_hint: string;
   generic_error: string;
+  check_usage: string;
+  check_ok: (p: { items: number; new: number }) => string;
+  check_failed: string;
+  check_not_found: string;
+  watch_failing: (h: WatchHealth) => string;
+  watch_recovered: (h: WatchHealth) => string;
 
   // ── Registration tuning card ──────────────────────────────────────────────
   reg_watching: (vendor: string) => string;
@@ -121,6 +129,14 @@ const ro: Catalog = {
   unknown_command: 'Comandă necunoscută. Încearcă /help.',
   send_link_hint: 'Trimite-mi un link de anunț pentru urmărire, sau /help.',
   generic_error: 'Ceva nu a mers bine. Te rog încearcă din nou.',
+  check_usage: 'Folosire: /check <id>',
+  check_ok: ({ items, new: n }) =>
+    `✅ Verificat: ${items} anunț${items === 1 ? '' : 'uri'} găsit${items === 1 ? '' : 'e'}, ${n} nou${n === 1 ? '' : 'i'}.`,
+  check_failed: '⚠️ Verificare eșuată — site-ul nu a răspuns sau pare blocat.',
+  check_not_found: 'Urmărirea nu există sau nu îți aparține.',
+  watch_failing: (h) =>
+    `⚠️ Urmărirea #${h.monitorId} (${h.vendor}) pare blocată sau nu mai găsește nimic (${h.consecutiveFailures} verificări eșuate la rând). Voi anunța când revine.`,
+  watch_recovered: (h) => `✅ Urmărirea #${h.monitorId} (${h.vendor}) funcționează din nou.`,
 
   reg_watching: (v) => `✅ Urmăresc ${v}`,
   reg_baseline: (c) => `📦 Bază: ${c} anunț${c === 1 ? '' : 'uri'} înregistrat${c === 1 ? '' : 'e'}.`,
@@ -193,6 +209,14 @@ const en: Catalog = {
   unknown_command: 'Unknown command. Try /help.',
   send_link_hint: 'Send me a listing link to watch, or /help.',
   generic_error: 'Sorry — something went wrong. Please try again.',
+  check_usage: 'Usage: /check <id>',
+  check_ok: ({ items, new: n }) =>
+    `✅ Checked: ${items} listing${items === 1 ? '' : 's'} found, ${n} new.`,
+  check_failed: '⚠️ Check failed — the site did not respond or appears blocked.',
+  check_not_found: 'That watch does not exist or is not yours.',
+  watch_failing: (h) =>
+    `⚠️ Watch #${h.monitorId} (${h.vendor}) looks blocked or is finding nothing (${h.consecutiveFailures} failed checks in a row). I'll tell you when it recovers.`,
+  watch_recovered: (h) => `✅ Watch #${h.monitorId} (${h.vendor}) is working again.`,
 
   reg_watching: (v) => `✅ Watching ${v}`,
   reg_baseline: (c) => `📦 Baseline: ${c} listing${c === 1 ? '' : 's'} recorded.`,
@@ -247,6 +271,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'start', description: 'Pornește botul' },
     { command: 'track', description: 'Urmărește un link de anunț' },
     { command: 'list', description: 'Arată urmăririle din acest chat' },
+    { command: 'check', description: 'Verifică o urmărire acum (/check <id>)' },
     { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
     { command: 'lang', description: 'Schimbă limba (/lang ro|en)' },
     { command: 'help', description: 'Cum se folosește botul' },
@@ -255,6 +280,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'start', description: 'Start the bot' },
     { command: 'track', description: 'Watch a listing link' },
     { command: 'list', description: 'Show this chat’s watches' },
+    { command: 'check', description: 'Check a watch now (/check <id>)' },
     { command: 'remove', description: 'Stop a watch (/remove <id>)' },
     { command: 'lang', description: 'Change language (/lang ro|en)' },
     { command: 'help', description: 'How to use the bot' },

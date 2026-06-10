@@ -68,6 +68,7 @@ function makeMonitor(over: Partial<Monitor> = {}): Monitor {
     intervalMs: DEFAULT_INTERVAL,
     fastTier: false,
     nextDueAt: 0,
+    consecutiveFailures: 0,
     createdAt: 0,
     ...over,
   };

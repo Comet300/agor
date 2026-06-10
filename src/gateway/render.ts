@@ -21,10 +21,11 @@ import { draftOffer } from '../features/contactOffer';
 import { quickActionsKeyboard, registrationKeyboard } from './keyboards';
 import { type Lang, tr, type Catalog } from './strings';
 
-/** A fully-rendered message: display text plus its inline keyboard. */
+/** A fully-rendered message: display text and an optional inline keyboard. */
 export interface RenderedMessage {
   text: string;
-  keyboard: InlineKeyboard;
+  /** Absent for button-less notices (e.g. watch health). */
+  keyboard?: InlineKeyboard;
 }
 
 /** Catalog key for each deal tag's badge (undefined => no badge line). */
@@ -71,9 +72,11 @@ function renderNewListing(item: EnrichedItem, lang: Lang): RenderedMessage {
 }
 
 /** Render a price drop as a single-line delta with the savings. */
-function renderPriceDrop(n: Notification, lang: Lang): RenderedMessage {
-  const { item } = n;
-  const drop = n.priceDrop;
+function renderPriceDrop(
+  item: EnrichedItem,
+  drop: Notification['priceDrop'],
+  lang: Lang,
+): RenderedMessage {
   const t = tr(lang);
 
   // Defensive: a price_drop without its info still renders something sensible.
@@ -113,15 +116,20 @@ function renderBackInStock(item: EnrichedItem, lang: Lang): RenderedMessage {
 export function renderNotification(n: Notification, lang: Lang): RenderedMessage {
   switch (n.kind) {
     case 'new_listing':
-      return renderNewListing(n.item, lang);
+      return renderNewListing(n.item!, lang);
     case 'price_drop':
-      return renderPriceDrop(n, lang);
+      return renderPriceDrop(n.item!, n.priceDrop, lang);
     case 'back_in_stock':
-      return renderBackInStock(n.item, lang);
+      return renderBackInStock(n.item!, lang);
     case 'cross_post':
       // Re-render the original listing card; its item now carries the appended
       // alternativeSources, so the edited message shows the new "Also on:" line.
-      return renderNewListing(n.item, lang);
+      return renderNewListing(n.item!, lang);
+    case 'watch_failing':
+      // Button-less health notice (no item).
+      return { text: tr(lang).watch_failing(n.health!) };
+    case 'watch_recovered':
+      return { text: tr(lang).watch_recovered(n.health!) };
   }
 }
 

@@ -30,7 +30,7 @@ function makeItem(overrides: Partial<EnrichedItem> = {}): EnrichedItem {
 
 /** Flatten the keyboard into its buttons for easy assertions. */
 function buttons(msg: RenderedMessage) {
-  return msg.keyboard.inline_keyboard.flat();
+  return msg.keyboard!.inline_keyboard.flat();
 }
 
 describe('renderNotification — new_listing', () => {

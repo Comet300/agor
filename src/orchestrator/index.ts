@@ -21,11 +21,11 @@ import type { ScrapingEngine } from '../scraping/engine';
 import { DedupBuffer } from '../pipeline';
 import { Scheduler } from '../scheduler';
 import { RegistrationService, type RegisterInput, type RegisterResult } from './registration';
-import { MonitorCycle } from './cycle';
+import { MonitorCycle, type CycleResult } from './cycle';
 
 export { RegistrationService } from './registration';
 export type { RegisterInput, RegisterResult } from './registration';
-export { MonitorCycle } from './cycle';
+export { MonitorCycle, type CycleResult } from './cycle';
 
 /** Everything the orchestrator needs handed to it; nothing is read globally. */
 export interface OrchestratorDeps {
@@ -85,16 +85,25 @@ export class Orchestrator {
       now: this.now,
     });
 
-    // The scheduler runs each due monitor's cycle and delivers its notifications.
+    // The scheduler runs each due monitor's cycle, delivers its notifications,
+    // and tracks watch health.
     this.scheduler = new Scheduler({
       store: deps.store,
       runMonitor: async (m: Monitor) => {
-        await this.dispatch(await this.cycle.run(m));
+        await this.runAndDispatch(m);
       },
       defaultIntervalMs: deps.config.defaultCheckIntervalMs,
       oosFastIntervalMs: deps.config.oosFastIntervalMs,
       now: this.now,
     });
+  }
+
+  /** Run a monitor's cycle, dispatch its notifications, and update its health. */
+  private async runAndDispatch(monitor: Monitor): Promise<CycleResult> {
+    const result = await this.cycle.run(monitor);
+    await this.dispatch(result.notifications);
+    await this.trackHealth(monitor, result);
+    return result;
   }
 
   /**
@@ -105,7 +114,7 @@ export class Orchestrator {
   private async dispatch(notifications: Notification[]): Promise<void> {
     for (const n of notifications) {
       const ref = await this.deps.notify(n);
-      if (n.kind === 'new_listing' && ref) {
+      if (n.kind === 'new_listing' && ref && n.item) {
         const sig = this.dedup.signatureOf(n.item);
         this.dedup.setMessageRef(sig, ref);
         // Store the enriched original so a later cross-post edit keeps the badge.
@@ -114,23 +123,63 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * Surface a failing watch to its chat — once when it reaches the failure
+   * threshold, and once when it recovers. A cycle is unhealthy when the scrape
+   * failed, or (for a search that previously had listings) it returned zero
+   * items — covering blocks and manifest drift. Healthy cycles reset the count.
+   */
+  private async trackHealth(monitor: Monitor, result: CycleResult): Promise<void> {
+    const priorListings = this.deps.store.items.knownIds(monitor.id).size;
+    const unhealthy =
+      !result.ok ||
+      (monitor.type === 'search' && result.itemsActive === 0 && priorListings > 0);
+    const threshold = this.deps.config.failureAlertThreshold;
+
+    if (unhealthy) {
+      monitor.consecutiveFailures += 1;
+      if (monitor.consecutiveFailures === threshold) {
+        await this.deps.notify(this.healthNotice('watch_failing', monitor));
+      }
+    } else {
+      if (monitor.consecutiveFailures >= threshold) {
+        await this.deps.notify(this.healthNotice('watch_recovered', monitor));
+      }
+      monitor.consecutiveFailures = 0;
+    }
+    this.deps.store.monitors.setFailures(monitor.id, monitor.consecutiveFailures);
+  }
+
+  private healthNotice(
+    kind: 'watch_failing' | 'watch_recovered',
+    monitor: Monitor,
+  ): Notification {
+    return {
+      kind,
+      chatId: monitor.chatId,
+      health: {
+        monitorId: monitor.id,
+        vendor: monitor.vendor,
+        url: monitor.url,
+        consecutiveFailures: monitor.consecutiveFailures,
+      },
+    };
+  }
+
   /** Lifecycle A: register a new monitor from a raw URL (silent baseline). */
   register(input: RegisterInput): Promise<RegisterResult> {
     return this.registration.register(input);
   }
 
   /**
-   * Lifecycle B on demand: load a monitor, run one cycle, dispatch every
-   * resulting notification through `notify`, and return them for the caller.
-   * Resolves to an empty array when the monitor no longer exists.
+   * Lifecycle B on demand (also powers `/check`): load a monitor, run one cycle,
+   * dispatch its notifications, update health, and return the {@link CycleResult}.
+   * Resolves to an empty failed result when the monitor no longer exists.
    */
-  async runMonitorOnce(monitorId: number): Promise<Notification[]> {
+  async runMonitorOnce(monitorId: number): Promise<CycleResult> {
     const monitor = this.deps.store.monitors.get(monitorId);
-    if (!monitor) return [];
-
-    const notifications = await this.cycle.run(monitor);
-    await this.dispatch(notifications);
-    return notifications;
+    if (!monitor) return { notifications: [], ok: false, status: 0, itemsActive: 0, newItems: 0 };
+    return this.runAndDispatch(monitor);
   }
 
   /**

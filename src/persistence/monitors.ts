@@ -31,6 +31,7 @@ interface MonitorRow {
   interval_ms: number;
   fast_tier: number;
   next_due_at: number;
+  consecutive_failures: number | null;
   created_at: number;
 }
 
@@ -46,6 +47,7 @@ function rowToMonitor(row: MonitorRow): Monitor {
     intervalMs: row.interval_ms,
     fastTier: row.fast_tier === 1,
     nextDueAt: row.next_due_at,
+    consecutiveFailures: row.consecutive_failures ?? 0,
     createdAt: row.created_at,
   };
 }
@@ -84,6 +86,7 @@ export class MonitorRepo {
       intervalMs: input.intervalMs,
       fastTier: false,
       nextDueAt: input.nextDueAt,
+      consecutiveFailures: 0,
       createdAt,
     };
   }
@@ -145,6 +148,11 @@ export class MonitorRepo {
         `UPDATE monitors SET next_due_at = ?, fast_tier = ? WHERE id = ?`,
       )
       .run(nextDueAt, fastTier ? 1 : 0, id);
+  }
+
+  /** Persist a monitor's consecutive-failure count (failure surfacing). */
+  setFailures(id: number, count: number): void {
+    this.db.prepare(`UPDATE monitors SET consecutive_failures = ? WHERE id = ?`).run(count, id);
   }
 
   /** Remove a monitor by id. */

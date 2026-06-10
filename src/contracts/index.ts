@@ -101,6 +101,8 @@ export interface Monitor {
   fastTier: boolean;
   /** ms epoch of the next due poll. */
   nextDueAt: number;
+  /** Consecutive unhealthy cycles (blocked / empty); drives failure surfacing. */
+  consecutiveFailures: number;
   createdAt: number;
 }
 
@@ -142,7 +144,11 @@ export type NotificationKind =
   | 'price_drop'
   | 'back_in_stock'
   /** A cross-posted duplicate seen later: edit the original alert to add a source. */
-  | 'cross_post';
+  | 'cross_post'
+  /** A watch is repeatedly failing (blocked / empty). */
+  | 'watch_failing'
+  /** A previously-failing watch is working again. */
+  | 'watch_recovered';
 
 export interface PriceDropInfo {
   previousPrice: number;
@@ -157,12 +163,23 @@ export interface MessageRef {
   messageId: number;
 }
 
+/** Payload for watch_failing / watch_recovered notices (no listing item). */
+export interface WatchHealth {
+  monitorId: number;
+  vendor: string;
+  url: string;
+  consecutiveFailures: number;
+}
+
 export interface Notification {
   kind: NotificationKind;
   chatId: number;
-  item: EnrichedItem;
+  /** Present for listing kinds (new_listing/price_drop/back_in_stock/cross_post). */
+  item?: EnrichedItem;
   /** Present only for price_drop notifications. */
   priceDrop?: PriceDropInfo;
   /** Present only for cross_post notifications: the original alert to edit. */
   messageRef?: MessageRef;
+  /** Present only for watch_failing / watch_recovered notices. */
+  health?: WatchHealth;
 }
