@@ -1,0 +1,37 @@
+# Publi24.ro vendor manifest (general classifieds).
+#
+# The SERP carries a schema.org ItemList in an application/ld+json block whose
+# JSON contains LITERAL control characters inside strings — the engine's
+# `ldjson` locator sanitizes and parses it. Item urls are relative (template
+# rebuilds them); there is no machine seller flag (P2P-leaning => `!is_business`
+# absent => private). Verified against a live SERP (2026-06).
+
+vendor: Publi24
+domain: publi24.ro
+engine: json-extractor
+rate_limit_ms: 3000
+
+search_mapping:
+  payload_locator: "ldjson"
+  json_path_to_items: "itemListElement"
+  fields:
+    id: "url"
+    title: "name"
+    price: "offers.price"
+    currency: "offers.priceCurrency"
+    url: "https://www.publi24.ro/{url}"
+    imageUrl: "image"
+    isPrivateOwner: "!is_business"
+
+# Best-effort: detail pages embed a single schema.org node ("." = block root).
+product_mapping:
+  payload_locator: "ldjson"
+  json_path: "."
+  fields:
+    id: "url"
+    title: "name"
+    price: "offers.price"
+    currency: "offers.priceCurrency"
+    url: "https://www.publi24.ro/{url}"
+    imageUrl: "image"
+    isPrivateOwner: "!is_business"

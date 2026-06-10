@@ -48,9 +48,12 @@ export function parseFieldSelector(raw: string): ParsedSelector {
 /**
  * Resolve one field selector against an item element.
  * Returns a boolean for a negated (presence) selector, the attribute/text string
- * when found, or `undefined` when the selector matches nothing.
+ * when found, or `undefined` when the selector matches nothing. A value starting
+ * with `=` is a literal constant (mirrors the json-extractor convention) for
+ * fields the page lacks (e.g. `currency: "=EUR"`, `isPrivateOwner: "=private"`).
  */
 function extractField(el: HTMLElement, raw: string): string | boolean | undefined {
+  if (raw.startsWith('=')) return raw.slice(1);
   const { selector, attr, negate } = parseFieldSelector(raw);
   const target = selector === '' ? el : el.querySelector(selector);
 
@@ -59,7 +62,8 @@ function extractField(el: HTMLElement, raw: string): string | boolean | undefine
     return !target;
   }
   if (!target) return undefined;
-  const value = attr ? target.getAttribute(attr) : target.text.trim();
+  // Collapse interior whitespace in text content (multi-line DOM nodes).
+  const value = attr ? target.getAttribute(attr) : target.text.replace(/\s+/g, ' ').trim();
   return value ?? undefined;
 }
 

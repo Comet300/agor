@@ -1,0 +1,38 @@
+# Mobile.de vendor manifest (cars; RO locale of the German marketplace).
+#
+# Next.js App Router: listings ship inside RSC flight chunks
+# (self.__next_f.push). The `flight:searchResults` locator recovers the
+# balanced JSON after "searchResults": — items at .listings. Price is a display
+# string ("16.899 EUR" -> parsed 16899) with no machine currency (=EUR literal);
+# seller type st is "Dealer" / "Vânzător privat" (normalizer maps both). The
+# detail URL is rebuilt from the listing id. Verified live (2026-06).
+
+vendor: MobileDe
+domain: mobile.de
+engine: json-extractor
+rate_limit_ms: 4000
+
+search_mapping:
+  payload_locator: "flight:searchResults"
+  json_path_to_items: "listings"
+  fields:
+    id: "id"
+    title: "{shortTitle} {subTitle}"
+    price: "p"
+    currency: "=EUR"
+    url: "https://suchen.mobile.de/fahrzeuge/details.html?id={id}"
+    imageUrl: "https://{images[0].uri}"
+    isPrivateOwner: "st"
+    location: "attr.loc"
+
+# Best-effort (detail flight payload; calibrated on first product watch).
+product_mapping:
+  payload_locator: "flight:adDetails"
+  json_path: "."
+  fields:
+    id: "id"
+    title: "{shortTitle} {subTitle}"
+    price: "p"
+    currency: "=EUR"
+    url: "https://suchen.mobile.de/fahrzeuge/details.html?id={id}"
+    isPrivateOwner: "st"

@@ -1,0 +1,38 @@
+# Vinted.ro vendor manifest (fashion/second-hand; DataDome-protected).
+#
+# Next.js App Router: the catalog ships in RSC flight chunks. The
+# `flight:items` locator yields candidates for every "items": occurrence; the
+# engine picks the first whose .items path resolves (the catalog object
+# {"items":[…]}). Price is {amount, currency_code}; the listing URL comes from
+# the relative `path`; user.business distinguishes pro sellers. Verified live
+# (2026-06). DataDome may challenge sustained polling — watch-health surfaces
+# it and PROXY_URLS is the lever.
+
+vendor: Vinted
+domain: vinted.ro
+engine: json-extractor
+rate_limit_ms: 5000
+
+search_mapping:
+  payload_locator: "flight:items"
+  json_path_to_items: "items"
+  fields:
+    id: "id"
+    title: "title"
+    price: "price.amount"
+    currency: "price.currency_code"
+    url: "https://www.vinted.ro{path}"
+    imageUrl: "photo.url"
+    isPrivateOwner: "!user.business"
+
+# Best-effort (detail flight payload; calibrated on first product watch).
+product_mapping:
+  payload_locator: "flight:itemDto"
+  json_path: "."
+  fields:
+    id: "id"
+    title: "title"
+    price: "price.amount"
+    currency: "price.currency_code"
+    url: "https://www.vinted.ro{path}"
+    isPrivateOwner: "!user.business"

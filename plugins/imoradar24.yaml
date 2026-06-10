@@ -1,0 +1,35 @@
+# Imoradar24.ro vendor manifest (real estate; same Roam platform as imobiliare.ro).
+#
+# The SERP ld+json holds listings at @graph[*].mainEntity.itemListElement with
+# fields under item.*. It exposes NO listing URL — but the numeric id from
+# item.@id (…/item-<id>, via `~tail:-`) rebuilds one: /oferta/<any-slug>-<id>
+# 301-redirects to the real listing (verified live 2026-06). No seller flag in
+# the ld+json: mostly agencies, so isPrivateOwner is left to default (company).
+
+vendor: Imoradar24
+domain: imoradar24.ro
+engine: json-extractor
+rate_limit_ms: 3000
+
+search_mapping:
+  payload_locator: "ldjson"
+  json_path_to_items: "@graph.*.mainEntity.itemListElement"
+  fields:
+    id: "item.@id.~tail:-"
+    title: "item.name"
+    price: "item.offers.priceSpecification.price"
+    currency: "item.offers.priceSpecification.priceCurrency"
+    url: "https://www.imoradar24.ro/oferta/a-{item.@id.~tail:-}"
+    imageUrl: "item.image.url"
+
+# Best-effort (detail-page ld+json node; calibrated on first product watch).
+product_mapping:
+  payload_locator: "ldjson"
+  json_path: "."
+  fields:
+    id: "@id.~tail:-"
+    title: "name"
+    price: "offers.priceSpecification.price"
+    currency: "offers.priceSpecification.priceCurrency"
+    url: "https://www.imoradar24.ro/oferta/a-{@id.~tail:-}"
+    imageUrl: "image.url"

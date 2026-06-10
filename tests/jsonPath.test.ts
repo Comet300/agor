@@ -43,6 +43,18 @@ describe('resolvePath', () => {
     expect(edges[0].node.id).toBe('n1');
   });
 
+  it('wildcard * iterates ARRAY elements (ld+json @graph)', () => {
+    const r = { '@graph': [{ a: 1 }, { mainEntity: { items: [7] } }] };
+    expect(resolvePath(r, '@graph.*.mainEntity.items')).toEqual([7]);
+  });
+
+  it('~tail:<sep> takes the substring after the last separator', () => {
+    const r = { item: { '@id': 'https://x/#/schema/Product/item-273353106' } };
+    expect(resolvePath(r, 'item.@id.~tail:-')).toBe('273353106');
+    expect(resolvePath(r, 'item.@id.~tail:/')).toBe('item-273353106');
+    expect(resolvePath({ n: 5 }, 'n.~tail:-')).toBeUndefined(); // strings only
+  });
+
   it('~json on a non-string / * on a non-object return undefined', () => {
     expect(resolvePath({ a: 5 }, 'a.~json.b')).toBeUndefined();
     expect(resolvePath({ a: 5 }, 'a.*.b')).toBeUndefined();

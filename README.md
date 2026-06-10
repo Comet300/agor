@@ -1,15 +1,17 @@
 # agor
 
-A Telegram bot that monitors Romanian classified marketplaces (OLX, AutoVit,
-Storia) for **new listings**, **price drops**, and **back-in-stock** events,
+A Telegram bot that monitors classified marketplaces — OLX, AutoVit, Storia,
+Lajumate, Publi24, Imobiliare, Imoradar24, mobile.de, Vinted, Carzz, Homezz —
+for **new listings**, **price drops**, and **back-in-stock** events,
 with market-value deal tags, cross-platform de-duplication, seller/keyword
 filters, price-history charts, and one-tap contact/offer actions.
 
 The engine is **data-driven**: vendor parsing lives in declarative YAML
 manifests (`plugins/*.yaml`), so adding or repairing a marketplace is a config
-change, not a code change. Two extraction engines are supported —
-`json-extractor` (embedded `__NEXT_DATA__`/state JSON) and `dom-selector` (CSS
-selectors for HTML-only sites).
+change, not a code change. Extraction is data-driven across four
+carriers — embedded state JSON (`script#`/`window.*`), schema.org `ldjson`
+blocks, Next.js RSC `flight:` payloads, and `dom-selector` CSS for HTML-only
+sites.
 
 ## Stack
 

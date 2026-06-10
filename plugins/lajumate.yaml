@@ -1,0 +1,41 @@
+# Lajumate.ro vendor manifest (general classifieds).
+#
+# Classic Next.js: search results live in __NEXT_DATA__ at
+# props.pageProps.adsServer. The listing URL is built from slug+id via a
+# template field (`/ad/<slug>-<id>` verified live); the image path is relative.
+# Sellers carry a phone (user.phone) — powers the Call button. No machine
+# company-flag exists, so `!user.is_company` (absent => private) reflects the
+# platform's P2P character. Verified against a live SERP (2026-06).
+
+vendor: Lajumate
+domain: lajumate.ro
+engine: json-extractor
+rate_limit_ms: 3000
+
+search_mapping:
+  payload_locator: "script#__NEXT_DATA__"
+  json_path_to_items: "props.pageProps.adsServer"
+  fields:
+    id: "id"
+    title: "title"
+    price: "price"
+    currency: "currency"
+    url: "https://lajumate.ro/ad/{slug}-{id}"
+    imageUrl: "https://lajumate.ro/{mainImage.path}"
+    isPrivateOwner: "!user.is_company"
+    location: "city.name"
+    phone: "user.phone"
+
+# Best-effort (product watch calibrated on first use).
+product_mapping:
+  payload_locator: "script#__NEXT_DATA__"
+  json_path: "props.pageProps.adServer"
+  fields:
+    id: "id"
+    title: "title"
+    price: "price"
+    currency: "currency"
+    url: "https://lajumate.ro/ad/{slug}-{id}"
+    isPrivateOwner: "!user.is_company"
+    location: "city.name"
+    phone: "user.phone"

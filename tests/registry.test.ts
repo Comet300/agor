@@ -26,10 +26,13 @@ function validManifest(): Record<string, unknown> {
 describe('PluginRegistry.load', () => {
   const registry = PluginRegistry.load('plugins');
 
-  it('loads all three authored manifests', () => {
+  it('loads every authored manifest', () => {
     const vendors = registry.all().map((p) => p.vendor).sort();
-    expect(registry.all()).toHaveLength(3);
-    expect(vendors).toEqual(['AutoVit', 'OLX', 'Storia']);
+    expect(registry.all()).toHaveLength(11);
+    expect(vendors).toEqual([
+      'AutoVit', 'Carzz', 'Homezz', 'Imobiliare', 'Imoradar24', 'Lajumate',
+      'MobileDe', 'OLX', 'Publi24', 'Storia', 'Vinted',
+    ]);
   });
 
   it('parses concrete fields off a manifest', () => {

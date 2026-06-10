@@ -1,0 +1,35 @@
+# Carzz.ro vendor manifest (cars; server-rendered HTML, dom-selector engine).
+#
+# Listing cards are WRAPPED by their anchor, so the item-container selector IS
+# the anchor (a[href*="-anunt_"]) and url/id read @href on the element itself.
+# Prices render as "16.990 eur" (EUR site-wide => =EUR literal); there is no
+# seller flag (P2P-leaning => =privat literal). Verified live (2026-06).
+
+vendor: Carzz
+domain: carzz.ro
+engine: dom-selector
+rate_limit_ms: 3000
+
+search_mapping:
+  payload_locator: ""
+  json_path_to_items: 'a[href*="-anunt_"]'
+  fields:
+    id: "@href"
+    title: ".title"
+    price: ".price"
+    currency: "=EUR"
+    url: "@href"
+    isPrivateOwner: "=privat"
+    location: ".location"
+
+# Best-effort (detail page; calibrated on first product watch).
+product_mapping:
+  payload_locator: ""
+  json_path: "body"
+  fields:
+    id: 'link[rel="canonical"]@href'
+    title: "h1"
+    price: ".price"
+    currency: "=EUR"
+    url: 'link[rel="canonical"]@href'
+    isPrivateOwner: "=privat"

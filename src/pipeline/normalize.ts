@@ -95,8 +95,9 @@ function coercePrivateOwner(value: unknown, negate: boolean): boolean {
     ) {
       return negate ? true : false;
     }
-    // Private owners (incl. AutoVit's "PrivateSeller", and the plain "private").
-    if (v.includes('private')) {
+    // Private owners: AutoVit "PrivateSeller", plain "private", and the
+    // Romanian "privat" / "Vânzător privat" (mobile.de RO locale).
+    if (v.includes('privat')) {
       return negate ? false : true;
     }
   }
@@ -200,6 +201,11 @@ export function normalizeItems(
           (field) => {
             const path = fields[field];
             if (path == null) return { negate: false, value: undefined };
+            // Literal constant: "=EUR" yields the text after '=' verbatim — for
+            // sources with no machine-readable field (e.g. mobile.de currency).
+            if (path.startsWith('=')) {
+              return { negate: false, value: path.slice(1) };
+            }
             // Template field: a value with {sub.path} placeholders is built by
             // interpolating each resolved sub-path (e.g. Storia's offer URL).
             if (path.includes('{')) {

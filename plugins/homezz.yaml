@@ -1,0 +1,37 @@
+# Homezz.ro vendor manifest (real estate; server-rendered HTML, dom-selector).
+#
+# Cards are wrapped by their anchor (…-<id>.html): the container selector is
+# the anchor, url/id read @href. Clean semantic classes (.card-box-title/-price/
+# -location). Prices like "124,000 €" (=EUR literal); no seller flag (=privat).
+# Non-listing .html anchors yield records without title/price and are dropped
+# by the normalizer. Verified live (2026-06).
+
+vendor: Homezz
+domain: homezz.ro
+engine: dom-selector
+rate_limit_ms: 3000
+
+search_mapping:
+  payload_locator: ""
+  json_path_to_items: 'a[href$=".html"]'
+  fields:
+    id: "@href"
+    title: ".card-box-title"
+    price: ".card-box-price"
+    currency: "=EUR"
+    url: "@href"
+    imageUrl: "img.single-image@src"
+    isPrivateOwner: "=privat"
+    location: ".card-box-location"
+
+# Best-effort (detail page; calibrated on first product watch).
+product_mapping:
+  payload_locator: ""
+  json_path: "body"
+  fields:
+    id: 'link[rel="canonical"]@href'
+    title: "h1"
+    price: ".price"
+    currency: "=EUR"
+    url: 'link[rel="canonical"]@href'
+    isPrivateOwner: "=privat"

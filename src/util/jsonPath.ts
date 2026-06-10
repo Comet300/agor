@@ -6,12 +6,16 @@
  *   "props.pageProps.data.listing.items"
  *   "photos[0].link"
  *
- * Plus two segments for data nested inside opaque-keyed / string-encoded caches:
- *   "*"      — current value is an object; resolve the remaining path against
- *              each value and return the first that resolves (e.g. AutoVit's
- *              `urqlState.*` where the key is an opaque per-query hash).
- *   "~json"  — current value is a string; JSON.parse it and continue (e.g.
- *              AutoVit's stringified `urqlState.<hash>.data`).
+ * Plus three segments for data nested inside opaque-keyed / string-encoded caches:
+ *   "*"          — current value is an object or ARRAY; resolve the remaining
+ *                  path against each value/element and return the first that
+ *                  resolves (AutoVit's `urqlState.*` opaque hash; ld+json
+ *                  `@graph.*` node lists).
+ *   "~json"      — current value is a string; JSON.parse it and continue (e.g.
+ *                  AutoVit's stringified `urqlState.<hash>.data`).
+ *   "~tail:<sep>"— current value is a string; take the substring after the LAST
+ *                  `<sep>` (e.g. `item.@id.~tail:-` extracts the numeric id from
+ *                  imobiliare's `…/item-273353106`).
  *
  * Returns `undefined` if any segment is missing.
  */
@@ -29,10 +33,12 @@ function walk(cur: unknown, segments: string[]): unknown {
   if (cur == null) return undefined;
   const [head, ...rest] = segments as [string, ...string[]];
 
-  // Wildcard: try each value of the current object, take the first that resolves.
+  // Wildcard: try each value/element of the current object or array, take the
+  // first where the remaining path resolves.
   if (head === '*') {
     if (typeof cur !== 'object') return undefined;
-    for (const value of Object.values(cur as Record<string, unknown>)) {
+    const values = Array.isArray(cur) ? cur : Object.values(cur as Record<string, unknown>);
+    for (const value of values) {
       const resolved = walk(value, rest);
       if (resolved !== undefined) return resolved;
     }
@@ -49,6 +55,15 @@ function walk(cur: unknown, segments: string[]): unknown {
       return undefined;
     }
     return walk(parsed, rest);
+  }
+
+  // Tail: the current value is a string; keep what follows the LAST separator.
+  if (head.startsWith('~tail:')) {
+    if (typeof cur !== 'string') return undefined;
+    const sep = head.slice('~tail:'.length);
+    if (!sep) return undefined;
+    const i = cur.lastIndexOf(sep);
+    return walk(i === -1 ? cur : cur.slice(i + sep.length), rest);
   }
 
   if (typeof cur !== 'object') return undefined;

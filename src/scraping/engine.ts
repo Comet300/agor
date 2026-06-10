@@ -18,7 +18,7 @@ import { request, ProxyAgent } from 'undici';
 import type { IVendorPlugin } from '../contracts';
 import { resolvePath } from '../util/jsonPath';
 import { browserHeaders } from './headers';
-import { extractPayload } from './extract';
+import { extractPayload, extractCandidates } from './extract';
 import { domExtractSearch, domExtractProduct } from './domExtract';
 import { ProxyPool } from './proxyPool';
 import { log } from '../logging/logger';
@@ -47,6 +47,23 @@ export interface ScrapeOutcome {
 
 /** HTTP statuses that indicate a proxy-level soft ban worth rotating away from. */
 const SOFT_BAN_STATUSES = new Set([429, 403]);
+
+/**
+ * Locate the value at `path` for the given payload locator. Multi-candidate
+ * locators (`ldjson`, `flight:<anchor>`) yield several parsed payloads — the
+ * first whose path resolves wins; classic locators parse a single payload.
+ */
+function locate(body: string, locator: string, path: string): unknown {
+  const candidates = extractCandidates(body, locator);
+  if (candidates !== undefined) {
+    for (const candidate of candidates) {
+      const resolved = resolvePath(candidate, path);
+      if (resolved !== undefined) return resolved;
+    }
+    return undefined;
+  }
+  return resolvePath(extractPayload(body, locator), path);
+}
 
 /** Proxy host:port for logging, with any embedded `user:pass@` credentials stripped. */
 function proxyHost(proxyUrl: string | undefined): string | undefined {
@@ -218,7 +235,7 @@ export class ScrapingEngine {
     }
     const { payload_locator, json_path_to_items } = plugin.search_mapping;
     return this.scrape(plugin, url, now, (body) => {
-      const located = resolvePath(extractPayload(body, payload_locator), json_path_to_items);
+      const located = locate(body, payload_locator, json_path_to_items);
       return Array.isArray(located) ? located : [];
     });
   }
@@ -238,7 +255,7 @@ export class ScrapingEngine {
     }
     const { payload_locator, json_path } = plugin.product_mapping;
     return this.scrape(plugin, url, now, (body) => {
-      const located = resolvePath(extractPayload(body, payload_locator), json_path);
+      const located = locate(body, payload_locator, json_path);
       return located == null ? [] : [located];
     });
   }
