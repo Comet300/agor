@@ -33,5 +33,11 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"
+  },
+  "license": "MIT",
+  "author": "Valentin Mosor",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Comet300/agor.git"
   }
 }

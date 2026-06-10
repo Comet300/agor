@@ -1,52 +1,99 @@
-# agor
+# agor 🕵️
 
-A Telegram bot that monitors classified marketplaces — OLX, AutoVit, Storia,
-Lajumate, Publi24, Imobiliare, Imoradar24, mobile.de, Vinted, Carzz, Homezz —
-for **new listings**, **price drops**, and **back-in-stock** events,
-with market-value deal tags, cross-platform de-duplication, seller/keyword
-filters, price-history charts, and one-tap contact/offer actions.
+**Your tireless deal-hunting robot for Romanian marketplaces.**
 
-The engine is **data-driven**: vendor parsing lives in declarative YAML
-manifests (`plugins/*.yaml`), so adding or repairing a marketplace is a config
-change, not a code change. Extraction is data-driven across four
-carriers — embedded state JSON (`script#`/`window.*`), schema.org `ldjson`
-blocks, Next.js RSC `flight:` payloads, and `dom-selector` CSS for HTML-only
-sites.
+You know the ritual: refresh OLX, refresh again, check Autovit, *maybe* peek at
+Storia, miss the good Suzuki by 20 minutes, see it reposted next day for 800 €
+more. agor ends the ritual. Paste a search link into Telegram, tap **▶️
+Pornește**, and go live your life — the bot watches the market and pings you
+the moment something happens.
 
-## Stack
+## What it catches
 
-Node 20 (ESM) · TypeScript · grammY · better-sqlite3 · undici · @napi-rs/canvas
-· vitest. Run via `tsx`.
+- 🆕 **New listings** on any saved search — set-difference against everything
+  it has already seen, so you're only pinged for *genuinely* new ads
+- 📉 **Price drops** on a watched listing (with the savings spelled out)
+- 🟢 **Back in stock** — out-of-stock items get polled on a *faster* tier,
+  because restocks don't wait for polite schedules
+- 🔥 **Deal tags** — every alert is benchmarked against the live market median:
+  `🔥 Chilipir`, `📊 Preț corect`, or `📈 Supraevaluat`
+- 👯 **Cross-post collapse** — the same car posted on two sites becomes ONE
+  alert with an "Also on:" line, not two pings at 7am
+- 🚫 **Filters** — private vs. dealer sellers, exclusion keywords
+  (`lovit, piese, dube` — gone), per-watch check frequency
+- 📊 **Price history charts** rendered as PNGs, one tap away
+- ✍️ **Offer drafts** — a copy-paste negotiation message anchored at −10%,
+  rounded to a suspiciously human number
+- ⚠️ **Health notices** — if a watch gets blocked or goes silent, the bot
+  *tells you* instead of sulking quietly
 
-## Quickstart (local)
+## Where it hunts
+
+| Cars | Real estate | Everything else |
+|---|---|---|
+| OLX.ro | Storia.ro | Lajumate.ro |
+| Autovit.ro | Imobiliare.ro | Publi24.ro |
+| Carzz.ro | Imoradar24.ro | Vinted.ro |
+| mobile.de (RO) | Homezz.ro | |
+
+Eleven marketplaces, **zero per-site code**. Every vendor is a declarative YAML
+manifest (`plugins/*.yaml`); the engine speaks four generic dialects of
+"where did you hide the data":
+
+- `script#__NEXT_DATA__` / `window.*` — embedded state JSON (incl. OLX's
+  double-encoded `__PRERENDERED_STATE__`)
+- `ldjson` — schema.org blocks, tolerant of, ahem, *creatively formatted* JSON
+- `flight:<anchor>` — Next.js RSC streams (`self.__next_f` chunks, decoded and
+  balanced-sliced)
+- `dom-selector` — good old CSS selectors for honest server-rendered HTML
+
+New marketplace = new YAML file. Site redesign = edit the YAML. The engine
+doesn't care.
+
+## The bot speaks Romanian 🇷🇴
+
+Romanian-first UI (it's hunting Romanian marketplaces, after all), full English
+one tap away with `/lang en`. Commands: `/track <url>` (or just paste a link),
+`/list`, `/check <id>`, `/remove <id>`, `/lang`, `/help`.
+
+## Run it
 
 ```bash
 npm ci
-cp .env.example .env       # set BOT_TOKEN (from @BotFather)
-npm test                   # 150+ tests
-npm start                  # long-polling by default
+cp .env.example .env       # add your BOT_TOKEN from @BotFather
+npm test                   # ~190 tests, all green or your money back
+npm start                  # long-polling — works from any laptop, behind any NAT
 ```
 
-Without a `BOT_TOKEN` the app still boots (scheduler runs, no Telegram delivery)
-— handy for fixtures/CI.
+No token? It still boots in headless mode (scheduler runs, nothing delivered) —
+handy for CI and tinkering.
 
-## Run modes
+### Production
 
-- **Long-polling** (default): no public endpoint; leave `WEBHOOK_URL` empty.
-- **Webhook** (production): set `WEBHOOK_URL` / `WEBHOOK_PORT` / `WEBHOOK_SECRET`
-  and the bot serves updates from an HTTP listener (TLS terminated upstream).
+It lives happily on a **Raspberry Pi under PM2**, optionally with **webhooks
+via a Cloudflare Tunnel** and **structured logs shipped to Grafana Cloud**
+(one JSON event per poll — "did it check alright every time?" is a dashboard
+panel, not a mystery). The full from-zero runbook, including the ARM
+gotchas and a ready-made Grafana dashboard (`grafana/agor-logs.json`), is in
+**[DEPLOYMENT.md](./DEPLOYMENT.md)**.
 
-## Deploy
+## Under the hood
 
-See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full Raspberry Pi + PM2 runbook,
-including exposing HTTPS for webhook mode via a Cloudflare Tunnel.
+Node 20 (ESM) · TypeScript · [grammY](https://grammy.dev) · better-sqlite3 ·
+undici · @napi-rs/canvas · pino (→ Loki) · vitest.
 
-## Commands
+Anti-bot etiquette: browser-mirroring headers (`ro-RO` and everything),
+per-vendor rate limits, rotating proxy pool with bench-and-retry on 429/403,
+and *soft-fail* extraction — a site redesign degrades into an empty cycle and
+a polite health notice, never a crash loop.
 
-`/start` · `/help` · `/track <url>` (or paste a link) · `/list` · `/remove <id>`
-· `/lang ro|en`. UI is Romanian by default (auto-detected, switchable).
+The architecture is fully specified: every behavior lives in
+`openspec/specs/`, and every change ships through an
+[OpenSpec](https://github.com/Fission-AI/OpenSpec) propose → implement →
+archive cycle (`openspec/changes/`). Yes, even this README's repo had its
+features speced first. 📋
 
-## Spec & workflow
+## License
 
-The architecture and behavior are specified under `openspec/specs/`; all changes
-go through the OpenSpec propose → implement → archive flow (`openspec/changes/`).
+[MIT](./LICENSE) © Valentin Mosor — take it, fork it, ship it; just keep the
+copyright line. Happy hunting. 🏁

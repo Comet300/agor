@@ -233,7 +233,7 @@ The headline event — one per poll — looks like:
 
    ```bash
    LOKI_URL=https://logs-prod-039.grafana.net   # your push host
-   LOKI_USER=1640288                            # numeric instance id
+   LOKI_USER=123456                             # your numeric instance id
    LOKI_TOKEN=glc_xxx                           # the logs:write token
    LOG_SERVICE=agor
    LOG_ENV=pi
