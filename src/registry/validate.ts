@@ -36,6 +36,7 @@ export const VendorPluginSchema = z
     vendor: z.string().min(1),
     domain: z.string().min(1),
     engine: z.enum(['json-extractor', 'dom-selector']),
+    fetch_strategy: z.enum(['http', 'browser']).optional(),
     rate_limit_ms: z.number().int().positive(),
     search_mapping: SearchMappingSchema,
     product_mapping: ProductMappingSchema,

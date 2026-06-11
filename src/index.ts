@@ -18,7 +18,7 @@ import { loadConfig } from './config';
 import { openStore } from './persistence';
 import { PluginRegistry } from './registry';
 import { ProxyPool } from './scraping/proxyPool';
-import { ScrapingEngine } from './scraping/engine';
+import { ScrapingEngine, type Fetcher } from './scraping/engine';
 import { Orchestrator } from './orchestrator';
 import { buildBot, makeNotifier } from './gateway/bot';
 import { commandMenu } from './gateway/strings';
@@ -48,9 +48,24 @@ async function main(): Promise<void> {
   const registry = PluginRegistry.load('plugins');
   log('boot').info({ vendors: registry.all().length }, 'plugins loaded');
 
-  // 3. Scraping stack: a rotating proxy pool feeding the engine.
+  // 3. Scraping stack: a rotating proxy pool feeding the engine. When the
+  //    browser fallback is enabled AND a manifest opts in, attach the lazy
+  //    headless-browser transport; otherwise the engine stays HTTP-only and
+  //    Chromium is never imported.
   const pool = new ProxyPool(config.proxyUrls, config.proxyBenchCooldownMs);
-  const engine = new ScrapingEngine({ pool, cooldownMs: config.proxyBenchCooldownMs });
+  const wantsBrowser =
+    config.enableBrowserFallback && registry.all().some((p) => p.fetch_strategy === 'browser');
+  let browserFetcher: Fetcher | undefined;
+  if (wantsBrowser) {
+    const { createBrowserFetcher } = await import('./scraping/browserFetcher');
+    browserFetcher = createBrowserFetcher();
+    log('boot').info('browser fallback enabled for opted-in manifests');
+  }
+  const engine = new ScrapingEngine({
+    pool,
+    cooldownMs: config.proxyBenchCooldownMs,
+    browserFetcher,
+  });
 
   // 4. Telegram bot — only when a token is configured. Without one we still run
   //    the scheduler against a no-op notifier (the bot is the sole consumer of

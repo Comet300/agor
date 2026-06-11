@@ -29,6 +29,21 @@ describe('composite signature', () => {
     const b = compositeSignature({ title: 'VW Passat', price: 4300, location: 'Cluj' });
     expect(a).not.toBe(b);
   });
+
+  it('collapses near-identical HIGH prices (relative bucket, not a fixed 50)', () => {
+    // Two cross-posts of the same €230k flat at €228,690 vs €230,400 must collapse.
+    // A fixed ±50 bucket would NEVER collapse these; a relative bucket does.
+    const a = compositeSignature({ title: 'Apartament 3 camere', price: 228690, location: 'Bucuresti' });
+    const b = compositeSignature({ title: 'apartament 3 camere', price: 230400, location: 'bucuresti' });
+    expect(a).toBe(b);
+  });
+
+  it('still separates genuinely different HIGH prices', () => {
+    // €230k vs €290k are different listings — must NOT collapse.
+    const a = compositeSignature({ title: 'Apartament 3 camere', price: 230000, location: 'Bucuresti' });
+    const b = compositeSignature({ title: 'Apartament 3 camere', price: 290000, location: 'Bucuresti' });
+    expect(a).not.toBe(b);
+  });
 });
 
 describe('url scrubbing', () => {

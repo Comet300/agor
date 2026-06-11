@@ -20,6 +20,18 @@ const EnvSchema = z.object({
   BENCHMARK_MIN_SAMPLE: z.coerce.number().int().positive().default(4),
   PROXY_BENCH_COOLDOWN_MS: z.coerce.number().int().positive().default(300_000),
   FAILURE_ALERT_THRESHOLD: z.coerce.number().int().positive().default(3),
+  // Opt-in headless-browser fallback for `fetch_strategy: browser` manifests.
+  // Requires the optional Playwright deps; off by default so the base install
+  // (e.g. Raspberry Pi) never needs Chromium.
+  ENABLE_BROWSER_FALLBACK: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // Consecutive blocked/failed cycles before a vendor is circuit-broken (polling
+  // paused until manual re-enable). Deliberately higher than
+  // FAILURE_ALERT_THRESHOLD: telling the user a watch is failing is cheap and
+  // early; giving up on polling a vendor entirely is a stronger, later decision.
+  CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().int().positive().default(10),
   LOG_LEVEL: z
     .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'])
     .default('info'),
@@ -47,6 +59,10 @@ export interface AppConfig {
   proxyBenchCooldownMs: number;
   /** Consecutive unhealthy cycles before the chat is told a watch is failing. */
   failureAlertThreshold: number;
+  /** When true, attach the headless-browser fallback for opted-in manifests. */
+  enableBrowserFallback: boolean;
+  /** Consecutive blocked/failed cycles before a vendor is circuit-broken. */
+  circuitBreakerThreshold: number;
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent';
   /** Grafana Cloud Loki: push host (e.g. https://logs-prod-039.grafana.net). */
   lokiUrl?: string;
@@ -78,6 +94,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     benchmarkMinSample: parsed.BENCHMARK_MIN_SAMPLE,
     proxyBenchCooldownMs: parsed.PROXY_BENCH_COOLDOWN_MS,
     failureAlertThreshold: parsed.FAILURE_ALERT_THRESHOLD,
+    enableBrowserFallback: parsed.ENABLE_BROWSER_FALLBACK,
+    circuitBreakerThreshold: parsed.CIRCUIT_BREAKER_THRESHOLD,
     logLevel: parsed.LOG_LEVEL,
     lokiUrl: parsed.LOKI_URL || undefined,
     lokiUser: parsed.LOKI_USER || undefined,

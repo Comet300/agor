@@ -63,6 +63,9 @@ const CASES: Case[] = [
       expect(a.price).toBeGreaterThan(0);
       expect(a.currency).toBe('EUR');
       expect(a.isPrivateOwner).toBe(true);
+      // image is an ImageObject[] → imageUrl reads [0].contentUrl, never "[object Object]".
+      expect(a.imageUrl).toMatch(/^https:\/\/.*\.(webp|jpg|jpeg|png)/);
+      expect(a.imageUrl).not.toContain('[object');
     },
   },
   {

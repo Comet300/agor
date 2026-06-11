@@ -4,7 +4,9 @@
 # JSON contains LITERAL control characters inside strings — the engine's
 # `ldjson` locator sanitizes and parses it. Item urls are relative (template
 # rebuilds them); there is no machine seller flag (P2P-leaning => `!is_business`
-# absent => private). Verified against a live SERP (2026-06).
+# absent => private). `image` is an ImageObject[] (read [0].contentUrl); the
+# location lives under the offer's availableAtOrFrom address. Verified against a
+# live SERP (2026-06).
 
 vendor: Publi24
 domain: publi24.ro
@@ -20,8 +22,9 @@ search_mapping:
     price: "offers.price"
     currency: "offers.priceCurrency"
     url: "https://www.publi24.ro/{url}"
-    imageUrl: "image"
+    imageUrl: "image[0].contentUrl"
     isPrivateOwner: "!is_business"
+    location: "offers.availableAtOrFrom.address.addressLocality"
 
 # Best-effort: detail pages embed a single schema.org node ("." = block root).
 product_mapping:
@@ -33,5 +36,6 @@ product_mapping:
     price: "offers.price"
     currency: "offers.priceCurrency"
     url: "https://www.publi24.ro/{url}"
-    imageUrl: "image"
+    imageUrl: "image[0].contentUrl"
     isPrivateOwner: "!is_business"
+    location: "offers.availableAtOrFrom.address.addressLocality"

@@ -119,6 +119,8 @@ function makeConfig(over: Partial<AppConfig> = {}): AppConfig {
     benchmarkMinSample: 4,
     proxyBenchCooldownMs: 300_000,
     failureAlertThreshold: 3,
+    enableBrowserFallback: false,
+    circuitBreakerThreshold: 10,
     logLevel: 'silent',
     logService: 'agor',
     logEnv: 'test',
@@ -136,6 +138,12 @@ interface Harness {
   notes: Notification[];
   /** Swap the HTML body the injected fetcher will return next. */
   setBody: (body: string) => void;
+  /** Stage a recognised anti-bot hard block (403 + AkamaiGHost) for next fetches. */
+  setBlocked: (blocked: boolean) => void;
+  /** Stage the HTTP status the next non-blocked fetch returns. */
+  setStatus: (status: number) => void;
+  /** Stage the final (post-redirect) URL the next fetch reports. */
+  setFinalUrl: (url: string | undefined) => void;
   /** The injectable clock the orchestrator reads. */
   setNow: (ms: number) => void;
 }
@@ -145,9 +153,16 @@ function makeHarness(configOver: Partial<AppConfig> = {}): Harness {
   const registry = new PluginRegistry([SYNTH_PLUGIN]);
 
   // The fetcher returns whatever body is currently staged; we mutate it between
-  // cycles to simulate the page changing over time.
+  // cycles to simulate the page changing over time. When `blocked` is staged it
+  // returns a recognised Akamai hard block instead.
   let currentBody = searchDoc([]);
-  const fetcher: Fetcher = async () => ({ status: 200, body: currentBody });
+  let blocked = false;
+  let nextStatus = 200;
+  let nextFinalUrl: string | undefined;
+  const fetcher: Fetcher = async (url) =>
+    blocked
+      ? { status: 403, body: 'Access Denied', headers: { server: 'AkamaiGHost' }, finalUrl: url }
+      : { status: nextStatus, body: currentBody, finalUrl: nextFinalUrl ?? url };
 
   const engine = new ScrapingEngine({
     pool: new ProxyPool([], 1000), // empty pool => no proxy needed (size 0 path)
@@ -184,6 +199,15 @@ function makeHarness(configOver: Partial<AppConfig> = {}): Harness {
     notes,
     setBody: (body: string) => {
       currentBody = body;
+    },
+    setBlocked: (b: boolean) => {
+      blocked = b;
+    },
+    setStatus: (s: number) => {
+      nextStatus = s;
+    },
+    setFinalUrl: (u: string | undefined) => {
+      nextFinalUrl = u;
     },
     setNow: (ms: number) => {
       nowMs = ms;
@@ -526,6 +550,69 @@ describe('registration guard rails', () => {
     if (res.ok) throw new Error('expected failure');
     expect(res.error).toMatch(/Unsupported site/);
   });
+
+  it('rejects a search URL that returns a 4xx (wrong/dead URL) and leaves no monitor', async () => {
+    const h = makeHarness();
+    // The URL resolves to a 404 (carzz's apex stub / a wrong path), not a listing page.
+    h.setStatus(404);
+    const before = h.store.monitors.listByChat(1).length;
+    const res = await h.orchestrator.register({ chatId: 1, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error('expected failure');
+    expect(res.error).toMatch(/not reachable|could not|not found|invalid/i);
+    // The transient monitor row must not be left behind.
+    expect(h.store.monitors.listByChat(1).length).toBe(before);
+  });
+
+  it('KEEPS a legitimately EMPTY search (200, zero items) — empty is valid, not dead', async () => {
+    const h = makeHarness();
+    h.setBody(searchDoc([]));
+    const res = await h.orchestrator.register({ chatId: 1, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('expected success');
+    expect(res.baselineCount).toBe(0);
+  });
+
+  it('KEEPS the watch on a 5xx at registration (transient, not a dead URL)', async () => {
+    const h = makeHarness();
+    h.setStatus(503);
+    const res = await h.orchestrator.register({ chatId: 1, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('expected success');
+    expect(res.baselineCount).toBe(0);
+  });
+
+  it('KEEPS the watch on a hard block at registration (transient, not a dead URL)', async () => {
+    const h = makeHarness();
+    h.setBlocked(true);
+    const res = await h.orchestrator.register({ chatId: 1, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('expected success');
+    expect(res.baselineCount).toBe(0);
+  });
+
+  it('persists the canonical (post-redirect) URL when the baseline followed a redirect', async () => {
+    const h = makeHarness();
+    h.setBody(searchDoc([{ id: 'A', title: 'iPhone 13', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' }]));
+    // The www URL 301s to the apex; the engine reports the apex as finalUrl.
+    h.setFinalUrl('https://synth.test/search?q=phones');
+    const res = await h.orchestrator.register({ chatId: 1, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('expected success');
+    expect(res.monitor.url).toBe('https://synth.test/search?q=phones');
+    // And it still resolves to the same vendor.
+    expect(res.monitor.vendor).toBe('synth');
+  });
+
+  it('ignores a cross-domain redirect (open-redirect guard): keeps the scrubbed URL', async () => {
+    const h = makeHarness();
+    h.setBody(searchDoc([{ id: 'A', title: 'iPhone 13', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' }]));
+    h.setFinalUrl('https://evil.example.com/phishing');
+    const res = await h.orchestrator.register({ chatId: 1, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('expected success');
+    expect(res.monitor.url).toBe(SEARCH_URL); // unchanged — redirect not trusted
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -673,5 +760,65 @@ describe('watch health: failure surfacing and /check semantics', () => {
     expect(r).toMatchObject({ ok: true, itemsActive: 2, newItems: 1 });
     // Unknown monitor -> failed empty result (check_not_found is handled in bot.ts).
     expect((await h.orchestrator.runMonitorOnce(99_999)).ok).toBe(false);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Per-vendor circuit breaker: pause polling a hard-blocked vendor
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('circuit breaker pauses polling a hard-blocked vendor', () => {
+  let h: Harness;
+  beforeEach(() => {
+    // Low threshold so the test trips it in 3 cycles.
+    h = makeHarness({ circuitBreakerThreshold: 3 });
+  });
+
+  async function registerSearch(): Promise<number> {
+    h.setBody(searchDoc([{ id: 'A', title: 'iPhone 13', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' }]));
+    const res = await h.orchestrator.register({ chatId: 5, rawUrl: SEARCH_URL });
+    if (!res.ok) throw new Error('register failed');
+    return res.monitor.id;
+  }
+
+  it('trips after N hard blocks, then SKIPS the scrape (no further fetch) until reset', async () => {
+    const id = await registerSearch();
+
+    // Stage an Akamai 403 hard block; 3 cycles trip the breaker.
+    h.setBlocked(true);
+    for (let i = 0; i < 3; i++) {
+      h.setNow(2_000 + i);
+      const r = await h.orchestrator.runMonitorOnce(id);
+      expect(r.ok).toBe(false);
+      expect(r.blocked).toBe(true);
+    }
+    expect(h.orchestrator.blockedVendors()).toContain('synth');
+
+    // A blocked vendor must not be polled even though the page would now succeed:
+    // unstage the block; the cycle is skipped (status 0, the skip sentinel), so it
+    // does NOT report a 200 / items.
+    h.setBlocked(false);
+    h.setNow(5_000);
+    const skipped = await h.orchestrator.runMonitorOnce(id);
+    expect(skipped.ok).toBe(false);
+    expect(skipped.status).toBe(0); // skip sentinel — no fetch happened
+    expect(skipped.itemsActive).toBe(0);
+
+    // Manual re-enable resumes polling: the now-healthy page is scraped again.
+    h.orchestrator.resetCircuit('synth');
+    expect(h.orchestrator.blockedVendors()).not.toContain('synth');
+    h.setNow(6_000);
+    const resumed = await h.orchestrator.runMonitorOnce(id);
+    expect(resumed.ok).toBe(true);
+    expect(resumed.itemsActive).toBe(1);
+  });
+
+  it('does not trip when cycles stay healthy', async () => {
+    const id = await registerSearch();
+    for (let i = 0; i < 5; i++) {
+      h.setNow(2_000 + i);
+      await h.orchestrator.runMonitorOnce(id);
+    }
+    expect(h.orchestrator.blockedVendors()).toHaveLength(0);
   });
 });

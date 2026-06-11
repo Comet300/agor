@@ -151,6 +151,53 @@ describe('normalizeItems', () => {
     // product_mapping has no inStock path -> defaults TRUE for all.
     expect(out.every((i) => i.inStock === true)).toBe(true);
   });
+
+  it('empties an object-typed string field instead of emitting "[object Object]"', () => {
+    // publi24 ships image as an object; a mis-pathed field must fail loud (empty),
+    // not silently stringify to "[object Object]".
+    const nodes = [
+      { id: 'a', title: 't', price: '10', url: 'u', img: { '@type': 'ImageObject', contentUrl: 'x.jpg' } },
+    ];
+    const out = normalizeItems(nodes, PLUGIN, 'search');
+    expect(out).toHaveLength(1);
+    expect(out[0]!.imageUrl).toBeUndefined(); // object did NOT become "[object Object]"
+  });
+
+  it('decodes HTML entities in text fields (publi24 titles ship &#238; raw)', () => {
+    const nodes = [
+      { id: 'a', title: 'Inchiriez &#238;n F&#259;lticeni &amp; zona', price: '10', url: 'u' },
+    ];
+    const out = normalizeItems(nodes, PLUGIN, 'search');
+    expect(out[0]!.title).toBe('Inchiriez în Fălticeni & zona');
+  });
+
+  it('canonicalizes currency case + maps lei -> RON', () => {
+    const nodes = [
+      { id: 'a', title: 't', price: '10', url: 'u', currency: 'eur' },
+      { id: 'b', title: 't', price: '10', url: 'u', currency: 'lei' },
+      { id: 'c', title: 't', price: '10', url: 'u', currency: 'RON' },
+    ];
+    const out = normalizeItems(nodes, PLUGIN, 'search');
+    expect(out.map((i) => i.currency)).toEqual(['EUR', 'RON', 'RON']);
+  });
+
+  it('drops an item whose templated required URL has an empty segment', () => {
+    // A slug-less ad would yield "https://x/ad/-123" — a broken deep link.
+    const templated: IVendorPlugin = {
+      ...PLUGIN,
+      search_mapping: {
+        ...PLUGIN.search_mapping,
+        fields: { ...PLUGIN.search_mapping.fields, url: 'https://x/ad/{slug}-{id}' },
+      },
+    };
+    const nodes = [
+      { id: '1', title: 't', price: '10', slug: 'real-slug' }, // ok
+      { id: '2', title: 't', price: '10' }, // slug missing => broken url => dropped
+    ];
+    const out = normalizeItems(nodes, templated, 'search');
+    expect(out.map((i) => i.id)).toEqual(['1']);
+    expect(out[0]!.url).toBe('https://x/ad/real-slug-1');
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -255,6 +302,36 @@ describe('benchmarking', () => {
     const confident = enrichWithBenchmark(items, [90, 100, 110], 3);
     expect(confident[0]?.benchmark?.confident).toBe(true);
     expect(confident[0]?.dealTag).toBe('great_deal'); // 50 <= 100*0.85
+  });
+
+  it('benchmarks each item against its OWN currency, not a mixed pool', () => {
+    // A real-estate SERP in EUR with a single stray LEI listing: the LEI price
+    // must NOT pollute the EUR median (and vice-versa).
+    const eurItems = [
+      item({ id: 'e1', price: 100_000, currency: 'EUR' }),
+      item({ id: 'e2', price: 110_000, currency: 'EUR' }),
+      item({ id: 'e3', price: 90_000, currency: 'EUR' }),
+    ];
+    const ronItem = item({ id: 'r1', price: 500_000, currency: 'RON' });
+    const all = [...eurItems, ronItem];
+    const prices = all.map((i) => ({ price: i.price, currency: i.currency }));
+
+    const enriched = enrichWithBenchmark(all, prices, 3);
+    const e1 = enriched.find((i) => i.id === 'e1')!;
+    // EUR median is 100k (from 3 EUR prices only) — NOT skewed by the 500k RON.
+    expect(e1.benchmark?.median).toBe(100_000);
+    expect(e1.benchmark?.sampleSize).toBe(3);
+    // The lone RON item has a sample of 1 -> not confident -> no misleading tag.
+    const r1 = enriched.find((i) => i.id === 'r1')!;
+    expect(r1.benchmark?.sampleSize).toBe(1);
+    expect(r1.dealTag).toBeUndefined();
+  });
+
+  it('still accepts a plain number[] sample (back-compat, single currency)', () => {
+    const items = [item({ id: 'x', price: 50, currency: 'RON' })];
+    const enriched = enrichWithBenchmark(items, [90, 100, 110], 3);
+    expect(enriched[0]?.benchmark?.median).toBe(100);
+    expect(enriched[0]?.dealTag).toBe('great_deal');
   });
 });
 

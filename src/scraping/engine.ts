@@ -14,19 +14,24 @@
  * real waiting; the default fetcher uses undici with a per-request
  * {@link ProxyAgent} dispatcher.
  */
-import { request, ProxyAgent } from 'undici';
+import { request, Agent, ProxyAgent, interceptors } from 'undici';
 import type { IVendorPlugin } from '../contracts';
 import { resolvePath } from '../util/jsonPath';
 import { browserHeaders } from './headers';
 import { extractPayload, extractCandidates } from './extract';
 import { domExtractSearch, domExtractProduct } from './domExtract';
+import { classifyResponse, type BlockProvider } from './blockDetection';
 import { ProxyPool } from './proxyPool';
 import { log } from '../logging/logger';
 
-/** Outcome of a single HTTP fetch (status + decoded text body). */
+/** Outcome of a single HTTP fetch (status, decoded body, headers, final URL). */
 export interface FetchResult {
   status: number;
   body: string;
+  /** Response headers (lower-cased keys), used for anti-bot block detection. */
+  headers?: Record<string, string | string[] | undefined>;
+  /** The URL the request finally resolved to after following redirects. */
+  finalUrl?: string;
 }
 
 /** Injectable transport: resolves a URL (optionally via a proxy) to a body. */
@@ -35,7 +40,7 @@ export type Fetcher = (
   opts: { headers: Record<string, string>; proxyUrl?: string },
 ) => Promise<FetchResult>;
 
-/** Result of a scrape: the raw vendor item nodes plus any benched proxies. */
+/** Result of a scrape: the raw vendor item nodes plus transport/health metadata. */
 export interface ScrapeOutcome {
   ok: boolean;
   status: number;
@@ -43,6 +48,14 @@ export interface ScrapeOutcome {
   rawNodes: unknown[];
   /** Proxy URLs benched during this scrape (soft-ban victims). */
   benched: string[];
+  /** True when the response was a recognised anti-bot hard block. */
+  blocked: boolean;
+  /** The protection provider when `blocked`, for the circuit breaker / logs. */
+  blockProvider?: BlockProvider;
+  /** The URL the fetch finally resolved to (after redirects), when known. */
+  finalUrl?: string;
+  /** True when the browser fallback produced this outcome. */
+  usedBrowser: boolean;
 }
 
 /** HTTP statuses that indicate a proxy-level soft ban worth rotating away from. */
@@ -75,15 +88,27 @@ function proxyHost(proxyUrl: string | undefined): string | undefined {
   }
 }
 
+/** Bounded redirect following — marketplaces canonicalize www→apex via 301. */
+const MAX_REDIRECTS = 5;
+
 /**
  * Default {@link Fetcher} built on undici. Routes through a {@link ProxyAgent}
- * dispatcher when `proxyUrl` is supplied; reads the full body as text.
+ * dispatcher when `proxyUrl` is supplied (else a plain {@link Agent}), composes
+ * the redirect interceptor so 3xx canonicalizations are followed, and surfaces
+ * the response headers plus the final (post-redirect) URL for block detection
+ * and canonical persistence.
  */
-const defaultFetcher: Fetcher = async (url, { headers, proxyUrl }) => {
-  const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
+export const defaultFetcher: Fetcher = async (url, { headers, proxyUrl }) => {
+  const base = proxyUrl ? new ProxyAgent(proxyUrl) : new Agent();
+  const dispatcher = base.compose(interceptors.redirect({ maxRedirections: MAX_REDIRECTS }));
   const res = await request(url, { method: 'GET', headers, dispatcher });
   const body = await res.body.text();
-  return { status: res.statusCode, body };
+  // The redirect interceptor records the hop chain on res.context.history; the
+  // last entry is the URL the request finally resolved to.
+  const history = (res.context as { history?: URL[] } | undefined)?.history;
+  const finalUrl =
+    history && history.length > 0 ? String(history[history.length - 1]) : url;
+  return { status: res.statusCode, body, headers: res.headers, finalUrl };
 };
 
 /** Default no-op-respecting sleep used when none is injected. */
@@ -93,6 +118,8 @@ const defaultSleep = (ms: number): Promise<void> =>
 export class ScrapingEngine {
   private readonly pool: ProxyPool;
   private readonly fetcher: Fetcher;
+  /** Optional headless-browser transport for `fetch_strategy: browser` manifests. */
+  private readonly browserFetcher?: Fetcher;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly rateLimit: boolean;
   /** ms epoch of the last request issued per vendor (for rate limiting). */
@@ -102,11 +129,14 @@ export class ScrapingEngine {
     pool: ProxyPool;
     cooldownMs: number;
     fetcher?: Fetcher;
+    /** Headless-browser transport, lazily provided; only used on a hard block. */
+    browserFetcher?: Fetcher;
     sleep?: (ms: number) => Promise<void>;
     rateLimit?: boolean;
   }) {
     this.pool = opts.pool;
     this.fetcher = opts.fetcher ?? defaultFetcher;
+    this.browserFetcher = opts.browserFetcher;
     this.sleep = opts.sleep ?? defaultSleep;
     // Rate limiting is on unless explicitly disabled.
     this.rateLimit = opts.rateLimit !== false;
@@ -187,16 +217,62 @@ export class ScrapingEngine {
   ): Promise<ScrapeOutcome> {
     await this.respectRateLimit(plugin, now);
 
-    const { result, benched } = await this.fetchWithRotation(url, now);
+    let { result, benched } = await this.fetchWithRotation(url, now);
+    let usedBrowser = false;
+
+    // Classify the response against provider block signatures (header-based,
+    // never body-substring) so a real anti-bot wall is distinguishable from a
+    // transient soft ban or an empty search.
+    let classification = result
+      ? classifyResponse(result.status, result.headers ?? {})
+      : { blocked: false as const, provider: undefined as BlockProvider | undefined };
+
+    // Escalate to the headless browser ONCE on a hard block, but only when the
+    // manifest opted in (`fetch_strategy: browser`) and a browser transport is
+    // available. The HTTP path stays the default for every other vendor.
+    if (
+      classification.blocked &&
+      plugin.fetch_strategy === 'browser' &&
+      this.browserFetcher !== undefined
+    ) {
+      log('engine').info(
+        { vendor: plugin.vendor, url, provider: classification.provider, event: 'BROWSER-FALLBACK' },
+        'hard block — escalating to headless browser',
+      );
+      try {
+        const browserResult = await this.browserFetcher(url, { headers: browserHeaders() });
+        usedBrowser = true;
+        result = browserResult;
+        classification = classifyResponse(browserResult.status, browserResult.headers ?? {});
+      } catch (err) {
+        log('engine').warn(
+          { vendor: plugin.vendor, url, reason: 'browser_fetch_failed', err: (err as Error).message },
+          'browser fallback failed',
+        );
+      }
+    }
+
+    const blockFields = {
+      blocked: classification.blocked,
+      blockProvider: classification.provider,
+      finalUrl: result?.finalUrl,
+      usedBrowser,
+    };
+    if (classification.blocked) {
+      log('engine').warn(
+        { vendor: plugin.vendor, url, status: result?.status, provider: classification.provider, event: 'BOT-BLOCKED' },
+        'anti-bot hard block detected',
+      );
+    }
 
     // No usable response (no proxy, or exhausted retries on a soft ban).
     if (!result || SOFT_BAN_STATUSES.has(result.status)) {
-      return { ok: false, status: result?.status ?? 0, rawNodes: [], benched };
+      return { ok: false, status: result?.status ?? 0, rawNodes: [], benched, ...blockFields };
     }
 
     // Non-2xx, non-soft-ban (e.g. 404/500): report the status, no nodes.
     if (result.status < 200 || result.status >= 300) {
-      return { ok: false, status: result.status, rawNodes: [], benched };
+      return { ok: false, status: result.status, rawNodes: [], benched, ...blockFields };
     }
 
     // Extraction can fail if the vendor changed its embedded-state shape. Treat
@@ -210,14 +286,14 @@ export class ScrapingEngine {
         { vendor: plugin.vendor, url, status: result.status, reason: 'extract_failed', err: (err as Error).message },
         'payload extraction failed (vendor layout change?)',
       );
-      return { ok: false, status: result.status, rawNodes: [], benched };
+      return { ok: false, status: result.status, rawNodes: [], benched, ...blockFields };
     }
 
     log('engine').debug(
-      { vendor: plugin.vendor, url, status: result.status, items: rawNodes.length },
+      { vendor: plugin.vendor, url, status: result.status, items: rawNodes.length, usedBrowser },
       'fetch ok',
     );
-    return { ok: true, status: result.status, rawNodes, benched };
+    return { ok: true, status: result.status, rawNodes, benched, ...blockFields };
   }
 
   /**

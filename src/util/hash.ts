@@ -1,9 +1,6 @@
 /** Composite signature hashing for cross-platform deduplication (Feature 6). */
 import { createHash } from 'node:crypto';
-import { roundToNearest } from './money';
-
-/** Price bucket width (RON) for "approximately equal" price matching. */
-const PRICE_BUCKET = 50;
+import { priceBucket } from './money';
 
 /** Unicode combining diacritical marks. */
 const DIACRITICS = new RegExp('[\\u0300-\\u036f]', 'g');
@@ -35,7 +32,7 @@ export function compositeSignature(input: {
 }): string {
   const parts = [
     normalizeTitle(input.title),
-    String(roundToNearest(input.price, PRICE_BUCKET)),
+    String(priceBucket(input.price)),
     normalizeLocation(input.location),
   ];
   return createHash('sha1').update(parts.join('|')).digest('hex');

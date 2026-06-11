@@ -10,6 +10,12 @@
 vendor: MobileDe
 domain: mobile.de
 engine: json-extractor
+# Akamai walls a raw undici GET (live 403 from a clean IP — TLS/JA3
+# fingerprinting), so this vendor opts into the headless-browser fallback. The
+# engine escalates to it ONLY on a recognised hard block, and only when
+# ENABLE_BROWSER_FALLBACK is on (optional Playwright deps installed).
+# Best-effort: a flagged IP may still be denied.
+fetch_strategy: browser
 rate_limit_ms: 4000
 
 search_mapping:
