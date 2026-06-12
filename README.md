@@ -56,6 +56,19 @@ Romanian-first UI (it's hunting Romanian marketplaces, after all), full English
 one tap away with `/lang en`. Commands: `/track <url>` (or just paste a link),
 `/list`, `/check <id>`, `/remove <id>`, `/lang`, `/help`.
 
+## Who gets in
+
+The bot is **deny-by-default**. A newcomer can only `/start` and `/request-access`
+— which asks for a name and email, then notifies the admins (who approve or decline
+with a tap). The **first person to complete `/request-access` becomes the admin**
+automatically, so there's no chicken-and-egg setup; alternatively, seed known admin
+chat ids via `ADMIN_CHAT_IDS`. Admins manage everyone from their own chat:
+`/allow <id>`, `/deny <id>`, `/users`, `/userinfo <id>`, `/setname <id> <name>`,
+`/setemail <id> <email>`, and `/promote <id>` / `/demote <id>` to make or unmake
+other admins (the last admin can't be demoted). A declined user can re-apply after 7 days; revoking a user
+pauses their watches (re-allowing resumes them). Name/email are tracking-only — they
+live in the database (so you can see who a chat belongs to), never in logs.
+
 ## Run it
 
 ```bash

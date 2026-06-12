@@ -96,7 +96,7 @@ async function main(): Promise<void> {
   // Now that the orchestrator exists, build the bot that drives it (and the
   // notifier once, not per-message).
   if (config.botToken) {
-    bot = buildBot(orchestrator, store, config.botToken);
+    bot = buildBot(orchestrator, store, config.botToken, { adminChatIds: config.adminChatIds });
     botNotifier = makeNotifier(bot, store);
     // Register the localized "/" command menu (Romanian default, English for
     // en-locale Telegram clients). Best-effort: a failure must not abort boot.

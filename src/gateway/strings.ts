@@ -99,6 +99,46 @@ export interface Catalog {
   also_on: (sources: string) => string;
   price_drop: (p: { title: string; oldPrice: string; newPrice: string; savings: string }) => string;
   back_in_stock_title: string;
+
+  // ── Access control ────────────────────────────────────────────────────────
+  access_denied: string; // shown to a non-allowed chat that tries to use the bot
+  access_request_intro: string; // /request-access kicks off; ask for name
+  access_ask_name: string;
+  access_ask_email: string;
+  access_email_invalid: string; // re-prompt on a malformed email
+  access_request_sent: string; // confirmation to the requester
+  access_request_pending: string; // already pending
+  access_granted_user: string; // told to the requester when allowed
+  access_denied_user: string; // told to the requester when denied
+  access_first_admin: string; // first requester auto-approved as admin
+  access_request_too_soon: (days: number) => string; // denied < 7d ago, re-apply later
+  access_admin_new_request: (p: { id: number; name: string; email: string }) => string; // to admins
+  access_admin_only: string; // non-admin tried an admin command
+  access_allow_usage: string;
+  access_deny_usage: string;
+  access_allow_done: (p: { id: number; name: string }) => string;
+  access_deny_done: (p: { id: number; name: string }) => string;
+  access_user_not_found: string;
+  access_users_intro: string;
+  access_users_item: (p: { id: number; status: string; isAdmin: boolean; name: string; email: string }) => string;
+  access_users_empty: string;
+  access_userinfo_usage: string;
+  access_userinfo: (p: { id: number; status: string; isAdmin: boolean; name: string; email: string }) => string;
+  access_setname_usage: string;
+  access_setemail_usage: string;
+  access_setname_done: (p: { id: number; name: string }) => string;
+  access_setemail_done: (p: { id: number; email: string }) => string;
+  access_promote_usage: string;
+  access_demote_usage: string;
+  access_promote_done: (p: { id: number }) => string;
+  access_demote_done: (p: { id: number }) => string;
+  access_demote_last_admin: string; // refused: would leave the bot with no admin
+  access_promoted_user: string; // told to a chat when it becomes admin
+  access_demoted_user: string; // told to a chat when its admin is removed
+  btn_allow: string;
+  btn_deny: string;
+  cb_allow_done: (p: { id: number }) => string;
+  cb_deny_done: (p: { id: number }) => string;
 }
 
 const ro: Catalog = {
@@ -181,6 +221,53 @@ const ro: Catalog = {
   price_drop: ({ title, oldPrice, newPrice, savings }) =>
     `📉 Scădere de preț la ${title}: ${oldPrice} → ${newPrice} (economisești ${savings})`,
   back_in_stock_title: '🟢 REVENIT ÎN STOC',
+
+  access_denied:
+    'Nu ai acces la acest bot. Folosește /request-access ca să ceri accesul.',
+  access_request_intro: 'Hai să cerem acces. ',
+  access_ask_name: 'Cum te numești? (nume și prenume)',
+  access_ask_email: 'Care este adresa ta de email?',
+  access_email_invalid: 'Adresa de email nu pare validă. Te rog trimite o adresă corectă.',
+  access_request_sent:
+    '✅ Cererea ta a fost trimisă. Te anunț când un administrator decide.',
+  access_request_pending: 'Ai deja o cerere în așteptare. Te anunț când se decide.',
+  access_granted_user: '🎉 Ai primit acces! Trimite-mi un link de anunț ca să începi.',
+  access_denied_user:
+    '⛔ Cererea ta de acces a fost respinsă. Poți cere din nou peste 7 zile.',
+  access_first_admin:
+    '👑 Ai acces și ești administrator (primul utilizator). Poți gestiona accesul cu /users, /allow, /deny.',
+  access_request_too_soon: (days) =>
+    `Cererea ta a fost respinsă recent. Poți cere din nou peste ${days} zi${days === 1 ? '' : 'le'}.`,
+  access_admin_new_request: ({ id, name, email }) =>
+    `🔔 Cerere de acces nouă:\n${name} · ${email}\nchat id: ${id}`,
+  access_admin_only: 'Comandă disponibilă doar administratorilor.',
+  access_allow_usage: 'Folosire: /allow <chat_id>',
+  access_deny_usage: 'Folosire: /deny <chat_id>',
+  access_allow_done: ({ id, name }) => `✅ Acces acordat pentru ${name || id} (${id}).`,
+  access_deny_done: ({ id, name }) => `⛔ Acces respins pentru ${name || id} (${id}).`,
+  access_user_not_found: 'Nu există niciun utilizator cu acest chat id.',
+  access_users_intro: 'Utilizatori:',
+  access_users_item: ({ id, status, isAdmin, name, email }) =>
+    `${id} · ${status}${isAdmin ? ' · admin' : ''} · ${name || '—'} · ${email || '—'}`,
+  access_users_empty: 'Niciun utilizator înregistrat încă.',
+  access_userinfo_usage: 'Folosire: /userinfo <chat_id>',
+  access_userinfo: ({ id, status, isAdmin, name, email }) =>
+    `Utilizator ${id}\nstatus: ${status}${isAdmin ? ' (admin)' : ''}\nnume: ${name || '—'}\nemail: ${email || '—'}`,
+  access_setname_usage: 'Folosire: /setname <chat_id> <nume>',
+  access_setemail_usage: 'Folosire: /setemail <chat_id> <email>',
+  access_setname_done: ({ id, name }) => `✅ Nume actualizat pentru ${id}: ${name}`,
+  access_setemail_done: ({ id, email }) => `✅ Email actualizat pentru ${id}: ${email}`,
+  access_promote_usage: 'Folosire: /promote <chat_id>',
+  access_demote_usage: 'Folosire: /demote <chat_id>',
+  access_promote_done: ({ id }) => `👑 ${id} este acum administrator.`,
+  access_demote_done: ({ id }) => `${id} nu mai este administrator.`,
+  access_demote_last_admin: 'Nu poți retrage ultimul administrator.',
+  access_promoted_user: '👑 Ai fost făcut administrator. Poți gestiona accesul cu /users.',
+  access_demoted_user: 'Drepturile tale de administrator au fost retrase.',
+  btn_allow: '✅ Permite',
+  btn_deny: '⛔ Respinge',
+  cb_allow_done: ({ id }) => `Acces acordat pentru ${id}.`,
+  cb_deny_done: ({ id }) => `Acces respins pentru ${id}.`,
 };
 
 const en: Catalog = {
@@ -263,6 +350,50 @@ const en: Catalog = {
   price_drop: ({ title, oldPrice, newPrice, savings }) =>
     `📉 Price drop on ${title}: ${oldPrice} → ${newPrice} (save ${savings})`,
   back_in_stock_title: '🟢 BACK IN STOCK',
+
+  access_denied: 'You do not have access to this bot. Use /request-access to ask for it.',
+  access_request_intro: "Let's request access. ",
+  access_ask_name: 'What is your name? (first and last)',
+  access_ask_email: 'What is your email address?',
+  access_email_invalid: 'That email does not look valid. Please send a correct address.',
+  access_request_sent: '✅ Your request was sent. I will let you know when an admin decides.',
+  access_request_pending: 'You already have a pending request. I will let you know when it is decided.',
+  access_granted_user: '🎉 You have been granted access! Send me a listing link to begin.',
+  access_denied_user: '⛔ Your access request was declined. You can request again in 7 days.',
+  access_first_admin:
+    '👑 You are in, and you are the admin (first user). Manage access with /users, /allow, /deny.',
+  access_request_too_soon: (days) =>
+    `Your request was declined recently. You can request again in ${days} day${days === 1 ? '' : 's'}.`,
+  access_admin_new_request: ({ id, name, email }) =>
+    `🔔 New access request:\n${name} · ${email}\nchat id: ${id}`,
+  access_admin_only: 'That command is available to admins only.',
+  access_allow_usage: 'Usage: /allow <chat_id>',
+  access_deny_usage: 'Usage: /deny <chat_id>',
+  access_allow_done: ({ id, name }) => `✅ Access granted for ${name || id} (${id}).`,
+  access_deny_done: ({ id, name }) => `⛔ Access declined for ${name || id} (${id}).`,
+  access_user_not_found: 'No user with that chat id.',
+  access_users_intro: 'Users:',
+  access_users_item: ({ id, status, isAdmin, name, email }) =>
+    `${id} · ${status}${isAdmin ? ' · admin' : ''} · ${name || '—'} · ${email || '—'}`,
+  access_users_empty: 'No users recorded yet.',
+  access_userinfo_usage: 'Usage: /userinfo <chat_id>',
+  access_userinfo: ({ id, status, isAdmin, name, email }) =>
+    `User ${id}\nstatus: ${status}${isAdmin ? ' (admin)' : ''}\nname: ${name || '—'}\nemail: ${email || '—'}`,
+  access_setname_usage: 'Usage: /setname <chat_id> <name>',
+  access_setemail_usage: 'Usage: /setemail <chat_id> <email>',
+  access_setname_done: ({ id, name }) => `✅ Name updated for ${id}: ${name}`,
+  access_setemail_done: ({ id, email }) => `✅ Email updated for ${id}: ${email}`,
+  access_promote_usage: 'Usage: /promote <chat_id>',
+  access_demote_usage: 'Usage: /demote <chat_id>',
+  access_promote_done: ({ id }) => `👑 ${id} is now an admin.`,
+  access_demote_done: ({ id }) => `${id} is no longer an admin.`,
+  access_demote_last_admin: 'You cannot remove the last admin.',
+  access_promoted_user: '👑 You have been made an admin. Manage access with /users.',
+  access_demoted_user: 'Your admin rights have been removed.',
+  btn_allow: '✅ Allow',
+  btn_deny: '⛔ Deny',
+  cb_allow_done: ({ id }) => `Access granted for ${id}.`,
+  cb_deny_done: ({ id }) => `Access declined for ${id}.`,
 };
 
 /**
@@ -282,6 +413,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'check', description: 'Verifică o urmărire acum (/check <id>)' },
     { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
     { command: 'lang', description: 'Schimbă limba (/lang ro|en)' },
+    { command: 'request-access', description: 'Cere acces la bot' },
     { command: 'help', description: 'Cum se folosește botul' },
   ],
   en: [
@@ -291,6 +423,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'check', description: 'Check a watch now (/check <id>)' },
     { command: 'remove', description: 'Stop a watch (/remove <id>)' },
     { command: 'lang', description: 'Change language (/lang ro|en)' },
+    { command: 'request-access', description: 'Request access to the bot' },
     { command: 'help', description: 'How to use the bot' },
   ],
 };
