@@ -32,8 +32,8 @@ interface CycleDeps {
   engine: ScrapingEngine;
   /** Min listings before a benchmark is confident enough to deal-tag items. */
   minSample: number;
-  /** Optional cross-cycle dedup buffer shared across runs (search monitors). */
-  dedup?: DedupBuffer;
+  /** Resolve the per-chat cross-cycle dedup buffer (search monitors). */
+  dedupFor?: (chatId: number) => DedupBuffer;
   /** Clock seam; defaults to the real epoch-ms wall clock for production use. */
   now?: () => number;
 }
@@ -126,7 +126,7 @@ export class MonitorCycle {
       filters: monitor.filters,
       historicalIds: this.deps.store.items.knownIds(monitor.id),
       minSample: this.deps.minSample,
-      dedup: this.deps.dedup,
+      dedup: this.deps.dedupFor?.(monitor.chatId),
       now: at,
     });
 

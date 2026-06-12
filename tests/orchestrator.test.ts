@@ -113,6 +113,7 @@ function makeConfig(over: Partial<AppConfig> = {}): AppConfig {
     botToken: undefined,
     databasePath: ':memory:',
     proxyUrls: [],
+    adminChatIds: [],
     defaultCheckIntervalMs: 600_000,
     oosFastIntervalMs: 120_000,
     dedupWindowMs: 86_400_000,
@@ -820,5 +821,110 @@ describe('circuit breaker pauses polling a hard-blocked vendor', () => {
       await h.orchestrator.runMonitorOnce(id);
     }
     expect(h.orchestrator.blockedVendors()).toHaveLength(0);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Access control: a revoked owner's monitors are paused (not polled/notified)
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('access control pauses a revoked owner’s monitors', () => {
+  const ADMIN = 999;
+  const OWNER = 42;
+
+  it('does not poll or notify a monitor whose owner is not allowed; resumes when re-allowed', async () => {
+    // Access control activates once an admin exists; the owner IS allowed at first.
+    const h = makeHarness();
+    h.store.access.seedAdmin(ADMIN);
+    h.store.access.allow(OWNER, { by: ADMIN, at: 1 });
+
+    h.setBody(searchDoc([{ id: 'A', title: 'iPhone', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' }]));
+    const res = await h.orchestrator.register({ chatId: OWNER, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('register failed');
+    const id = res.monitor.id;
+
+    // A normal cycle with a new item works while allowed.
+    h.setNow(2_000);
+    h.setBody(searchDoc([
+      { id: 'A', title: 'iPhone', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' },
+      { id: 'B', title: 'Pixel', price: 1800, currency: 'RON', url: 'https://www.synth.test/B', city: 'Iasi' },
+    ]));
+    const allowed = await h.orchestrator.runMonitorOnce(id);
+    expect(allowed.ok).toBe(true);
+    expect(allowed.newItems).toBe(1);
+
+    // Revoke the owner — the monitor must now be skipped entirely.
+    h.store.access.deny(OWNER, { by: ADMIN, at: 3_000 });
+    const before = h.notify.mock.calls.length;
+    h.setNow(4_000);
+    h.setBody(searchDoc([
+      { id: 'A', title: 'iPhone', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' },
+      { id: 'B', title: 'Pixel', price: 1800, currency: 'RON', url: 'https://www.synth.test/B', city: 'Iasi' },
+      { id: 'C', title: 'Galaxy', price: 2500, currency: 'RON', url: 'https://www.synth.test/C', city: 'Brasov' },
+    ]));
+    const revoked = await h.orchestrator.runMonitorOnce(id);
+    expect(revoked.ok).toBe(false);
+    expect(revoked.status).toBe(0); // skip sentinel — no fetch
+    expect(h.notify.mock.calls.length).toBe(before); // nothing dispatched
+
+    // Re-allow — polling resumes and the now-new item C is notified.
+    h.store.access.allow(OWNER, { by: ADMIN, at: 5_000 });
+    h.setNow(6_000);
+    const resumed = await h.orchestrator.runMonitorOnce(id);
+    expect(resumed.ok).toBe(true);
+    expect(resumed.newItems).toBe(1); // C
+  });
+
+  it('pre-bootstrap (no admin exists yet): monitors run regardless of access rows', async () => {
+    const h = makeHarness();
+    // A denied row exists but NO admin has been created, so access control is not
+    // yet active — the monitor still runs.
+    h.store.access.deny(OWNER, { by: 0, at: 1 });
+    h.setBody(searchDoc([{ id: 'A', title: 'iPhone', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' }]));
+    const res = await h.orchestrator.register({ chatId: OWNER, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('register failed');
+    h.setNow(2_000);
+    h.setBody(searchDoc([
+      { id: 'A', title: 'iPhone', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' },
+      { id: 'B', title: 'Pixel', price: 1800, currency: 'RON', url: 'https://www.synth.test/B', city: 'Iasi' },
+    ]));
+    const out = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    expect(out.ok).toBe(true);
+    expect(out.newItems).toBe(1);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Per-chat dedup isolation: one user's listing cannot suppress another's alert
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('dedup is isolated per chat (no cross-user suppression)', () => {
+  it('two chats watching the same listing each get their own new_listing alert', async () => {
+    const h = makeHarness(); // fail-open, no access control in the way
+
+    // Both chats register an empty baseline so the first real cycle alerts.
+    h.setBody(searchDoc([]));
+    const a = await h.orchestrator.register({ chatId: 1, rawUrl: SEARCH_URL });
+    const b = await h.orchestrator.register({ chatId: 2, rawUrl: SEARCH_URL });
+    if (!a.ok || !b.ok) throw new Error('register failed');
+
+    // The SAME listing appears for both.
+    const body = searchDoc([
+      { id: 'X1', title: 'Same Phone', price: 1000, currency: 'RON', url: 'https://www.synth.test/X1', city: 'Cluj' },
+    ]);
+    h.setNow(2_000);
+    h.setBody(body);
+    const aNotes = (await h.orchestrator.runMonitorOnce(a.monitor.id)).notifications;
+    const bNotes = (await h.orchestrator.runMonitorOnce(b.monitor.id)).notifications;
+
+    // Each chat gets its OWN new_listing — chat 2 is NOT cross-suppressed by chat 1.
+    expect(aNotes.filter((n) => n.kind === 'new_listing')).toHaveLength(1);
+    expect(bNotes.filter((n) => n.kind === 'new_listing')).toHaveLength(1);
+    expect(aNotes[0]!.chatId).toBe(1);
+    expect(bNotes[0]!.chatId).toBe(2);
+    // No cross_post leaked across the two chats.
+    expect(bNotes.some((n) => n.kind === 'cross_post')).toBe(false);
   });
 });
