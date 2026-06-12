@@ -89,6 +89,10 @@ export interface Catalog {
   // ── Notification cards ────────────────────────────────────────────────────
   seller_private: string;
   seller_company: string;
+  /** Joins a listing's spec attributes into one card line (label included). */
+  specs_line: (specs: string) => string;
+  /** Prefixes the posted date on the card. */
+  posted_line: (date: string) => string;
   badge_great_deal: string;
   badge_fair_price: string;
   badge_overpriced: string;
@@ -168,6 +172,8 @@ const ro: Catalog = {
 
   seller_private: '👤 Vânzător privat',
   seller_company: '🏢 Firmă',
+  specs_line: (s) => `📋 ${s}`,
+  posted_line: (d) => `🕒 Postat: ${d}`,
   badge_great_deal: '🔥 Chilipir',
   badge_fair_price: '📊 Preț corect',
   badge_overpriced: '📈 Supraevaluat',
@@ -248,6 +254,8 @@ const en: Catalog = {
 
   seller_private: '👤 Private seller',
   seller_company: '🏢 Company',
+  specs_line: (s) => `📋 ${s}`,
+  posted_line: (d) => `🕒 Posted: ${d}`,
   badge_great_deal: '🔥 Great Deal',
   badge_fair_price: '📊 Fair Market Price',
   badge_overpriced: '📈 Overpriced',

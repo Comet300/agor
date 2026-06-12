@@ -6,7 +6,7 @@
  * internal item shape. It is pure and deterministic: same nodes + plugin in,
  * same items out — no clock, no network, no persistence.
  */
-import type { IScrapedItem, IVendorPlugin } from '../contracts';
+import type { AttributesFrom, IScrapedItem, IVendorPlugin } from '../contracts';
 import { resolvePath } from '../util/jsonPath';
 
 /**
@@ -161,6 +161,22 @@ function canonicalCurrency(raw: string): string {
   return v;
 }
 
+/**
+ * Parse a vendor's posted-at date into epoch ms, or `undefined` when absent /
+ * unparseable. Handles ISO 8601 (OLX `createdTime`, ld+json `datePublished`) and
+ * a space-separated `YYYY-MM-DD HH:MM:SS` (Storia `dateCreated`) by normalizing
+ * the space to `T` so it parses as local time deterministically.
+ */
+function parseDate(raw: unknown): number | undefined {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : undefined;
+  if (typeof raw !== 'string') return undefined;
+  const s = raw.trim();
+  if (s === '') return undefined;
+  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s) ? s.replace(' ', 'T') : s;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
 /** A resolved field: its raw value plus whether a leading "!" should negate it. */
 type FieldValue = { negate: boolean; value: unknown };
 /** Accessor that yields a field's raw value for one node/record. */
@@ -171,10 +187,32 @@ type FieldAccessor = (field: string) => FieldValue;
  * TARGET field name. Returns `null` for a node missing a required identity field
  * (id/title/url) or an unparseable price. Shared by both engines.
  */
+/**
+ * Explode a key/value array (e.g. OLX `params:[{name,value}]`) into a spec bag.
+ * Multi-category vendors expose different params per listing (a car vs a flat vs
+ * a phone), so this keeps WHATEVER the listing actually carries rather than a
+ * fixed key list. Skips entries with an empty name or value.
+ */
+function explodeAttributes(node: unknown, spec: AttributesFrom): Record<string, string> {
+  const arr = resolvePath(node, spec.path);
+  if (!Array.isArray(arr)) return {};
+  const out: Record<string, string> = {};
+  for (const el of arr) {
+    if (el == null || typeof el !== 'object') continue;
+    const rec = el as Record<string, unknown>;
+    const name = coerceString(rec[spec.key]);
+    const value = coerceString(rec[spec.value]);
+    if (name !== '' && value !== '') out[name] = value;
+  }
+  return out;
+}
+
 function buildItem(
   get: FieldAccessor,
   fields: Record<string, string>,
   vendor: string,
+  attributeMap: Record<string, string> | undefined,
+  explodedAttributes: Record<string, string>,
 ): IScrapedItem | null {
   // ── Required identity fields ──────────────────────────────────────────────
   const id = coerceString(get('id').value);
@@ -206,6 +244,9 @@ function buildItem(
   const imageUrl = coerceString(get('imageUrl').value);
   const phone = coerceString(get('phone').value);
 
+  const description = coerceString(get('description').value);
+  const postedAt = parseDate(get('postedAt').value);
+
   const item: IScrapedItem = {
     id,
     title,
@@ -219,6 +260,20 @@ function buildItem(
   if (location !== '') item.location = location;
   if (imageUrl !== '') item.imageUrl = imageUrl;
   if (phone !== '') item.phone = phone;
+  if (description !== '') item.description = description;
+  if (postedAt !== undefined) item.postedAt = postedAt;
+
+  // Structured specs: start from the flexible explode (whatever the listing
+  // carries), then overlay the canonical named map. Both optional; only kept when
+  // non-empty. The named map wins on a key clash (it's the curated form).
+  const attributes: Record<string, string> = { ...explodedAttributes };
+  if (attributeMap) {
+    for (const name of Object.keys(attributeMap)) {
+      const v = coerceString(get(`@attr:${name}`).value);
+      if (v !== '') attributes[name] = v;
+    }
+  }
+  if (Object.keys(attributes).length > 0) item.attributes = attributes;
   return item;
 }
 
@@ -235,8 +290,17 @@ export function normalizeItems(
   plugin: IVendorPlugin,
   mapping: 'search' | 'product',
 ): IScrapedItem[] {
-  const fields =
-    mapping === 'search' ? plugin.search_mapping.fields : plugin.product_mapping.fields;
+  const m = mapping === 'search' ? plugin.search_mapping : plugin.product_mapping;
+  const fields = m.fields;
+  const attributeMap = m.attributes;
+  const attributesFrom = m.attributes_from;
+
+  // Combined path lookup: regular fields plus each attribute under an `@attr:<name>`
+  // pseudo-field, so the single accessor resolves both with the same dialect rules.
+  const paths: Record<string, string> = { ...fields };
+  if (attributeMap) {
+    for (const [name, path] of Object.entries(attributeMap)) paths[`@attr:${name}`] = path;
+  }
 
   const items: IScrapedItem[] = [];
 
@@ -247,7 +311,7 @@ export function normalizeItems(
           (field) => ({ negate: false, value: (node as Record<string, unknown>)?.[field] })
         : // json-extractor resolves a JSON path, honouring the leading "!" convention.
           (field) => {
-            const path = fields[field];
+            const path = paths[field];
             if (path == null) return { negate: false, value: undefined };
             // Literal constant: "=EUR" yields the text after '=' verbatim — for
             // sources with no machine-readable field (e.g. mobile.de currency).
@@ -272,7 +336,14 @@ export function normalizeItems(
             return { negate, value: resolvePath(node, real) };
           };
 
-    const item = buildItem(get, fields, plugin.vendor);
+    // The flexible explode reads the raw node directly (json-extractor only; a
+    // dom-selector record is a flat field map with no array to explode).
+    const exploded =
+      attributesFrom && plugin.engine !== 'dom-selector'
+        ? explodeAttributes(node, attributesFrom)
+        : {};
+
+    const item = buildItem(get, fields, plugin.vendor, attributeMap, exploded);
     if (item) items.push(item);
   }
 

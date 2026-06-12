@@ -201,6 +201,143 @@ describe('normalizeItems', () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
+// normalize — enrichment fields (description / postedAt / attributes)
+// ────────────────────────────────────────────────────────────────────────────
+describe('normalizeItems enrichment', () => {
+  /** A plugin that maps description, createdAt, and an attributes sub-map. */
+  const ENRICH: IVendorPlugin = {
+    vendor: 'Enrich',
+    domain: 'enrich.example',
+    engine: 'json-extractor',
+    rate_limit_ms: 1000,
+    search_mapping: {
+      payload_locator: 'script#data',
+      json_path_to_items: 'items',
+      fields: {
+        id: 'id',
+        title: 'title',
+        price: 'price',
+        currency: 'currency',
+        url: 'url',
+        description: 'desc',
+        postedAt: 'createdTime',
+      },
+      attributes: {
+        // OLX-style key/value array selector + a direct field.
+        km: 'params.~find:key=rulaj.value',
+        fuel: 'params.~find:key=petrol.value',
+        rooms: 'roomsNumber',
+      },
+    },
+    product_mapping: {
+      payload_locator: 'script#data',
+      json_path: 'advert',
+      fields: { id: 'id', title: 'title', price: 'price', url: 'url' },
+    },
+  };
+
+  it('extracts description and parses postedAt from an ISO date', () => {
+    const nodes = [
+      { id: 'a', title: 't', price: '10', url: 'u', desc: 'A nice car', createdTime: '2026-06-09T16:21:42+03:00' },
+    ];
+    const out = normalizeItems(nodes, ENRICH, 'search');
+    expect(out[0]!.description).toBe('A nice car');
+    expect(out[0]!.postedAt).toBe(Date.parse('2026-06-09T16:21:42+03:00'));
+  });
+
+  it('parses postedAt from a space-separated datetime ("2026-06-11 16:05:52")', () => {
+    const nodes = [{ id: 'a', title: 't', price: '10', url: 'u', createdTime: '2026-06-11 16:05:52' }];
+    const out = normalizeItems(nodes, ENRICH, 'search');
+    expect(out[0]!.postedAt).toBe(Date.parse('2026-06-11T16:05:52'));
+  });
+
+  it('omits postedAt when the date is missing or unparseable', () => {
+    const nodes = [
+      { id: 'a', title: 't', price: '10', url: 'u' },
+      { id: 'b', title: 't', price: '10', url: 'u', createdTime: 'not a date' },
+    ];
+    const out = normalizeItems(nodes, ENRICH, 'search');
+    expect(out[0]!.postedAt).toBeUndefined();
+    expect(out[1]!.postedAt).toBeUndefined();
+  });
+
+  it('builds the attributes bag from key/value arrays and direct fields', () => {
+    const nodes = [
+      {
+        id: 'a', title: 't', price: '10', url: 'u',
+        params: [
+          { key: 'rulaj', value: '40 400 km' },
+          { key: 'petrol', value: 'Electric' },
+        ],
+        roomsNumber: 'TWO',
+      },
+    ];
+    const out = normalizeItems(nodes, ENRICH, 'search');
+    expect(out[0]!.attributes).toEqual({ km: '40 400 km', fuel: 'Electric', rooms: 'TWO' });
+  });
+
+  it('omits attributes entirely when none resolve (no empty bag)', () => {
+    const nodes = [{ id: 'a', title: 't', price: '10', url: 'u' }];
+    const out = normalizeItems(nodes, ENRICH, 'search');
+    expect(out[0]!.attributes).toBeUndefined();
+  });
+
+  it('includes only the attributes that resolved (partial bag)', () => {
+    const nodes = [
+      { id: 'a', title: 't', price: '10', url: 'u', params: [{ key: 'petrol', value: 'Diesel' }] },
+    ];
+    const out = normalizeItems(nodes, ENRICH, 'search');
+    expect(out[0]!.attributes).toEqual({ fuel: 'Diesel' });
+  });
+
+  // ── attributes_from: flexible explode for multi-category vendors ────────────
+  const FLEX: IVendorPlugin = {
+    vendor: 'Flex',
+    domain: 'flex.example',
+    engine: 'json-extractor',
+    rate_limit_ms: 1000,
+    search_mapping: {
+      payload_locator: 'script#data',
+      json_path_to_items: 'items',
+      fields: { id: 'id', title: 'title', price: 'price', url: 'url' },
+      attributes_from: { path: 'params', key: 'name', value: 'value' },
+    },
+    product_mapping: { payload_locator: 'script#data', json_path: 'advert', fields: { id: 'id', title: 'title', price: 'price', url: 'url' } },
+  };
+
+  it('explodes WHATEVER params a listing carries (car shape)', () => {
+    const nodes = [
+      { id: 'a', title: 'Car', price: '10', url: 'u', params: [
+        { key: 'rulaj_pana', name: 'Rulaj', value: '40 400 km' },
+        { key: 'petrol', name: 'Combustibil', value: 'Electric' },
+      ] },
+    ];
+    const out = normalizeItems(nodes, FLEX, 'search');
+    expect(out[0]!.attributes).toEqual({ Rulaj: '40 400 km', Combustibil: 'Electric' });
+  });
+
+  it('explodes a DIFFERENT category from the same vendor (apartment shape)', () => {
+    const nodes = [
+      { id: 'b', title: 'Flat', price: '10', url: 'u', params: [
+        { key: 'suprafata', name: 'Suprafață utilă', value: '62 m²' },
+        { key: 'compartimentare', name: 'Compartimentare', value: 'Decomandat' },
+      ] },
+    ];
+    const out = normalizeItems(nodes, FLEX, 'search');
+    expect(out[0]!.attributes).toEqual({ 'Suprafață utilă': '62 m²', Compartimentare: 'Decomandat' });
+  });
+
+  it('omits attributes when the params array is absent or empty', () => {
+    const out = normalizeItems(
+      [{ id: 'a', title: 't', price: '10', url: 'u' }, { id: 'b', title: 't', price: '10', url: 'u', params: [] }],
+      FLEX, 'search',
+    );
+    expect(out[0]!.attributes).toBeUndefined();
+    expect(out[1]!.attributes).toBeUndefined();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
 // exclusion keywords
 // ────────────────────────────────────────────────────────────────────────────
 describe('exclusion keywords', () => {

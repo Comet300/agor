@@ -89,6 +89,39 @@ describe('renderNotification — new_listing', () => {
     expect(msg.text).toContain('Also on:');
     expect(msg.text).toContain('autovit.ro');
   });
+
+  it('renders specs, posted date, and a description snippet when present', () => {
+    const item = makeItem({
+      attributes: { km: '40 400 km', fuel: 'Electric', year: '2023' },
+      postedAt: Date.parse('2026-06-09T16:21:42+03:00'),
+      description: 'Tesla Model 3 in impeccable condition, single owner, full service history.',
+    });
+    const n: Notification = { kind: 'new_listing', chatId: 1, item };
+    const msg = renderNotification(n, 'en');
+    expect(msg.text).toContain('km: 40 400 km');
+    expect(msg.text).toContain('fuel: Electric');
+    expect(msg.text).toContain('Posted: 2026-06-09');
+    expect(msg.text).toContain('single owner');
+  });
+
+  it('caps specs to 5 and truncates a long description', () => {
+    const attributes: Record<string, string> = {};
+    for (let i = 0; i < 9; i++) attributes[`k${i}`] = `v${i}`;
+    const item = makeItem({
+      attributes,
+      description: 'x'.repeat(400),
+    });
+    const msg = renderNotification({ kind: 'new_listing', chatId: 1, item }, 'en');
+    const specsLine = msg.text.split('\n').find((l) => l.startsWith('📋'))!;
+    expect((specsLine.match(/·/g) ?? []).length).toBe(4); // 5 specs -> 4 separators
+    expect(msg.text).toContain('…'); // description truncated
+  });
+
+  it('omits the new lines entirely when the item has no specs/date/description', () => {
+    const msg = renderNotification({ kind: 'new_listing', chatId: 1, item: makeItem() }, 'en');
+    expect(msg.text).not.toContain('📋');
+    expect(msg.text).not.toContain('Posted:');
+  });
 });
 
 describe('renderNotification — price_drop', () => {

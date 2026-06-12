@@ -32,6 +32,15 @@ search_mapping:
     isPrivateOwner: "!isBusiness"
     location: "location.cityName"
     inStock: "isActive"
+    description: "description"
+    postedAt: "createdTime"
+  # OLX is MULTI-CATEGORY (cars, apartments, phones…) — each listing's `params`
+  # carry different specs, so explode WHATEVER the listing has (using OLX's own
+  # human labels) rather than a fixed, car-only key list.
+  attributes_from:
+    path: "params"
+    key: "name"
+    value: "value"
 
 # Single product / ad detail page.
 product_mapping:

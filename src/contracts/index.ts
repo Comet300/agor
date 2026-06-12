@@ -32,6 +32,29 @@ export interface IPluginMapping {
   json_path: string;
   /** Map of IScrapedItem field name → path within a single item node. */
   fields: Record<string, string>;
+  /**
+   * Optional canonical-spec-name → path map, building {@link IScrapedItem.attributes}.
+   * Paths resolve within a single item node (same dialect as `fields`). Use for
+   * vendors with DEDICATED spec fields (e.g. a property's `areaInSquareMeters`).
+   */
+  attributes?: Record<string, string>;
+  /**
+   * Optional flexible spec extraction: explode a key/value array into the
+   * attributes bag. Use for MULTI-CATEGORY vendors whose listings carry a generic
+   * `params: [{key,value}]` array (a car, an apartment and a phone expose totally
+   * different params), so a fixed key list would miss most of them.
+   */
+  attributes_from?: AttributesFrom;
+}
+
+/** Declarative explode of a key/value array into the attributes bag. */
+export interface AttributesFrom {
+  /** Path to the array of `{<key>, <value>}` records within an item node. */
+  path: string;
+  /** Field on each element used as the attribute NAME (prefer a human label). */
+  key: string;
+  /** Field on each element used as the attribute VALUE. */
+  value: string;
 }
 
 export interface IPluginSearchMapping {
@@ -39,6 +62,10 @@ export interface IPluginSearchMapping {
   /** Path from the payload root to the array of item nodes. */
   json_path_to_items: string;
   fields: Record<string, string>;
+  /** Optional canonical-spec-name → path map (see {@link IPluginMapping.attributes}). */
+  attributes?: Record<string, string>;
+  /** Optional flexible key/value array explode (see {@link IPluginMapping.attributes_from}). */
+  attributes_from?: AttributesFrom;
 }
 
 export interface IVendorPlugin {
@@ -77,6 +104,16 @@ export interface IScrapedItem {
   inStock: boolean;
   /** Parsed seller phone, when available (powers the tel: deep link). */
   phone?: string;
+  /** Short listing description / teaser, when the vendor exposes one. */
+  description?: string;
+  /** When the listing was posted (epoch ms), parsed from the vendor's date. */
+  postedAt?: number;
+  /**
+   * Structured listing specs as a flexible bag, e.g. `{ km, year, fuel }` for a
+   * car or `{ area, rooms, floor }` for a property. The keys are canonical names
+   * chosen by the manifest's `attributes` sub-map; values are display strings.
+   */
+  attributes?: Record<string, string>;
   /** Vendor that produced this item (set by the scraping engine). */
   vendor?: string;
 }
