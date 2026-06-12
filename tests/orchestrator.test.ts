@@ -929,3 +929,43 @@ describe('dedup is isolated per chat (no cross-user suppression)', () => {
     expect(bNotes.some((n) => n.kind === 'cross_post')).toBe(false);
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Dispatch failure isolation: one failing notify() must not abort the batch
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('dispatch isolates a failing notification', () => {
+  it('delivers the rest of the batch and still tracks health when one notify throws', async () => {
+    const h = makeHarness();
+    // Baseline empty → first cycle alerts the new items.
+    h.setBody(searchDoc([]));
+    const res = await h.orchestrator.register({ chatId: 7, rawUrl: SEARCH_URL });
+    if (!res.ok) throw new Error('register failed');
+
+    // Two genuinely-new listings this cycle.
+    h.setNow(2_000);
+    h.setBody(
+      searchDoc([
+        { id: 'A', title: 'iPhone', price: 1000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' },
+        { id: 'B', title: 'Pixel', price: 1100, currency: 'RON', url: 'https://www.synth.test/B', city: 'Iasi' },
+      ]),
+    );
+    // The FIRST notify() call throws (e.g. Telegram hiccup); the rest must proceed.
+    h.notify.mockImplementationOnce(async () => {
+      throw new Error('telegram 429');
+    });
+
+    const result = await h.orchestrator.runMonitorOnce(res.monitor.id);
+
+    // Two new_listing notifications were produced and BOTH were attempted
+    // (the throw on the first didn't abort the loop).
+    expect(result.newItems).toBe(2);
+    expect(h.notify.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // The cycle still reports healthy (health tracking ran past the failed delivery).
+    expect(result.ok).toBe(true);
+    // A subsequent healthy cycle confirms the monitor wasn't wedged.
+    h.setNow(3_000);
+    const next = await h.orchestrator.runMonitorOnce(res.monitor.id);
+    expect(next.ok).toBe(true);
+  });
+});

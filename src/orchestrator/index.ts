@@ -119,11 +119,18 @@ export class Orchestrator {
     return this.deps.store.access.isAllowed(chatId) || this.deps.store.access.isAdmin(chatId);
   }
 
-  /** The dedup buffer for a chat, created on first use (per-chat isolation). */
+  /**
+   * The dedup buffer for a chat, created on first use (per-chat isolation). Bound
+   * to the store so it rehydrates from disk and persists through — already-seen
+   * listings are not re-alerted after a restart.
+   */
   private dedupFor(chatId: number): DedupBuffer {
     let buf = this.dedupByChat.get(chatId);
     if (!buf) {
-      buf = new DedupBuffer(this.deps.config.dedupWindowMs);
+      buf = new DedupBuffer(this.deps.config.dedupWindowMs, {
+        store: this.deps.store.dedup,
+        chatId,
+      });
       this.dedupByChat.set(chatId, buf);
     }
     return buf;
@@ -178,7 +185,19 @@ export class Orchestrator {
    */
   private async dispatch(notifications: Notification[]): Promise<void> {
     for (const n of notifications) {
-      const ref = await this.deps.notify(n);
+      // Isolate each delivery: a single failing notify() (Telegram hiccup,
+      // blocked chat) must not abort the rest of the batch or short-circuit the
+      // caller's health tracking. Log and continue.
+      let ref: MessageRef | void;
+      try {
+        ref = await this.deps.notify(n);
+      } catch (err) {
+        log('orchestrator').warn(
+          { chatId: n.chatId, kind: n.kind, err: (err as Error).message },
+          'notification delivery failed',
+        );
+        continue;
+      }
       if (n.kind === 'new_listing' && ref && n.item) {
         // Record the message ref on the OWNING chat's buffer (per-chat isolation).
         const dedup = this.dedupFor(n.chatId);
