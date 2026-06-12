@@ -181,6 +181,24 @@ describe('normalizeItems', () => {
     expect(out.map((i) => i.currency)).toEqual(['EUR', 'RON', 'RON']);
   });
 
+  it('infers a blank currency from the raw price text (symbol/word)', () => {
+    const nodes = [
+      { id: 'a', title: 't', price: '16.990 eur', url: 'u' }, // word
+      { id: 'b', title: 't', price: '124,000 €', url: 'u' }, // symbol
+      { id: 'c', title: 't', price: '99', url: 'u' }, // nothing to infer
+    ];
+    const out = normalizeItems(nodes, PLUGIN, 'search');
+    expect(out[0]!.currency).toBe('EUR');
+    expect(out[1]!.currency).toBe('EUR');
+    expect(out[2]!.currency).toBe(''); // left blank for benchmark-stage fallback
+  });
+
+  it('a declared currency still wins over price-text inference', () => {
+    const nodes = [{ id: 'a', title: 't', price: '16.990 eur', url: 'u', currency: 'usd' }];
+    const out = normalizeItems(nodes, PLUGIN, 'search');
+    expect(out[0]!.currency).toBe('USD'); // declared field is authoritative
+  });
+
   it('drops an item whose templated required URL has an empty segment', () => {
     // A slug-less ad would yield "https://x/ad/-123" — a broken deep link.
     const templated: IVendorPlugin = {
@@ -469,6 +487,40 @@ describe('benchmarking', () => {
     const enriched = enrichWithBenchmark(items, [90, 100, 110], 3);
     expect(enriched[0]?.benchmark?.median).toBe(100);
     expect(enriched[0]?.dealTag).toBe('great_deal');
+  });
+
+  it('a blank-currency item borrows the SERP-dominant currency bucket', () => {
+    // Three EUR items + one item whose currency could not be resolved. The blank
+    // one should be benchmarked against the dominant (EUR) bucket, not isolated.
+    const eur = [
+      item({ id: 'e1', price: 100_000, currency: 'EUR' }),
+      item({ id: 'e2', price: 110_000, currency: 'EUR' }),
+      item({ id: 'e3', price: 90_000, currency: 'EUR' }),
+    ];
+    const blank = item({ id: 'b1', price: 50_000, currency: '' });
+    const all = [...eur, blank];
+    const prices = all.map((i) => ({ price: i.price, currency: i.currency }));
+    const enriched = enrichWithBenchmark(all, prices, 3);
+    const b1 = enriched.find((i) => i.id === 'b1')!;
+    // Resolved to the EUR bucket (median 100k, confident) → tagged great_deal.
+    expect(b1.benchmark?.median).toBe(100_000);
+    expect(b1.benchmark?.confident).toBe(true);
+    expect(b1.dealTag).toBe('great_deal'); // 50k <= 100k*0.85
+  });
+
+  it('all-blank currency falls back to one implicit bucket (still benchmarked)', () => {
+    const items = [
+      item({ id: 'a', price: 90, currency: '' }),
+      item({ id: 'b', price: 100, currency: '' }),
+      item({ id: 'c', price: 110, currency: '' }),
+    ];
+    const prices = items.map((i) => ({ price: i.price, currency: i.currency }));
+    const enriched = enrichWithBenchmark(items, prices, 3);
+    // The '' bucket has all three → confident median 100; every item is tagged
+    // (90 is within 0.85–1.05 of 100 → fair_price, not great_deal).
+    expect(enriched.every((i) => i.benchmark?.confident)).toBe(true);
+    expect(enriched.find((i) => i.id === 'a')!.benchmark?.median).toBe(100);
+    expect(enriched.find((i) => i.id === 'a')!.dealTag).toBe('fair_price');
   });
 });
 

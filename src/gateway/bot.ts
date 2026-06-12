@@ -28,7 +28,7 @@ import type { Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput } from '../pipeline';
 import { renderNotification, renderRegistrationCard } from './render';
-import { registrationKeyboard } from './keyboards';
+import { registrationKeyboard, confirmKeyboard } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -306,8 +306,8 @@ export function buildBot(
         await ctx.reply(tr(lang).remove_not_found);
         return;
       }
-      store.monitors.delete(id);
-      await ctx.reply(tr(lang).remove_done(id));
+      // Destructive → confirm first; the cf:rm callback performs the delete.
+      await ctx.reply(tr(lang).confirm_remove(id), { reply_markup: confirmKeyboard('rm', id, lang) });
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -423,11 +423,11 @@ export function buildBot(
     try {
       const id = parseId(ctx.match ?? '');
       if (id === undefined) { await ctx.reply(tr(lang).access_deny_usage); return; }
-      store.access.deny(id, { by: chatId, at: Date.now() });
+      // Destructive → confirm first; the cf:dn callback performs the deny.
       const rec = store.access.get(id);
-      log('access').info({ chatId: id, action: 'deny', by: chatId }, 'access denied');
-      await ctx.reply(tr(lang).access_deny_done({ id, name: rec?.name ?? '' }));
-      try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_denied_user); } catch { /* blocked */ }
+      await ctx.reply(tr(lang).confirm_deny({ id, name: rec?.name ?? '' }), {
+        reply_markup: confirmKeyboard('dn', id, lang),
+      });
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -529,12 +529,11 @@ export function buildBot(
     try {
       const id = parseId(ctx.match ?? '');
       if (id === undefined) { await ctx.reply(tr(lang).access_demote_usage); return; }
+      // Pre-validate the guards up-front so the user doesn't confirm a no-op.
       if (id === chatId) { await ctx.reply(tr(lang).access_demote_last_admin); return; } // no self-demote
-      const ok = store.access.demote(id);
-      if (!ok) { await ctx.reply(tr(lang).access_demote_last_admin); return; }
-      log('access').info({ chatId: id, action: 'demote', by: chatId }, 'user demoted from admin');
-      await ctx.reply(tr(lang).access_demote_done({ id }));
-      try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_demoted_user); } catch { /* blocked */ }
+      if (!store.access.isAdmin(id)) { await ctx.reply(tr(lang).access_demote_done({ id })); return; } // already not admin
+      // Destructive → confirm first; the cf:dm callback performs the demote.
+      await ctx.reply(tr(lang).confirm_demote(id), { reply_markup: confirmKeyboard('dm', id, lang) });
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -652,7 +651,8 @@ export function buildBot(
     }
   });
 
-  // Remove monitor: rm:<monitorId> — only if owned by this chat.
+  // Remove monitor button: rm:<monitorId> — prompts a confirmation (the cf:rm
+  // callback performs the delete), only for a watch owned by this chat.
   bot.callbackQuery(/^rm:(\d+)$/, async (ctx) => {
     const chatId = ctx.chat?.id ?? 0;
     const lang = langFor(store, chatId);
@@ -663,8 +663,51 @@ export function buildBot(
         await ctx.answerCallbackQuery(tr(lang).remove_not_found);
         return;
       }
-      store.monitors.delete(monitorId);
-      await ctx.answerCallbackQuery(tr(lang).cb_removed);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(tr(lang).confirm_remove(monitorId), {
+        reply_markup: confirmKeyboard('rm', monitorId, lang),
+      });
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
+  // Cancel a pending confirmation: cx (no-op beyond acknowledging).
+  bot.callbackQuery(/^cx$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try { await ctx.answerCallbackQuery(tr(lang).cb_cancelled); } catch { /* expired */ }
+  });
+
+  // Confirmed destructive action: cf:<rm|dn|dm>:<id>. Re-validate ownership /
+  // admin / guards here — never trust the action solely from the callback data.
+  bot.callbackQuery(/^cf:(rm|dn|dm):(-?\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id ?? 0;
+    const lang = langFor(store, chatId);
+    try {
+      const action = ctx.match[1];
+      const id = Number(ctx.match[2]);
+      if (action === 'rm') {
+        const monitor = store.monitors.get(id);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.answerCallbackQuery(tr(lang).remove_not_found); return; }
+        store.monitors.delete(id);
+        log('cycle').info({ monitorId: id, chatId, action: 'remove' }, 'monitor removed');
+        await ctx.answerCallbackQuery(tr(lang).cb_removed);
+        return;
+      }
+      // dn / dm are admin-only.
+      if (!isAdmin(chatId)) { await ctx.answerCallbackQuery(tr(lang).access_admin_only); return; }
+      if (action === 'dn') {
+        store.access.deny(id, { by: chatId, at: Date.now() });
+        log('access').info({ chatId: id, action: 'deny', by: chatId }, 'access denied');
+        await ctx.answerCallbackQuery(tr(lang).cb_deny_done({ id }));
+        try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_denied_user); } catch { /* blocked */ }
+        return;
+      }
+      // action === 'dm'
+      if (id === chatId || !store.access.demote(id)) { await ctx.answerCallbackQuery(tr(lang).access_demote_last_admin); return; }
+      log('access').info({ chatId: id, action: 'demote', by: chatId }, 'user demoted from admin');
+      await ctx.answerCallbackQuery(tr(lang).access_demote_done({ id }));
+      try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_demoted_user); } catch { /* blocked */ }
     } catch (err) {
       await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
     }

@@ -130,6 +130,18 @@ export class MonitorCycle {
       now: at,
     });
 
+    // Currency could not be resolved for some items (no declared field, no symbol
+    // in the price text, and no other item to infer a SERP-dominant currency
+    // from). They are still benchmarked as one implicit bucket, but surface the
+    // gap so a manifest currency-path issue isn't invisible.
+    const blankCurrency = out.active.filter((i) => i.currency === '').length;
+    if (blankCurrency > 0) {
+      log('cycle').warn(
+        { monitorId: monitor.id, vendor: monitor.vendor, blankCurrency, active: out.active.length },
+        'items with unresolved currency (benchmarked as one bucket)',
+      );
+    }
+
     // One notification per genuinely new (already enriched) listing.
     const notifications: Notification[] = out.newEnriched.map((item) => ({
       kind: 'new_listing',

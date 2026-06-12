@@ -21,6 +21,19 @@ const CALLBACK_DATA_LIMIT = 64;
 export const FREQUENCY_PRESETS: readonly number[] = [5, 10, 30, 60];
 
 /**
+ * Two-tap confirmation keyboard for a destructive action. The confirm button
+ * carries `cf:<action>:<id>` (the handler re-validates before acting); cancel is
+ * a fixed `cx`. `action` is a short token: `rm` (remove watch), `dn` (deny
+ * access), `dm` (demote admin).
+ */
+export function confirmKeyboard(action: 'rm' | 'dn' | 'dm', id: number, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  return new InlineKeyboard()
+    .text(t.btn_confirm, `cf:${action}:${id}`)
+    .text(t.btn_cancel, 'cx');
+}
+
+/**
  * Callback data for the "Price history" button: `pg:<vendor>:<id>`.
  *
  * Telegram limits callback_data to 64 bytes; when the verbose form would exceed

@@ -8,6 +8,7 @@
  */
 import type { AttributesFrom, IScrapedItem, IVendorPlugin } from '../contracts';
 import { resolvePath } from '../util/jsonPath';
+import { canonicalCurrency, inferCurrencyFromText } from '../util/currency';
 
 /**
  * Field paths may be prefixed with "!" to mean "logical NOT of the located
@@ -154,13 +155,6 @@ function coerceString(value: unknown): string {
   return decodeEntities(s);
 }
 
-/** ISO currency canonicalization: upper-case and map Romanian "lei" -> RON. */
-function canonicalCurrency(raw: string): string {
-  const v = raw.trim().toUpperCase();
-  if (v === 'LEI' || v === 'RON') return 'RON';
-  return v;
-}
-
 /**
  * Parse a vendor's posted-at date into epoch ms, or `undefined` when absent /
  * unparseable. Handles ISO 8601 (OLX `createdTime`, ld+json `datePublished`) and
@@ -238,8 +232,14 @@ function buildItem(
       : true;
 
   // ── Optional string fields ────────────────────────────────────────────────
+  // Currency: prefer the declared field; when blank, infer from the raw price
+  // text (e.g. "16.990 eur" / "124,000 €"). A still-blank currency is left empty
+  // for the benchmark stage to resolve via the SERP-dominant fallback.
   const currencyRaw = coerceString(get('currency').value);
-  const currency = currencyRaw === '' ? '' : canonicalCurrency(currencyRaw);
+  const currency =
+    currencyRaw !== ''
+      ? canonicalCurrency(currencyRaw)
+      : inferCurrencyFromText(coerceString(get('price').value));
   const location = coerceString(get('location').value);
   const imageUrl = coerceString(get('imageUrl').value);
   const phone = coerceString(get('phone').value);

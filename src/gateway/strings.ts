@@ -139,6 +139,14 @@ export interface Catalog {
   btn_deny: string;
   cb_allow_done: (p: { id: number }) => string;
   cb_deny_done: (p: { id: number }) => string;
+
+  // ── Destructive-action confirmation ───────────────────────────────────────
+  confirm_remove: (id: number) => string; // "Stop watch #id? This can't be undone."
+  confirm_deny: (p: { id: number; name: string }) => string;
+  confirm_demote: (id: number) => string;
+  btn_confirm: string;
+  btn_cancel: string;
+  cb_cancelled: string;
 }
 
 const ro: Catalog = {
@@ -268,6 +276,12 @@ const ro: Catalog = {
   btn_deny: '⛔ Respinge',
   cb_allow_done: ({ id }) => `Acces acordat pentru ${id}.`,
   cb_deny_done: ({ id }) => `Acces respins pentru ${id}.`,
+  confirm_remove: (id) => `Sigur oprești urmărirea #${id}? Acțiunea nu poate fi anulată.`,
+  confirm_deny: ({ id, name }) => `Sigur respingi accesul pentru ${name || id} (${id})?`,
+  confirm_demote: (id) => `Sigur retragi drepturile de administrator pentru ${id}?`,
+  btn_confirm: '✅ Da, confirm',
+  btn_cancel: '✖️ Anulează',
+  cb_cancelled: 'Anulat.',
 };
 
 const en: Catalog = {
@@ -394,6 +408,12 @@ const en: Catalog = {
   btn_deny: '⛔ Deny',
   cb_allow_done: ({ id }) => `Access granted for ${id}.`,
   cb_deny_done: ({ id }) => `Access declined for ${id}.`,
+  confirm_remove: (id) => `Stop watch #${id}? This can't be undone.`,
+  confirm_deny: ({ id, name }) => `Decline access for ${name || id} (${id})?`,
+  confirm_demote: (id) => `Remove admin rights from ${id}?`,
+  btn_confirm: '✅ Yes, confirm',
+  btn_cancel: '✖️ Cancel',
+  cb_cancelled: 'Cancelled.',
 };
 
 /**
