@@ -92,17 +92,48 @@ function proxyHost(proxyUrl: string | undefined): string | undefined {
 const MAX_REDIRECTS = 5;
 
 /**
+ * Generous cap on the response body read into memory (~30 MB). Far above any
+ * real marketplace page (the largest live capture was ~8.5 MB), but bounds a
+ * hostile/runaway response so it cannot exhaust memory on a small host.
+ */
+const MAX_BODY_BYTES = 30 * 1024 * 1024;
+
+/**
+ * Read a response body to text, stopping once {@link MAX_BODY_BYTES} is reached.
+ * Streams chunks rather than buffering an unbounded `.text()`, so an oversized
+ * (or never-ending) response is truncated instead of OOMing the process. The
+ * underlying request is destroyed once the cap is hit.
+ */
+async function readCappedText(res: Awaited<ReturnType<typeof request>>): Promise<string> {
+  let total = 0;
+  const chunks: Buffer[] = [];
+  for await (const chunk of res.body) {
+    const buf = chunk as Buffer;
+    if (total + buf.length > MAX_BODY_BYTES) {
+      chunks.push(buf.subarray(0, MAX_BODY_BYTES - total));
+      res.body.destroy();
+      total = MAX_BODY_BYTES;
+      break;
+    }
+    chunks.push(buf);
+    total += buf.length;
+  }
+  return Buffer.concat(chunks, total).toString('utf8');
+}
+
+/**
  * Default {@link Fetcher} built on undici. Routes through a {@link ProxyAgent}
  * dispatcher when `proxyUrl` is supplied (else a plain {@link Agent}), composes
  * the redirect interceptor so 3xx canonicalizations are followed, and surfaces
  * the response headers plus the final (post-redirect) URL for block detection
- * and canonical persistence.
+ * and canonical persistence. The body is read with a size cap so an oversized
+ * response cannot exhaust memory.
  */
 export const defaultFetcher: Fetcher = async (url, { headers, proxyUrl }) => {
   const base = proxyUrl ? new ProxyAgent(proxyUrl) : new Agent();
   const dispatcher = base.compose(interceptors.redirect({ maxRedirections: MAX_REDIRECTS }));
   const res = await request(url, { method: 'GET', headers, dispatcher });
-  const body = await res.body.text();
+  const body = await readCappedText(res);
   // The redirect interceptor records the hop chain on res.context.history; the
   // last entry is the URL the request finally resolved to.
   const history = (res.context as { history?: URL[] } | undefined)?.history;

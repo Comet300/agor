@@ -119,6 +119,7 @@ function makeConfig(over: Partial<AppConfig> = {}): AppConfig {
     dedupWindowMs: 86_400_000,
     benchmarkMinSample: 4,
     proxyBenchCooldownMs: 300_000,
+    monitorCycleTimeoutMs: 120_000,
     failureAlertThreshold: 3,
     enableBrowserFallback: false,
     circuitBreakerThreshold: 10,

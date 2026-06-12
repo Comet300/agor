@@ -76,6 +76,19 @@ describe('resolvePath', () => {
     expect(resolvePath(graph, '@graph.~type:RealEstateListing.name')).toBeUndefined();
   });
 
+  it('~type:<T> matches a node whose @type is an ARRAY of types', () => {
+    const graph = {
+      '@graph': [
+        { '@type': ['Organization', 'LocalBusiness'], name: 'Acme' },
+        { '@type': 'Product', name: 'Apartment' },
+        { '@type': ['Offer', 'PriceSpecification'], price: 185000 },
+      ],
+    };
+    expect(resolvePath(graph, '@graph.~type:LocalBusiness.name')).toBe('Acme');
+    expect(resolvePath(graph, '@graph.~type:PriceSpecification.price')).toBe(185000);
+    expect(resolvePath(graph, '@graph.~type:Product.name')).toBe('Apartment');
+  });
+
   it('~type:<T> on a non-array or with no match returns undefined', () => {
     expect(resolvePath({ x: 1 }, 'x.~type:Product')).toBeUndefined();
     expect(resolvePath({ '@graph': [{ '@type': 'A' }] }, '@graph.~type:B.name')).toBeUndefined();
