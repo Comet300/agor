@@ -1,0 +1,14 @@
+{
+  "_comment": "Drives `agor --check` / `npm run check:manifests`. Maps each manifest domain to the committed fixture(s) its search/product mapping must extract >=1 item from. null = no fixture for that surface yet (skipped). Keep in sync when adding manifests/fixtures.",
+  "olx.ro": { "search": "olx-prerendered.html", "product": "olx-prerendered.html" },
+  "autovit.ro": { "search": "autovit-next.html", "product": "autovit-product-next.html" },
+  "storia.ro": { "search": "storia-next.html", "product": "storia-product-next.html" },
+  "lajumate.ro": { "search": "lajumate-next.html", "product": "lajumate-product-next.html" },
+  "publi24.ro": { "search": "publi24-ldjson.html", "product": "publi24-product-ldjson.html" },
+  "imobiliare.ro": { "search": "imobiliare-ldjson.html", "product": "imobiliare-product-ldjson.html" },
+  "imoradar24.ro": { "search": "imoradar24-ldjson.html", "product": "imoradar24-product-ldjson.html" },
+  "vinted.ro": { "search": "vinted-flight.html", "product": "vinted-product-ldjson.html" },
+  "carzz.ro": { "search": "carzz-dom.html", "product": "carzz-product-dom.html" },
+  "homezz.ro": { "search": "homezz-dom.html", "product": "homezz-product-dom.html" },
+  "mobile.de": { "search": "mobilede-flight.html", "product": "mobilede-product-flight.html" }
+}

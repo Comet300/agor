@@ -23,7 +23,59 @@ import { Orchestrator } from './orchestrator';
 import { buildBot, makeNotifier } from './gateway/bot';
 import { commandMenu } from './gateway/strings';
 import { selectMode, startWebhook } from './gateway/webhook';
+import { healthHandler, startHealthServer, type HealthDeps } from './gateway/health';
 import { configureLogging, hasLoki, log } from './logging/logger';
+import type { Server } from 'node:http';
+import type { Store } from './persistence';
+
+/**
+ * Trap SIGINT/SIGTERM and tear down cleanly: stop the scheduler, close the
+ * browser + HTTP server + DB, then exit. Idempotent (re-entry ignored) and
+ * bounded (a stuck teardown still exits after a timeout).
+ */
+function installShutdown(resources: {
+  orchestrator: Orchestrator;
+  store: Store;
+  closeBrowser?: () => Promise<void>;
+  servers: Array<Server | undefined>;
+}): void {
+  let shuttingDown = false;
+  const handle = (signal: string): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log('shutdown').info({ signal }, 'received signal; shutting down gracefully');
+    const force = setTimeout(() => {
+      log('shutdown').error({}, 'shutdown exceeded 10s; forcing exit');
+      process.exit(1);
+    }, 10_000);
+    force.unref?.();
+    void (async () => {
+      try {
+        resources.orchestrator.stop();
+        for (const s of resources.servers) {
+          if (s) await new Promise<void>((r) => s.close(() => r()));
+        }
+        if (resources.closeBrowser) {
+          await resources.closeBrowser().catch((err) =>
+            log('shutdown').warn({ err: (err as Error).message }, 'browser close failed'),
+          );
+        }
+        try { resources.store.db.close(); } catch (err) {
+          log('shutdown').warn({ err: (err as Error).message }, 'db close failed');
+        }
+        clearTimeout(force);
+        log('shutdown').info({}, 'shutdown complete');
+        process.exit(0);
+      } catch (err) {
+        clearTimeout(force);
+        log('shutdown').error({ err: (err as Error).message }, 'shutdown failed');
+        process.exit(1);
+      }
+    })();
+  };
+  process.once('SIGINT', () => handle('SIGINT'));
+  process.once('SIGTERM', () => handle('SIGTERM'));
+}
 
 async function main(): Promise<void> {
   // 1. Configuration (env-driven, validated), then logging (so everything after
@@ -56,9 +108,11 @@ async function main(): Promise<void> {
   const wantsBrowser =
     config.enableBrowserFallback && registry.all().some((p) => p.fetch_strategy === 'browser');
   let browserFetcher: Fetcher | undefined;
+  let closeBrowser: (() => Promise<void>) | undefined;
   if (wantsBrowser) {
-    const { createBrowserFetcher } = await import('./scraping/browserFetcher');
-    browserFetcher = createBrowserFetcher();
+    const mod = await import('./scraping/browserFetcher');
+    browserFetcher = mod.createBrowserFetcher();
+    closeBrowser = mod.closeBrowser;
     log('boot').info('browser fallback enabled for opted-in manifests');
   }
   const engine = new ScrapingEngine({
@@ -112,30 +166,61 @@ async function main(): Promise<void> {
   //    configured mode: webhook when a URL is set, otherwise long-polling.
   orchestrator.start();
 
+  // Health/readiness: report the scheduler's liveness. In webhook mode the route
+  // rides the webhook listener; in long-poll mode a tiny dedicated listener runs
+  // only when HEALTH_CHECK_PORT is set.
+  const healthDeps: HealthDeps = {
+    getLastTickAt: () => orchestrator.scheduler.getLastTickAt(),
+    getLastDueCount: () => orchestrator.scheduler.getLastDueCount(),
+  };
+
+  // Servers to close on shutdown (webhook and/or standalone health listener).
+  const servers: Array<Server | undefined> = [];
+
   if (bot) {
     if (selectMode(config) === 'webhook' && config.webhookUrl) {
-      await startWebhook(bot, {
+      const health = healthHandler(healthDeps);
+      const server = await startWebhook(bot, {
         url: config.webhookUrl,
         port: config.webhookPort,
         secret: config.webhookSecret,
+        preHandler: (req, res) => health(req, res),
       });
+      servers.push(server);
       log('boot').info(
         { port: config.webhookPort, url: config.webhookUrl },
-        'webhook listening; the HTTP server keeps the process alive',
+        'webhook listening (health on /health); the HTTP server keeps the process alive',
       );
     } else {
+      // Long-poll: optional standalone health listener.
+      servers.push(startHealthServer(config.healthCheckPort, healthDeps));
       // Clear any previously-registered webhook so polling is not refused.
       await bot.api.deleteWebhook();
+      installShutdown({ orchestrator, store, closeBrowser, servers });
       log('boot').info('starting Telegram long-polling');
       // bot.start() resolves only when the bot stops, keeping the process alive.
       await bot.start();
+      return;
     }
   } else {
+    servers.push(startHealthServer(config.healthCheckPort, healthDeps));
     log('boot').info('scheduler started (no bot); Ctrl+C to exit');
   }
+
+  installShutdown({ orchestrator, store, closeBrowser, servers });
 }
 
-main().catch((err) => {
-  log('boot').error({ err: (err as Error).message }, 'fatal error');
-  process.exitCode = 1;
-});
+// `agor --check`: run the manifest self-test and exit, never booting the bot.
+if (process.argv.includes('--check')) {
+  void (async () => {
+    const { runCheck, printReport } = await import('./bin/check');
+    const { ok, results } = await runCheck();
+    printReport(results);
+    process.exit(ok ? 0 : 1);
+  })();
+} else {
+  main().catch((err) => {
+    log('boot').error({ err: (err as Error).message }, 'fatal error');
+    process.exitCode = 1;
+  });
+}

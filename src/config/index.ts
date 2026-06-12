@@ -45,6 +45,13 @@ const EnvSchema = z.object({
   // FAILURE_ALERT_THRESHOLD: telling the user a watch is failing is cheap and
   // early; giving up on polling a vendor entirely is a stronger, later decision.
   CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().int().positive().default(10),
+  // Scheduler ticks between periodic DB maintenance (wal_checkpoint). Default
+  // 360 ≈ 6h at the typical ~1-min tick cadence.
+  DB_MAINTENANCE_INTERVAL_TICKS: z.coerce.number().int().positive().default(360),
+  // Port for a GET /health endpoint (0 = disabled). In webhook mode the health
+  // route is served on WEBHOOK_PORT automatically; this only spins up a separate
+  // listener for long-polling deployments that want a probe.
+  HEALTH_CHECK_PORT: z.coerce.number().int().min(0).max(65535).default(0),
   LOG_LEVEL: z
     .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'])
     .default('info'),
@@ -80,6 +87,10 @@ export interface AppConfig {
   enableBrowserFallback: boolean;
   /** Consecutive blocked/failed cycles before a vendor is circuit-broken. */
   circuitBreakerThreshold: number;
+  /** Scheduler ticks between periodic DB maintenance (wal_checkpoint). */
+  dbMaintenanceIntervalTicks: number;
+  /** Port for the GET /health endpoint (0 = disabled in long-poll mode). */
+  healthCheckPort: number;
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent';
   /** Grafana Cloud Loki: push host (e.g. https://logs-prod-039.grafana.net). */
   lokiUrl?: string;
@@ -115,6 +126,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     failureAlertThreshold: parsed.FAILURE_ALERT_THRESHOLD,
     enableBrowserFallback: parsed.ENABLE_BROWSER_FALLBACK,
     circuitBreakerThreshold: parsed.CIRCUIT_BREAKER_THRESHOLD,
+    dbMaintenanceIntervalTicks: parsed.DB_MAINTENANCE_INTERVAL_TICKS,
+    // In webhook mode the health route rides the existing webhook listener;
+    // otherwise it only runs when an explicit HEALTH_CHECK_PORT is set.
+    healthCheckPort: parsed.WEBHOOK_URL ? parsed.WEBHOOK_PORT : parsed.HEALTH_CHECK_PORT,
     logLevel: parsed.LOG_LEVEL,
     lokiUrl: parsed.LOKI_URL || undefined,
     lokiUser: parsed.LOKI_USER || undefined,

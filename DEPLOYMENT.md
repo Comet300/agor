@@ -81,6 +81,13 @@ Fill in at least:
 Leave `WEBHOOK_URL` **empty** for now (long-polling). `.env` is git-ignored —
 never commit it.
 
+Optional operational knobs (sensible defaults; see `.env.example` for the rest):
+
+| Variable                       | Default | Purpose                                                                 |
+| ------------------------------ | ------- | ----------------------------------------------------------------------- |
+| `HEALTH_CHECK_PORT`            | `0`     | Long-poll mode: port for a `GET /health` listener (`0` = off). In webhook mode `/health` rides the webhook port automatically. |
+| `DB_MAINTENANCE_INTERVAL_TICKS`| `360`   | How often (in ~10s scheduler ticks) to checkpoint the WAL and `PRAGMA optimize`. 360 ≈ hourly. |
+
 Quick smoke test in the foreground (Ctrl+C to stop):
 
 ```bash
@@ -192,6 +199,34 @@ pm2 status             # overview
 cd ~/agor && git pull && npm ci && pm2 restart agor
 ```
 
+**Graceful shutdown.** On `SIGINT`/`SIGTERM` (a `pm2 restart`/`stop`, or Ctrl+C)
+agor stops the scheduler, closes the HTTP/health server and the headless browser
+if one was started, and closes the database — then exits. A teardown that stalls
+is force-exited after 10s, so a restart never hangs.
+
+**Health probe.** In webhook mode `GET /health` is served on the webhook port. In
+long-polling mode, set `HEALTH_CHECK_PORT` to expose the same endpoint. It returns
+`200` with `{ ok, lastTickAt, lastDueCount, uptimeSec }` when the scheduler ticked
+recently, `503` when it has gone stale — wire it to an uptime monitor:
+
+```bash
+curl -fsS localhost:8081/health   # exits non-zero on 503
+```
+
+**Manifest self-test.** Before deploying a manifest change, dry-run every
+marketplace's selectors against committed fixtures — catches a YAML that parses
+but silently extracts nothing:
+
+```bash
+npm run check:manifests   # or: npm run check  (typecheck + manifests)
+```
+
+It prints a per-marketplace pass/fail line and exits non-zero on any failure, so
+it slots straight into CI or a pre-push hook.
+
+**Access audit trail.** Every allow/deny/promote/demote decision is recorded.
+An admin can review the last 20 from Telegram with `/audit`.
+
 ---
 
 ## 9. Switching modes back to long-polling
@@ -276,6 +311,10 @@ agor writes to a single SQLite file (WAL enabled). SD cards wear under frequent
 writes. For longevity, point `DATABASE_PATH` at an external **USB SSD**, and/or
 back the file up periodically (`cp agor.db backup/agor-$(date +%F).db` from a
 cron job).
+
+agor checkpoints the WAL and runs `PRAGMA optimize` on a timer
+(`DB_MAINTENANCE_INTERVAL_TICKS`, hourly by default) so the file doesn't bloat
+under churn — no manual `VACUUM` needed.
 
 ## Troubleshooting
 

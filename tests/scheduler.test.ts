@@ -208,6 +208,43 @@ describe('Scheduler.tick', () => {
     expect(calls).toEqual([m.id]);
   });
 
+  it('runs onMaintenance every N ticks (and not on other ticks), even with nothing due', async () => {
+    const store = freshStore(); // no monitors → nothing due
+    let maintenanceRuns = 0;
+    const { scheduler } = makeScheduler(store, {
+      onMaintenance: async () => { maintenanceRuns += 1; },
+      maintenanceIntervalTicks: 3,
+    });
+    for (let i = 0; i < 6; i++) await scheduler.tick(1_000 + i);
+    // Ticks 3 and 6 fire maintenance; the other four don't.
+    expect(maintenanceRuns).toBe(2);
+  });
+
+  it('a throwing onMaintenance does not break the tick', async () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput({ nextDueAt: 0 }));
+    const { calls, runMonitor } = recordingRunner();
+    const { scheduler } = makeScheduler(store, {
+      runMonitor,
+      onMaintenance: async () => { throw new Error('checkpoint failed'); },
+      maintenanceIntervalTicks: 1, // fire every tick
+    });
+    await scheduler.tick(1_000);
+    // Maintenance threw, but the due monitor still ran.
+    expect(calls).toEqual([m.id]);
+  });
+
+  it('tracks lastTickAt and lastDueCount for the health probe', async () => {
+    const store = freshStore();
+    store.monitors.create(newMonitorInput({ nextDueAt: 0 }));
+    store.monitors.create(newMonitorInput({ nextDueAt: 0, url: 'https://x/2' }));
+    const { scheduler } = makeScheduler(store);
+    expect(scheduler.getLastTickAt()).toBeNull();
+    await scheduler.tick(7_000);
+    expect(scheduler.getLastTickAt()).toBe(7_000);
+    expect(scheduler.getLastDueCount()).toBe(2);
+  });
+
   it('is a no-op when nothing is due', async () => {
     const store = freshStore();
     store.monitors.create(newMonitorInput({ nextDueAt: 100_000 }));

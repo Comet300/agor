@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { openStore, type Store } from '../src/persistence';
+import { openStore, openDb, maintainDb, type Store } from '../src/persistence';
 import type { NewMonitor } from '../src/persistence';
 import type { FilterConfig, IScrapedItem, MonitorType } from '../src/contracts';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 function freshStore(): Store {
   return openStore(':memory:');
@@ -319,6 +322,25 @@ describe('Store.transaction', () => {
     // Neither write survived — the item upsert was rolled back with the rest.
     expect(store.items.knownIds(m.id).has('tx-2')).toBe(false);
     expect(store.priceHistory.history(m.id, 'tx-2')).toHaveLength(0);
+  });
+});
+
+describe('maintainDb', () => {
+  it('checkpoints + optimizes a disk-backed DB without error', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agor-maint-'));
+    const path = join(dir, 'agor.db');
+    try {
+      const db = openDb(path);
+      // Generate some WAL by writing, then maintain.
+      db.prepare(
+        `INSERT INTO monitors (type, chat_id, vendor, url, filters_json, interval_ms, fast_tier, next_due_at, created_at)
+         VALUES ('search', 1, 'olx', 'https://x', '{}', 60000, 0, 0, 0)`,
+      ).run();
+      expect(() => maintainDb(db)).not.toThrow();
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

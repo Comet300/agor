@@ -194,6 +194,9 @@ describe('access gate (enforced with an admin configured)', () => {
     expect(h.store.access.isAllowed(USER)).toBe(true);
     // Requester told they were granted.
     expect(h.sent.some((s) => s.chatId === USER && s.text === tr('ro').access_granted_user)).toBe(true);
+    // The decision is recorded in the audit trail.
+    const audit = h.store.audit.recent();
+    expect(audit[0]).toMatchObject({ action: 'allow', targetChatId: USER, actorChatId: ADMIN });
 
     // Now the user can actually use the bot.
     await feed(h.bot, USER, '/help');

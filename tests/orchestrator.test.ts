@@ -123,6 +123,8 @@ function makeConfig(over: Partial<AppConfig> = {}): AppConfig {
     failureAlertThreshold: 3,
     enableBrowserFallback: false,
     circuitBreakerThreshold: 10,
+    dbMaintenanceIntervalTicks: 360,
+    healthCheckPort: 0,
     logLevel: 'silent',
     logService: 'agor',
     logEnv: 'test',

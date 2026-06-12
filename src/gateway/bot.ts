@@ -405,8 +405,10 @@ export function buildBot(
     try {
       const id = parseId(ctx.match ?? '');
       if (id === undefined) { await ctx.reply(tr(lang).access_allow_usage); return; }
-      store.access.allow(id, { by: chatId, at: Date.now() });
+      const now = Date.now();
+      store.access.allow(id, { by: chatId, at: now });
       const rec = store.access.get(id);
+      store.audit.log('allow', id, chatId, now, rec?.name);
       log('access').info({ chatId: id, action: 'allow', by: chatId }, 'access granted');
       await ctx.reply(tr(lang).access_allow_done({ id, name: rec?.name ?? '' }));
       try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_granted_user); } catch { /* user may have blocked */ }
@@ -445,6 +447,28 @@ export function buildBot(
         tr(lang).access_users_item({ id: u.chatId, status: u.status, isAdmin: u.isAdmin, name: u.name ?? '', email: u.email ?? '' }),
       );
       await ctx.reply(`${tr(lang).access_users_intro}\n\n${lines.join('\n')}`);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  // /audit — admin reads the recent access-decision audit trail.
+  bot.command('audit', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+    try {
+      const entries = store.audit.recent(20);
+      if (entries.length === 0) { await ctx.reply(tr(lang).audit_empty); return; }
+      const lines = entries.map((e) =>
+        tr(lang).audit_item({
+          action: e.action,
+          targetId: e.targetChatId,
+          actorId: e.actorChatId,
+          at: new Date(e.at).toISOString().replace('T', ' ').slice(0, 19),
+        }),
+      );
+      await ctx.reply(`${tr(lang).audit_intro}\n\n${lines.join('\n')}`);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -512,6 +536,7 @@ export function buildBot(
       const id = parseId(ctx.match ?? '');
       if (id === undefined) { await ctx.reply(tr(lang).access_promote_usage); return; }
       store.access.promote(id);
+      store.audit.log('promote', id, chatId, Date.now());
       log('access').info({ chatId: id, action: 'promote', by: chatId }, 'user promoted to admin');
       await ctx.reply(tr(lang).access_promote_done({ id }));
       try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_promoted_user); } catch { /* blocked */ }
@@ -550,12 +575,16 @@ export function buildBot(
       const action = ctx.match[1];
       const id = Number(ctx.match[2]);
       if (action === 'al') {
-        store.access.allow(id, { by: adminChatId, at: Date.now() });
+        const now = Date.now();
+        store.access.allow(id, { by: adminChatId, at: now });
+        store.audit.log('allow', id, adminChatId, now);
         log('access').info({ chatId: id, action: 'allow', by: adminChatId }, 'access granted');
         await ctx.answerCallbackQuery(tr(lang).cb_allow_done({ id }));
         try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_granted_user); } catch { /* blocked */ }
       } else {
-        store.access.deny(id, { by: adminChatId, at: Date.now() });
+        const now = Date.now();
+        store.access.deny(id, { by: adminChatId, at: now });
+        store.audit.log('deny', id, adminChatId, now);
         log('access').info({ chatId: id, action: 'deny', by: adminChatId }, 'access denied');
         await ctx.answerCallbackQuery(tr(lang).cb_deny_done({ id }));
         try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_denied_user); } catch { /* blocked */ }
@@ -697,7 +726,9 @@ export function buildBot(
       // dn / dm are admin-only.
       if (!isAdmin(chatId)) { await ctx.answerCallbackQuery(tr(lang).access_admin_only); return; }
       if (action === 'dn') {
-        store.access.deny(id, { by: chatId, at: Date.now() });
+        const now = Date.now();
+        store.access.deny(id, { by: chatId, at: now });
+        store.audit.log('deny', id, chatId, now);
         log('access').info({ chatId: id, action: 'deny', by: chatId }, 'access denied');
         await ctx.answerCallbackQuery(tr(lang).cb_deny_done({ id }));
         try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_denied_user); } catch { /* blocked */ }
@@ -705,6 +736,7 @@ export function buildBot(
       }
       // action === 'dm'
       if (id === chatId || !store.access.demote(id)) { await ctx.answerCallbackQuery(tr(lang).access_demote_last_admin); return; }
+      store.audit.log('demote', id, chatId, Date.now());
       log('access').info({ chatId: id, action: 'demote', by: chatId }, 'user demoted from admin');
       await ctx.answerCallbackQuery(tr(lang).access_demote_done({ id }));
       try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_demoted_user); } catch { /* blocked */ }
@@ -789,6 +821,7 @@ export function buildBot(
           store.access.setName(chatId, name);
           store.access.setEmail(chatId, email);
           store.access.seedAdmin(chatId);
+          store.audit.log('bootstrap_admin', chatId, chatId, Date.now(), name);
           log('access').info({ chatId, action: 'bootstrap_admin' }, 'first requester became admin');
           await ctx.reply(tr(lang).access_first_admin);
           return;
