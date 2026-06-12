@@ -35,3 +35,11 @@ product_mapping:
     price: "@graph.~type:Offer.priceSpecification.price"
     currency: "@graph.~type:Offer.priceSpecification.priceCurrency"
     url: "@graph.~type:Offer.url"
+    description: "@graph.~type:Product.description"
+  # Property specs are dedicated fields on the Accommodation node (no key/value
+  # array), so a curated map fits better than a flexible explode here.
+  attributes:
+    area: "@graph.~type:Accommodation.floorSize"
+    rooms: "@graph.~type:Accommodation.numberOfBedrooms"
+    baths: "@graph.~type:Accommodation.numberOfBathroomsTotal"
+    floor: "@graph.~type:Accommodation.floorLevel"

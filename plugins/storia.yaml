@@ -27,6 +27,14 @@ search_mapping:
     imageUrl: "images[0].medium"
     isPrivateOwner: "isPrivateOwner"
     location: "location.address.city.name"
+    description: "shortDescription"
+    postedAt: "dateCreated"
+  # Real-estate specs are dedicated fields (no key/value array needed).
+  attributes:
+    area: "areaInSquareMeters"
+    rooms: "roomsNumber"
+    floor: "floorNumber"
+    pricePerSqm: "pricePerSquareMeter.value"
 
 # Single property detail page.
 product_mapping:

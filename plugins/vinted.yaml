@@ -41,3 +41,9 @@ product_mapping:
     currency: "offers.priceCurrency"
     url: "offers.url"
     imageUrl: "image"
+    description: "description"
+  # Fashion specs are dedicated ld+json fields (brand/color/category).
+  attributes:
+    brand: "brand.name"
+    color: "color"
+    category: "category"

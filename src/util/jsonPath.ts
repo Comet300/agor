@@ -57,6 +57,22 @@ function walk(cur: unknown, segments: string[]): unknown {
     return walk(parsed, rest);
   }
 
+  // Find select: the current value is an array of records; pick the first element
+  // whose `<key>` field equals `<value>`, then continue. Resolves key/value spec
+  // arrays like OLX `params:[{key,value}]` / AutoVit `parameters:[{key,...}]`:
+  //   params.~find:key=rulaj.value
+  if (head.startsWith('~find:')) {
+    const expr = head.slice('~find:'.length);
+    const eq = expr.indexOf('=');
+    if (eq === -1 || !Array.isArray(cur)) return undefined;
+    const field = expr.slice(0, eq);
+    const wanted = expr.slice(eq + 1);
+    const node = cur.find(
+      (el) => String((el as Record<string, unknown>)?.[field]) === wanted,
+    );
+    return node === undefined ? undefined : walk(node, rest);
+  }
+
   // Type select: the current value is an array (e.g. an ld+json `@graph`); pick
   // the first element whose `@type` matches, then continue. Lets one mapping pull
   // fields from sibling nodes (Product name/@id + Offer price) on a split graph.

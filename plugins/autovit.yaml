@@ -30,6 +30,16 @@ search_mapping:
     imageUrl: "node.thumbnail.x1"
     isPrivateOwner: "node.seller.__typename"
     location: "node.location.city.name"
+    description: "node.shortDescription"
+    postedAt: "node.createdAt"
+  # `parameters` is a key/displayValue array (displayValue is the human label;
+  # `value` is a slug). ~find selects by key.
+  attributes:
+    year: "node.parameters.~find:key=year.displayValue"
+    km: "node.parameters.~find:key=mileage.displayValue"
+    fuel: "node.parameters.~find:key=fuel_type.displayValue"
+    power: "node.parameters.~find:key=engine_power.displayValue"
+    engine: "node.parameters.~find:key=engine_capacity.displayValue"
 
 # Single advert detail page.
 product_mapping:

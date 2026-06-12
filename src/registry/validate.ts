@@ -17,10 +17,19 @@ const FieldMap = z.record(z.string(), z.string());
  * `payload_locator` may be empty for `dom-selector` (which parses the whole HTML);
  * a top-level refinement enforces it for `json-extractor`.
  */
+/** Flexible key/value array explode for multi-category vendors. */
+const AttributesFromSchema = z.object({
+  path: z.string().min(1),
+  key: z.string().min(1),
+  value: z.string().min(1),
+});
+
 const SearchMappingSchema = z.object({
   payload_locator: z.string(),
   json_path_to_items: z.string().min(1),
   fields: FieldMap,
+  attributes: FieldMap.optional(),
+  attributes_from: AttributesFromSchema.optional(),
 });
 
 /** `product_mapping`: locates the payload and a single item node within it. */
@@ -28,6 +37,8 @@ const ProductMappingSchema = z.object({
   payload_locator: z.string(),
   json_path: z.string().min(1),
   fields: FieldMap,
+  attributes: FieldMap.optional(),
+  attributes_from: AttributesFromSchema.optional(),
 });
 
 /** zod schema matching {@link IVendorPlugin} one-to-one. */

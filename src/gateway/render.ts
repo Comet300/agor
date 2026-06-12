@@ -40,6 +40,35 @@ function sellerLine(item: EnrichedItem, lang: Lang): string {
   return item.isPrivateOwner ? tr(lang).seller_private : tr(lang).seller_company;
 }
 
+/** Max specs shown on a card, and the description snippet length. */
+const MAX_SPECS = 5;
+const DESCRIPTION_SNIPPET = 140;
+
+/** Join an item's attributes into a compact "k: v · k: v" specs string, or ''. */
+function specsText(item: EnrichedItem): string {
+  if (!item.attributes) return '';
+  const parts = Object.entries(item.attributes)
+    .filter(([, v]) => v !== '')
+    .slice(0, MAX_SPECS)
+    .map(([k, v]) => `${k}: ${v}`);
+  return parts.join(' · ');
+}
+
+/** A single-line, length-capped description snippet, or '' when absent. */
+function descriptionSnippet(item: EnrichedItem): string {
+  if (!item.description) return '';
+  const oneLine = item.description.replace(/\s+/g, ' ').trim();
+  if (oneLine.length <= DESCRIPTION_SNIPPET) return oneLine;
+  return oneLine.slice(0, DESCRIPTION_SNIPPET).trimEnd() + '…';
+}
+
+/** Render an epoch-ms timestamp as a stable ISO date (YYYY-MM-DD), or ''. */
+function postedDate(item: EnrichedItem): string {
+  if (item.postedAt === undefined) return '';
+  const d = new Date(item.postedAt);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+}
+
 /** Render a brand-new listing as a rich card. */
 function renderNewListing(item: EnrichedItem, lang: Lang): RenderedMessage {
   const t = tr(lang);
@@ -55,6 +84,16 @@ function renderNewListing(item: EnrichedItem, lang: Lang): RenderedMessage {
   // Seller type + optional location.
   lines.push(sellerLine(item, lang));
   if (item.location) lines.push(`📍 ${item.location}`);
+
+  // Structured specs + posted date, when present.
+  const specs = specsText(item);
+  if (specs) lines.push(t.specs_line(specs));
+  const posted = postedDate(item);
+  if (posted) lines.push(t.posted_line(posted));
+
+  // A short description teaser, when the vendor exposed one.
+  const snippet = descriptionSnippet(item);
+  if (snippet) lines.push(snippet);
 
   // Cross-platform alternatives, when dedup merged any in.
   if (item.alternativeSources && item.alternativeSources.length > 0) {

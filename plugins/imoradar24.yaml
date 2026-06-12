@@ -34,3 +34,9 @@ product_mapping:
     price: "@graph.~type:Offer.priceSpecification.price"
     currency: "@graph.~type:Offer.priceSpecification.priceCurrency"
     url: "@graph.~type:Offer.url"
+    description: "@graph.~type:Product.description"
+  attributes:
+    area: "@graph.~type:Accommodation.floorSize"
+    rooms: "@graph.~type:Accommodation.numberOfBedrooms"
+    baths: "@graph.~type:Accommodation.numberOfBathroomsTotal"
+    floor: "@graph.~type:Accommodation.floorLevel"

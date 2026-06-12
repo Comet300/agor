@@ -94,6 +94,8 @@ describe('product-page mappings (real manifests vs trimmed-real detail fixtures)
     expect(a.currency).toBe('RON');
     expect(a.url).toBe('https://www.vinted.ro/items/9151836673-adidasi');
     expect(a.id).toBe('9151836673-adidasi'); // offers.url tail
+    // Fashion specs from dedicated ld+json fields.
+    expect(a.attributes).toMatchObject({ brand: 'Decathlon' });
   });
 
   it('imobiliare product: spans the split @graph (Product name/id + Offer price/url)', async () => {
@@ -105,6 +107,9 @@ describe('product-page mappings (real manifests vs trimmed-real detail fixtures)
     expect(a.price).toBe(185000); // Offer.priceSpecification.price
     expect(a.currency).toBe('EUR');
     expect(a.url).toContain('/oferta/'); // the Offer's real listing url
+    // Specs from the Accommodation node via ~type selector.
+    expect(a.attributes).toMatchObject({ rooms: '2', baths: '2' });
+    expect(a.attributes!.area).toBeTruthy();
   });
 
   it('imoradar24 product: same split-@graph handling as imobiliare', async () => {
