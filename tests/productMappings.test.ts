@@ -94,6 +94,10 @@ describe('product-page mappings (real manifests vs trimmed-real detail fixtures)
     expect(a.currency).toBe('RON');
     expect(a.url).toBe('https://www.vinted.ro/items/9151836673-adidasi');
     expect(a.id).toBe('9151836673-adidasi'); // offers.url tail
+    // Vinted is P2P: the ld+json carries no seller flag, so the product mapping
+    // must default isPrivateOwner to TRUE (not the company default of an
+    // undeclared field). Otherwise "private sellers only" filters drop every item.
+    expect(a.isPrivateOwner).toBe(true);
     // Fashion specs from dedicated ld+json fields.
     expect(a.attributes).toMatchObject({ brand: 'Decathlon' });
   });

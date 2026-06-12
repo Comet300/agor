@@ -38,6 +38,15 @@ function parsePrice(raw: unknown): number | null {
   }
   if (typeof raw !== 'string') return null;
 
+  // Scientific notation ("1e6", "5e-3", "1.5E+2") would be mangled by the
+  // digit-stripping cleaner below (which drops the 'e' and sign), so parse it
+  // directly when the whole trimmed string is a well-formed exponential number.
+  const trimmed = raw.trim();
+  if (/^-?\d+(?:\.\d+)?[eE][+-]?\d+$/.test(trimmed)) {
+    const value = Number.parseFloat(trimmed);
+    if (Number.isFinite(value)) return value;
+  }
+
   // Keep only digits and the separators we understand (dot, comma, space).
   const cleaned = raw.replace(/[^\d.,\s]/g, '').trim();
   if (cleaned === '') return null;

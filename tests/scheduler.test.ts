@@ -199,6 +199,38 @@ describe('Scheduler.tick', () => {
     expect(store.monitors.get(hung.id)!.nextDueAt).toBe(now + DEFAULT_INTERVAL);
   });
 
+  it('a reschedule that throws is isolated: it is caught and siblings still run + reschedule', async () => {
+    const store = freshStore();
+    const bad = store.monitors.create(newMonitorInput({ nextDueAt: 0 }));
+    const good = store.monitors.create(
+      newMonitorInput({ nextDueAt: 0, url: 'https://www.olx.ro/auto/q-passat/' }),
+    );
+
+    // setSchedule throws for the `bad` monitor only (simulate a disk-full / lock
+    // error inside the finally's reschedule). The real impl is restored for `good`.
+    const realSetSchedule = store.monitors.setSchedule.bind(store.monitors);
+    store.monitors.setSchedule = ((mid: number, due: number, fast: boolean) => {
+      if (mid === bad.id) throw new Error('disk full');
+      return realSetSchedule(mid, due, fast);
+    }) as typeof store.monitors.setSchedule;
+
+    const ran: number[] = [];
+    const { scheduler } = makeScheduler(store, {
+      runMonitor: async (m) => { ran.push(m.id); },
+    });
+
+    const now = 3_000;
+    // The tick must not throw even though one monitor's reschedule fails.
+    await expect(scheduler.tick(now)).resolves.toBeUndefined();
+
+    // Both monitors ran; the failing reschedule did not abort the batch.
+    expect(ran.sort((a, b) => a - b)).toEqual([bad.id, good.id]);
+    // The good monitor WAS rescheduled (the bad one's failure was contained).
+    expect(store.monitors.get(good.id)!.nextDueAt).toBe(now + DEFAULT_INTERVAL);
+    // The bad monitor's nextDueAt is left stale (its setSchedule threw) — still 0.
+    expect(store.monitors.get(bad.id)!.nextDueAt).toBe(0);
+  });
+
   it('with no runTimeoutMs configured, a normal cycle is unaffected', async () => {
     const store = freshStore();
     const m = store.monitors.create(newMonitorInput({ nextDueAt: 0 }));
@@ -243,6 +275,48 @@ describe('Scheduler.tick', () => {
     await scheduler.tick(7_000);
     expect(scheduler.getLastTickAt()).toBe(7_000);
     expect(scheduler.getLastDueCount()).toBe(2);
+  });
+
+  it('runs distinct-destination monitors concurrently (bounded), not serially', async () => {
+    const store = freshStore();
+    // 4 monitors at DISTINCT urls → 4 distinct destination batches.
+    for (let i = 0; i < 4; i++) {
+      store.monitors.create(newMonitorInput({ nextDueAt: 0, url: `https://www.olx.ro/q-${i}/` }));
+    }
+
+    const CYCLE_MS = 60;
+    const runMonitor = async (): Promise<void> => {
+      await new Promise((r) => setTimeout(r, CYCLE_MS));
+    };
+    // concurrency 4 → all four run in one wave; wall time ≈ one cycle, not four.
+    const { scheduler } = makeScheduler(store, { runMonitor, concurrency: 4 });
+
+    const start = Date.now();
+    await scheduler.tick(1_000);
+    const elapsed = Date.now() - start;
+
+    // Serial would be ~240ms; concurrent is ~60ms. Allow generous overhead.
+    expect(elapsed).toBeLessThan(CYCLE_MS * 3);
+  });
+
+  it('caps concurrency: a wave of `concurrency` runs at once, the rest follow', async () => {
+    const store = freshStore();
+    for (let i = 0; i < 4; i++) {
+      store.monitors.create(newMonitorInput({ nextDueAt: 0, url: `https://www.olx.ro/c-${i}/` }));
+    }
+
+    let active = 0;
+    let peak = 0;
+    const runMonitor = async (): Promise<void> => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 20));
+      active -= 1;
+    };
+    // concurrency 2 → never more than 2 cycles in flight at once.
+    const { scheduler } = makeScheduler(store, { runMonitor, concurrency: 2 });
+    await scheduler.tick(1_000);
+    expect(peak).toBe(2);
   });
 
   it('is a no-op when nothing is due', async () => {

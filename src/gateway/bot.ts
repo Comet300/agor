@@ -70,6 +70,9 @@ class ExpiringMap<K, V> {
 /** How long an in-flight conversational prompt stays valid before it expires. */
 const PENDING_TTL_MS = 15 * 60_000; // 15 minutes
 
+/** Upper bound on price-history rows loaded for a chart (matches the renderer's cap). */
+const PRICE_HISTORY_RENDER_CAP = 500;
+
 /**
  * Chats awaiting an exclusion-keyword reply, keyed by chat id → monitor id.
  * The next plain text from that chat is consumed as the CSV keyword input rather
@@ -134,10 +137,13 @@ async function handleTrack(
   rawUrl: string,
   lang: Lang,
   reply: (text: string, keyboard?: import('./render').RenderedMessage['keyboard']) => Promise<unknown>,
+  quotaLimit = 0,
 ): Promise<void> {
   const result = await orchestrator.register({ chatId, rawUrl });
   if (!result.ok) {
-    await reply(tr(lang).track_error);
+    // A quota refusal gets its own actionable message; everything else is the
+    // generic track error.
+    await reply(result.reason === 'quota' ? tr(lang).quota_reached(quotaLimit) : tr(lang).track_error);
     return;
   }
 
@@ -155,10 +161,16 @@ async function handleTrack(
   await reply(card.text, card.keyboard);
 }
 
-/** Options controlling access: the bootstrap admin chat ids. */
+/** Options controlling access + flood protection. */
 export interface BotAccessOptions {
   /** Bootstrap admin chat ids (always allowed). Empty ⇒ access control fail-open. */
   adminChatIds?: number[];
+  /** Max monitors a non-admin chat may hold (0 = unlimited); used for the message. */
+  maxMonitorsPerChat?: number;
+  /** Per-chat cooldown (ms) on /check (0 = off). */
+  checkCooldownMs?: number;
+  /** Per-chat cooldown (ms) on registering a watch from a pasted URL (0 = off). */
+  urlRegisterCooldownMs?: number;
 }
 
 /**
@@ -179,6 +191,14 @@ export function buildBot(
 ): Bot {
   const bot = new Bot(token);
   const adminChatIds = options.adminChatIds ?? [];
+  const maxMonitorsPerChat = options.maxMonitorsPerChat ?? 0;
+  const checkCooldownMs = options.checkCooldownMs ?? 0;
+  const urlRegisterCooldownMs = options.urlRegisterCooldownMs ?? 0;
+
+  // Per-chat flood gates: an entry exists iff the chat acted within the cooldown
+  // window (the TTL is the cooldown), so `has(chatId)` means "still cooling down".
+  const checkCooldown = new ExpiringMap<number, true>(Math.max(1, checkCooldownMs));
+  const urlCooldown = new ExpiringMap<number, true>(Math.max(1, urlRegisterCooldownMs));
 
   // Seed bootstrap admins from config (always allowed, can grant/revoke).
   // Idempotent — also a no-op when ADMIN_CHAT_IDS is unset, in which case the
@@ -259,8 +279,16 @@ export function buildBot(
         await ctx.reply(tr(lang).track_usage);
         return;
       }
-      await handleTrack(orchestrator, chatId, rawUrl, lang, (text, keyboard) =>
-        ctx.reply(text, keyboard ? { reply_markup: keyboard } : undefined),
+      // Same flood gate as the plain-URL path: a registration runs a scrape.
+      if (urlRegisterCooldownMs > 0 && urlCooldown.has(chatId)) {
+        await ctx.reply(tr(lang).url_rate_limited);
+        return;
+      }
+      if (urlRegisterCooldownMs > 0) urlCooldown.set(chatId, true);
+      await handleTrack(
+        orchestrator, chatId, rawUrl, lang,
+        (text, keyboard) => ctx.reply(text, keyboard ? { reply_markup: keyboard } : undefined),
+        maxMonitorsPerChat,
       );
     } catch (err) {
       await ctx.reply(tr(lang).track_error);
@@ -328,6 +356,12 @@ export function buildBot(
         await ctx.reply(tr(lang).check_not_found);
         return;
       }
+      // Flood gate: /check forces a synchronous scrape, so throttle repeats.
+      if (checkCooldownMs > 0 && checkCooldown.has(chatId)) {
+        await ctx.reply(tr(lang).check_rate_limited);
+        return;
+      }
+      if (checkCooldownMs > 0) checkCooldown.set(chatId, true);
       // Poll now (alerts + health notices fire as in a real cycle); reply summary.
       const result = await orchestrator.runMonitorOnce(id);
       await ctx.reply(
@@ -771,7 +805,9 @@ export function buildBot(
       const monitors = chatId !== undefined ? store.monitors.listByChat(chatId) : [];
       let points: ReturnType<Store['priceHistory']['history']> = [];
       for (const m of monitors) {
-        const h = store.priceHistory.history(m.id, itemId);
+        // Cap the loaded rows: a long-lived item's history is bounded before it
+        // reaches the renderer (which also downsamples) so a Pi can't OOM here.
+        const h = store.priceHistory.history(m.id, itemId, PRICE_HISTORY_RENDER_CAP);
         if (h.length > 0) {
           points = h;
           break;
@@ -867,8 +903,17 @@ export function buildBot(
       // 2. Route by message kind.
       const kind = classifyMessage(text);
       if (kind === 'url') {
-        await handleTrack(orchestrator, chatId, text, lang, (t, keyboard) =>
-          ctx.reply(t, keyboard ? { reply_markup: keyboard } : undefined),
+        // Flood gate: registering a watch runs a baseline scrape, so throttle
+        // rapid URL pastes per chat.
+        if (urlRegisterCooldownMs > 0 && urlCooldown.has(chatId)) {
+          await ctx.reply(tr(lang).url_rate_limited);
+          return;
+        }
+        if (urlRegisterCooldownMs > 0) urlCooldown.set(chatId, true);
+        await handleTrack(
+          orchestrator, chatId, text, lang,
+          (t, keyboard) => ctx.reply(t, keyboard ? { reply_markup: keyboard } : undefined),
+          maxMonitorsPerChat,
         );
         return;
       }

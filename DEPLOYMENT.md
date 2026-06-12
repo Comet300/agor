@@ -86,7 +86,11 @@ Optional operational knobs (sensible defaults; see `.env.example` for the rest):
 | Variable                       | Default | Purpose                                                                 |
 | ------------------------------ | ------- | ----------------------------------------------------------------------- |
 | `HEALTH_CHECK_PORT`            | `0`     | Long-poll mode: port for a `GET /health` listener (`0` = off). In webhook mode `/health` rides the webhook port automatically. |
-| `DB_MAINTENANCE_INTERVAL_TICKS`| `360`   | How often (in ~10s scheduler ticks) to checkpoint the WAL and `PRAGMA optimize`. 360 ≈ hourly. |
+| `DB_MAINTENANCE_INTERVAL_TICKS`| `360`   | How often (in ~10s scheduler ticks) to checkpoint the WAL and `PRAGMA optimize`. 360 ≈ hourly. Maintenance also prunes the dedup table and old audit rows. |
+| `AUDIT_RETENTION_DAYS`         | `365`   | Days of access-decision audit history (`/audit`) to keep; older rows are pruned during maintenance. |
+| `MAX_MONITORS_PER_CHAT`        | `50`    | Cap on watches a single non-admin chat may register (admins exempt). `0` = unlimited. Flood backstop. |
+| `CHECK_COOLDOWN_MS`            | `10000` | Per-chat cooldown on `/check` (it forces an on-demand scrape). `0` = off. |
+| `URL_REGISTER_COOLDOWN_MS`     | `5000`  | Per-chat cooldown on registering a watch from a pasted URL or `/track`. `0` = off. |
 
 Quick smoke test in the foreground (Ctrl+C to stop):
 
@@ -200,9 +204,15 @@ cd ~/agor && git pull && npm ci && pm2 restart agor
 ```
 
 **Graceful shutdown.** On `SIGINT`/`SIGTERM` (a `pm2 restart`/`stop`, or Ctrl+C)
-agor stops the scheduler, closes the HTTP/health server and the headless browser
-if one was started, and closes the database — then exits. A teardown that stalls
-is force-exited after 10s, so a restart never hangs.
+agor stops the scheduler, closes the HTTP/health server, releases the pooled
+HTTP(S) connection dispatchers (sockets), closes the headless browser if one was
+started, and closes the database — then exits. A teardown that stalls is
+force-exited after 10s, so a restart never hangs.
+
+**Flood protection.** Each non-admin chat is capped at `MAX_MONITORS_PER_CHAT`
+watches, and `/check` and URL-registration are throttled per chat
+(`CHECK_COOLDOWN_MS` / `URL_REGISTER_COOLDOWN_MS`) so a single user can't swamp
+the scheduler or hammer a marketplace. Admins are exempt from the watch cap.
 
 **Health probe.** In webhook mode `GET /health` is served on the webhook port. In
 long-polling mode, set `HEALTH_CHECK_PORT` to expose the same endpoint. It returns
@@ -314,7 +324,10 @@ cron job).
 
 agor checkpoints the WAL and runs `PRAGMA optimize` on a timer
 (`DB_MAINTENANCE_INTERVAL_TICKS`, hourly by default) so the file doesn't bloat
-under churn — no manual `VACUUM` needed.
+under churn — no manual `VACUUM` needed. The same pass prunes the dedup table
+(entries past `DEDUP_WINDOW_MS`) and audit rows past `AUDIT_RETENTION_DAYS`, so
+those append-only tables stay bounded over months of uptime. (Price history is
+stored on-change only — a flat price adds no row — so it stays naturally sparse.)
 
 ## Troubleshooting
 

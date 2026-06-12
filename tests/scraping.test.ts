@@ -5,7 +5,7 @@
  * (no real waiting), keeping the suite deterministic and instant. Timestamps are
  * passed explicitly so cooldown/rate-limit behavior is reproducible.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -16,7 +16,7 @@ import { ProxyPool } from '../src/scraping/proxyPool';
 import { browserHeaders } from '../src/scraping/headers';
 import { extractPayload, extractCandidates, ExtractionError } from '../src/scraping/extract';
 import { classifyResponse } from '../src/scraping/blockDetection';
-import { ScrapingEngine, type Fetcher } from '../src/scraping/engine';
+import { ScrapingEngine, getOrCreateAgent, closeAgentPool, type Fetcher } from '../src/scraping/engine';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureBody = readFileSync(join(here, 'fixtures', 'olx-search.html'), 'utf8');
@@ -251,6 +251,79 @@ describe('ScrapingEngine.scrapeSearch', () => {
     expect(outcome.status).toBe(403);
     expect(outcome.rawNodes).toEqual([]);
     expect(outcome.benched).toEqual(['p1', 'p2']);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Agent pool — undici dispatchers are reused per key, not built per request.
+// ────────────────────────────────────────────────────────────────────────────
+describe('agent pool', () => {
+  afterEach(async () => {
+    await closeAgentPool();
+  });
+
+  it('reuses one dispatcher per proxy url (and one for direct)', () => {
+    const direct1 = getOrCreateAgent(undefined);
+    const direct2 = getOrCreateAgent(undefined);
+    const proxyA1 = getOrCreateAgent('http://user:pass@proxy.test:8080');
+    const proxyA2 = getOrCreateAgent('http://user:pass@proxy.test:8080');
+    const proxyB = getOrCreateAgent('http://other.test:3128');
+
+    // Same key → same instance (pooled), distinct keys → distinct instances.
+    expect(direct1).toBe(direct2);
+    expect(proxyA1).toBe(proxyA2);
+    expect(direct1).not.toBe(proxyA1);
+    expect(proxyA1).not.toBe(proxyB);
+  });
+
+  it('closeAgentPool empties the pool so later calls build fresh dispatchers', async () => {
+    const before = getOrCreateAgent(undefined);
+    await closeAgentPool();
+    const after = getOrCreateAgent(undefined);
+    expect(after).not.toBe(before); // pool was cleared; a new instance was built
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Rate limiting — only the REMAINING gap is slept, not the full window.
+// ────────────────────────────────────────────────────────────────────────────
+describe('ScrapingEngine rate limiting', () => {
+  /** A rate-limited plugin (1s window); the rest mirrors `synth`. */
+  const rateLimited: IVendorPlugin = { ...synth, rate_limit_ms: 1000 };
+
+  it('sleeps only the remaining gap when a vendor was hit within its window', async () => {
+    const slept: number[] = [];
+    const pool = new ProxyPool(['p1'], 1000);
+    const engine = new ScrapingEngine({
+      pool,
+      cooldownMs: 1000,
+      fetcher: okFetcher,
+      sleep: async (ms) => { slept.push(ms); },
+    });
+
+    // First hit at now=1000 stamps the clock; no prior hit, so no sleep.
+    await engine.scrapeSearch(rateLimited, 'https://www.olx.ro/search', 1000);
+    expect(slept).toEqual([]);
+
+    // Second hit 100ms later: 900ms of the 1000ms window remains — sleep 900, not 1000.
+    await engine.scrapeSearch(rateLimited, 'https://www.olx.ro/search', 1100);
+    expect(slept).toEqual([900]);
+  });
+
+  it('does not sleep once the full window has already elapsed', async () => {
+    const slept: number[] = [];
+    const pool = new ProxyPool(['p1'], 1000);
+    const engine = new ScrapingEngine({
+      pool,
+      cooldownMs: 1000,
+      fetcher: okFetcher,
+      sleep: async (ms) => { slept.push(ms); },
+    });
+
+    await engine.scrapeSearch(rateLimited, 'https://www.olx.ro/search', 1000);
+    // 1500ms later — beyond the 1000ms window — no throttle.
+    await engine.scrapeSearch(rateLimited, 'https://www.olx.ro/search', 2500);
+    expect(slept).toEqual([]);
   });
 });
 

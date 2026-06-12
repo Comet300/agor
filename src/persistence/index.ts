@@ -21,7 +21,7 @@ export { DedupRepo } from './dedupStore';
 export { AuditRepo } from './audit';
 export type { DedupStore, PersistedDedupEntry } from './dedupStore';
 export type { AuditAction, AuditEntry } from './audit';
-export { openDb, migrate, maintainDb, type DB } from './db';
+export { openDb, migrate, maintainDb, type DB, type MaintainOptions } from './db';
 export type { NewMonitor } from './monitors';
 export type { ItemState } from './items';
 export type { AccessStatus, AccessRecord, RequestOutcome } from './access';

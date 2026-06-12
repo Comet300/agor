@@ -12,6 +12,23 @@ describe('loadConfig', () => {
     // Browser fallback is OFF by default so the base install never needs Chromium.
     expect(cfg.enableBrowserFallback).toBe(false);
     expect(cfg.circuitBreakerThreshold).toBe(10);
+    expect(cfg.auditRetentionDays).toBe(365);
+    expect(cfg.maxMonitorsPerChat).toBe(50);
+    expect(cfg.checkCooldownMs).toBe(10_000);
+    expect(cfg.urlRegisterCooldownMs).toBe(5_000);
+  });
+
+  it('coerces the runtime-resilience knobs from env', () => {
+    const cfg = loadConfig({
+      AUDIT_RETENTION_DAYS: '90',
+      MAX_MONITORS_PER_CHAT: '25',
+      CHECK_COOLDOWN_MS: '3000',
+      URL_REGISTER_COOLDOWN_MS: '1500',
+    });
+    expect(cfg.auditRetentionDays).toBe(90);
+    expect(cfg.maxMonitorsPerChat).toBe(25);
+    expect(cfg.checkCooldownMs).toBe(3000);
+    expect(cfg.urlRegisterCooldownMs).toBe(1500);
   });
 
   it('enables the browser fallback only when explicitly set to "true"', () => {

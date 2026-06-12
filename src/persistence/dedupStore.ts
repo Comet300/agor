@@ -26,6 +26,8 @@ export interface DedupStore {
   save(chatId: number, e: PersistedDedupEntry): void;
   /** Delete one entry (a pruned/expired signature). */
   remove(chatId: number, signature: string): void;
+  /** Delete every entry older than `maxAgeMs` across ALL chats. */
+  pruneExpired(now: number, maxAgeMs: number): void;
 }
 
 export class DedupRepo implements DedupStore {
@@ -65,5 +67,15 @@ export class DedupRepo implements DedupStore {
 
   remove(chatId: number, signature: string): void {
     this.db.prepare(`DELETE FROM dedup WHERE chat_id = ? AND signature = ?`).run(chatId, signature);
+  }
+
+  /**
+   * Delete every entry first-seen before `now - maxAgeMs`, across all chats.
+   * In-memory pruning only fires while a chat's monitors are polled, so idle or
+   * removed monitors leave rows behind; this is the durable backstop (run on
+   * boot and during periodic maintenance) that keeps the table bounded.
+   */
+  pruneExpired(now: number, maxAgeMs: number): void {
+    this.db.prepare(`DELETE FROM dedup WHERE first_seen_at < ?`).run(now - maxAgeMs);
   }
 }

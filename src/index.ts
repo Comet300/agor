@@ -18,7 +18,7 @@ import { loadConfig } from './config';
 import { openStore } from './persistence';
 import { PluginRegistry } from './registry';
 import { ProxyPool } from './scraping/proxyPool';
-import { ScrapingEngine, type Fetcher } from './scraping/engine';
+import { ScrapingEngine, closeAgentPool, type Fetcher } from './scraping/engine';
 import { Orchestrator } from './orchestrator';
 import { buildBot, makeNotifier } from './gateway/bot';
 import { commandMenu } from './gateway/strings';
@@ -55,6 +55,10 @@ function installShutdown(resources: {
         for (const s of resources.servers) {
           if (s) await new Promise<void>((r) => s.close(() => r()));
         }
+        // Release pooled HTTP(S) dispatchers (sockets) before closing the rest.
+        await closeAgentPool().catch((err) =>
+          log('shutdown').warn({ err: (err as Error).message }, 'agent pool close failed'),
+        );
         if (resources.closeBrowser) {
           await resources.closeBrowser().catch((err) =>
             log('shutdown').warn({ err: (err as Error).message }, 'browser close failed'),
@@ -150,7 +154,12 @@ async function main(): Promise<void> {
   // Now that the orchestrator exists, build the bot that drives it (and the
   // notifier once, not per-message).
   if (config.botToken) {
-    bot = buildBot(orchestrator, store, config.botToken, { adminChatIds: config.adminChatIds });
+    bot = buildBot(orchestrator, store, config.botToken, {
+      adminChatIds: config.adminChatIds,
+      maxMonitorsPerChat: config.maxMonitorsPerChat,
+      checkCooldownMs: config.checkCooldownMs,
+      urlRegisterCooldownMs: config.urlRegisterCooldownMs,
+    });
     botNotifier = makeNotifier(bot, store);
     // Register the localized "/" command menu (Romanian default, English for
     // en-locale Telegram clients). Best-effort: a failure must not abort boot.

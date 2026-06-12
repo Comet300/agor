@@ -80,6 +80,7 @@ export class Orchestrator {
       engine: deps.engine,
       defaultIntervalMs: deps.config.defaultCheckIntervalMs,
       oosFastIntervalMs: deps.config.oosFastIntervalMs,
+      maxMonitorsPerChat: deps.config.maxMonitorsPerChat,
       now: this.now,
     });
 
@@ -102,7 +103,12 @@ export class Orchestrator {
       defaultIntervalMs: deps.config.defaultCheckIntervalMs,
       oosFastIntervalMs: deps.config.oosFastIntervalMs,
       runTimeoutMs: deps.config.monitorCycleTimeoutMs,
-      onMaintenance: async () => maintainDb(deps.store.db),
+      onMaintenance: async () =>
+        maintainDb(deps.store.db, {
+          now: this.now(),
+          dedupMaxAgeMs: deps.config.dedupWindowMs,
+          auditRetentionDays: deps.config.auditRetentionDays,
+        }),
       maintenanceIntervalTicks: deps.config.dbMaintenanceIntervalTicks,
       now: this.now,
     });
@@ -225,18 +231,38 @@ export class Orchestrator {
       (monitor.type === 'search' && result.itemsActive === 0 && priorListings > 0);
     const threshold = this.deps.config.failureAlertThreshold;
 
+    // Health notices are best-effort: a delivery failure (blocked chat, Telegram
+    // hiccup) must NOT prevent the new failure count from being persisted, or the
+    // in-memory counter and the DB drift and the threshold mis-fires after a
+    // restart. Isolate the send so `setFailures` below always runs.
     if (unhealthy) {
       monitor.consecutiveFailures += 1;
       if (monitor.consecutiveFailures === threshold) {
-        await this.deps.notify(this.healthNotice('watch_failing', monitor));
+        await this.notifyHealth('watch_failing', monitor);
       }
     } else {
       if (monitor.consecutiveFailures >= threshold) {
-        await this.deps.notify(this.healthNotice('watch_recovered', monitor));
+        await this.notifyHealth('watch_recovered', monitor);
       }
       monitor.consecutiveFailures = 0;
     }
     this.deps.store.monitors.setFailures(monitor.id, monitor.consecutiveFailures);
+  }
+
+  /** Deliver a health notice, swallowing+logging a delivery failure so the
+   *  caller can still persist the failure counter (see {@link trackHealth}). */
+  private async notifyHealth(
+    kind: 'watch_failing' | 'watch_recovered',
+    monitor: Monitor,
+  ): Promise<void> {
+    try {
+      await this.deps.notify(this.healthNotice(kind, monitor));
+    } catch (err) {
+      log('orchestrator').warn(
+        { monitorId: monitor.id, kind, err: (err as Error).message },
+        'health notice delivery failed',
+      );
+    }
   }
 
   private healthNotice(
@@ -277,6 +303,14 @@ export class Orchestrator {
    * always honoured.
    */
   start(): void {
+    // Prune expired dedup rows on boot: in-memory pruning only fires while a
+    // chat's monitors poll, so idle/removed monitors would otherwise leave rows
+    // to be reloaded forever. This is the durable backstop (maintenance repeats it).
+    try {
+      this.deps.store.dedup.pruneExpired(this.now(), this.deps.config.dedupWindowMs);
+    } catch (err) {
+      log('orchestrator').warn({ err: (err as Error).message }, 'boot dedup prune failed');
+    }
     this.scheduler.start(
       Math.min(this.deps.config.oosFastIntervalMs, this.deps.config.defaultCheckIntervalMs),
     );

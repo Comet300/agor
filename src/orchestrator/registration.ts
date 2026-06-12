@@ -32,7 +32,7 @@ export interface RegisterInput {
  */
 export type RegisterResult =
   | { ok: true; monitor: Monitor; baselineCount: number }
-  | { ok: false; error: string };
+  | { ok: false; error: string; reason?: 'quota' };
 
 /** Dependencies the registration service needs; nothing is read globally. */
 interface RegistrationDeps {
@@ -43,6 +43,8 @@ interface RegistrationDeps {
   defaultIntervalMs: number;
   /** Accelerated cadence for a product whose baseline is already out of stock. */
   oosFastIntervalMs: number;
+  /** Max monitors a non-admin chat may hold (0 = unlimited). Admins are exempt. */
+  maxMonitorsPerChat?: number;
   /** Clock seam; defaults to the real epoch-ms wall clock for production use. */
   now?: () => number;
 }
@@ -81,6 +83,21 @@ export class RegistrationService {
         ok: false,
         error: 'Unsupported site — no plugin matches this domain.',
       };
+    }
+
+    // 2b. Enforce the per-chat monitor quota (flood protection). Admins are
+    // exempt; 0/absent means unlimited. Checked before any scrape so a refused
+    // registration costs nothing.
+    const limit = this.deps.maxMonitorsPerChat ?? 0;
+    if (limit > 0 && !this.deps.store.access.isAdmin(input.chatId)) {
+      const existing = this.deps.store.monitors.listByChat(input.chatId).length;
+      if (existing >= limit) {
+        log('registration').debug(
+          { chatId: input.chatId, existing, limit, event: 'QUOTA-REACHED' },
+          'registration refused — chat at monitor quota',
+        );
+        return { ok: false, error: 'Monitor limit reached.', reason: 'quota' };
+      }
     }
 
     const type: MonitorType = input.type ?? 'search';

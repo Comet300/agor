@@ -52,6 +52,12 @@ export interface Catalog {
   check_ok: (p: { items: number; new: number }) => string;
   check_failed: string;
   check_not_found: string;
+  /** Refused: this chat already holds the max number of watches. */
+  quota_reached: (limit: number) => string;
+  /** Refused: /check used again before its per-chat cooldown elapsed. */
+  check_rate_limited: string;
+  /** Refused: a URL pasted again before its per-chat cooldown elapsed. */
+  url_rate_limited: string;
   watch_failing: (h: WatchHealth) => string;
   watch_recovered: (h: WatchHealth) => string;
 
@@ -191,6 +197,10 @@ const ro: Catalog = {
     `✅ Verificat: ${items} anunț${items === 1 ? '' : 'uri'} găsit${items === 1 ? '' : 'e'}, ${n} nou${n === 1 ? '' : 'i'}.`,
   check_failed: '⚠️ Verificare eșuată — site-ul nu a răspuns sau pare blocat.',
   check_not_found: 'Urmărirea nu există sau nu îți aparține.',
+  quota_reached: (limit) =>
+    `Ai atins limita de ${limit} urmăriri. Șterge una (/remove <id>) înainte de a adăuga alta.`,
+  check_rate_limited: 'Prea repede — așteaptă câteva secunde înainte de o nouă verificare.',
+  url_rate_limited: 'Prea repede — așteaptă câteva secunde înainte de a adăuga alt link.',
   watch_failing: (h) =>
     `⚠️ Urmărirea #${h.monitorId} (${h.vendor}) pare blocată sau nu mai găsește nimic (${h.consecutiveFailures} verificări eșuate la rând). Voi anunța când revine.`,
   watch_recovered: (h) => `✅ Urmărirea #${h.monitorId} (${h.vendor}) funcționează din nou.`,
@@ -330,6 +340,10 @@ const en: Catalog = {
     `✅ Checked: ${items} listing${items === 1 ? '' : 's'} found, ${n} new.`,
   check_failed: '⚠️ Check failed — the site did not respond or appears blocked.',
   check_not_found: 'That watch does not exist or is not yours.',
+  quota_reached: (limit) =>
+    `You've reached the limit of ${limit} watches. Remove one (/remove <id>) before adding another.`,
+  check_rate_limited: 'Too fast — wait a few seconds before checking again.',
+  url_rate_limited: 'Too fast — wait a few seconds before adding another link.',
   watch_failing: (h) =>
     `⚠️ Watch #${h.monitorId} (${h.vendor}) looks blocked or is finding nothing (${h.consecutiveFailures} failed checks in a row). I'll tell you when it recovers.`,
   watch_recovered: (h) => `✅ Watch #${h.monitorId} (${h.vendor}) is working again.`,
