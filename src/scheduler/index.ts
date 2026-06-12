@@ -33,6 +33,13 @@ export interface SchedulerDeps {
   now?: () => number;
   /** Optional sink for per-monitor `runMonitor` failures (instead of throwing). */
   onError?: (monitor: Monitor, err: unknown) => void;
+  /**
+   * Hard ceiling (ms) on a single monitor's cycle. A cycle that exceeds it is
+   * abandoned (its error routed to `onError`) so one wedged fetch/dispatch can
+   * never block the re-entrancy guard and starve every other monitor. Generous
+   * by default (networks can be slow); `0`/absent disables the timeout.
+   */
+  runTimeoutMs?: number;
 }
 
 /**
@@ -114,7 +121,7 @@ export class Scheduler {
     for (const batch of batches.values()) {
       for (const monitor of batch) {
         try {
-          await this.deps.runMonitor(monitor);
+          await this.runWithTimeout(monitor);
         } catch (err) {
           // Isolate the failure: report it and keep going so siblings still run.
           log('scheduler').error({ monitorId: monitor.id, err: (err as Error).message }, 'monitor cycle threw');
@@ -125,6 +132,28 @@ export class Scheduler {
         }
       }
     }
+  }
+
+  /**
+   * Run a monitor's cycle under the configured hard timeout. The timeout does
+   * not cancel the in-flight work (a hung fetch may still resolve later and is
+   * harmless), but it unblocks the scheduler loop so the re-entrancy guard clears
+   * and the remaining monitors are processed. With no timeout configured this is
+   * a plain await.
+   */
+  private runWithTimeout(monitor: Monitor): Promise<void> {
+    const ms = this.deps.runTimeoutMs;
+    if (!ms || ms <= 0) return this.deps.runMonitor(monitor);
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`monitor cycle exceeded ${ms}ms timeout`)),
+        ms,
+      );
+      this.deps.runMonitor(monitor).then(
+        () => { clearTimeout(timer); resolve(); },
+        (err) => { clearTimeout(timer); reject(err); },
+      );
+    });
   }
 
   /**

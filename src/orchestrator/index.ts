@@ -100,6 +100,7 @@ export class Orchestrator {
       },
       defaultIntervalMs: deps.config.defaultCheckIntervalMs,
       oosFastIntervalMs: deps.config.oosFastIntervalMs,
+      runTimeoutMs: deps.config.monitorCycleTimeoutMs,
       now: this.now,
     });
   }

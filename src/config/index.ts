@@ -29,6 +29,10 @@ const EnvSchema = z.object({
   BENCHMARK_MIN_SAMPLE: z.coerce.number().int().positive().default(4),
   PROXY_BENCH_COOLDOWN_MS: z.coerce.number().int().positive().default(300_000),
   FAILURE_ALERT_THRESHOLD: z.coerce.number().int().positive().default(3),
+  // Hard ceiling on a single monitor's poll cycle (fetch + dispatch). Generous —
+  // networks (and the browser fallback) can be slow — but bounds a wedged cycle
+  // so it can't starve the scheduler. 2 minutes.
+  MONITOR_CYCLE_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
   // Opt-in headless-browser fallback for `fetch_strategy: browser` manifests.
   // Requires the optional Playwright deps; off by default so the base install
   // (e.g. Raspberry Pi) never needs Chromium.
@@ -68,6 +72,8 @@ export interface AppConfig {
   dedupWindowMs: number;
   benchmarkMinSample: number;
   proxyBenchCooldownMs: number;
+  /** Hard ceiling (ms) on a single monitor's poll cycle. */
+  monitorCycleTimeoutMs: number;
   /** Consecutive unhealthy cycles before the chat is told a watch is failing. */
   failureAlertThreshold: number;
   /** When true, attach the headless-browser fallback for opted-in manifests. */
@@ -105,6 +111,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     dedupWindowMs: parsed.DEDUP_WINDOW_MS,
     benchmarkMinSample: parsed.BENCHMARK_MIN_SAMPLE,
     proxyBenchCooldownMs: parsed.PROXY_BENCH_COOLDOWN_MS,
+    monitorCycleTimeoutMs: parsed.MONITOR_CYCLE_TIMEOUT_MS,
     failureAlertThreshold: parsed.FAILURE_ALERT_THRESHOLD,
     enableBrowserFallback: parsed.ENABLE_BROWSER_FALLBACK,
     circuitBreakerThreshold: parsed.CIRCUIT_BREAKER_THRESHOLD,

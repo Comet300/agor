@@ -167,6 +167,47 @@ describe('Scheduler.tick', () => {
     expect(store.monitors.get(good.id)!.nextDueAt).toBe(now + DEFAULT_INTERVAL);
   });
 
+  it('aborts a hung monitor cycle at runTimeoutMs, routes it to onError, and reschedules', async () => {
+    const store = freshStore();
+    const hung = store.monitors.create(newMonitorInput({ nextDueAt: 0 }));
+    const good = store.monitors.create(
+      newMonitorInput({ nextDueAt: 0, url: 'https://www.olx.ro/auto/q-passat/' }),
+    );
+
+    const ran: number[] = [];
+    const errors: Array<{ id: number; msg: string }> = [];
+    const runMonitor = async (m: Monitor): Promise<void> => {
+      ran.push(m.id);
+      if (m.id === hung.id) return new Promise<void>(() => {}); // never resolves
+    };
+    const onError = (m: Monitor, err: unknown): void => {
+      errors.push({ id: m.id, msg: (err as Error).message });
+    };
+
+    const { scheduler } = makeScheduler(store, { runMonitor, onError, runTimeoutMs: 40 });
+
+    const now = 3_000;
+    await scheduler.tick(now);
+
+    // Both were attempted; the hung one did not block the good one.
+    expect(ran.sort((a, b) => a - b)).toEqual([hung.id, good.id]);
+    // The hung cycle surfaced a timeout error exactly once.
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ id: hung.id });
+    expect(errors[0]!.msg).toMatch(/timeout/i);
+    // The hung monitor was still rescheduled (not left stuck due).
+    expect(store.monitors.get(hung.id)!.nextDueAt).toBe(now + DEFAULT_INTERVAL);
+  });
+
+  it('with no runTimeoutMs configured, a normal cycle is unaffected', async () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput({ nextDueAt: 0 }));
+    const { calls, runMonitor } = recordingRunner();
+    const { scheduler } = makeScheduler(store, { runMonitor }); // no runTimeoutMs
+    await scheduler.tick(1_000);
+    expect(calls).toEqual([m.id]);
+  });
+
   it('is a no-op when nothing is due', async () => {
     const store = freshStore();
     store.monitors.create(newMonitorInput({ nextDueAt: 100_000 }));

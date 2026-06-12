@@ -291,6 +291,12 @@ describe('defaultFetcher (real undici transport)', () => {
       } else if (req.url === '/deny') {
         res.writeHead(403, { server: 'AkamaiGHost' });
         res.end('Access Denied');
+      } else if (req.url === '/large') {
+        // ~2 MB streamed in chunks — well under the cap; must round-trip intact.
+        res.writeHead(200, { 'content-type': 'text/html' });
+        const chunk = 'a'.repeat(64 * 1024);
+        for (let i = 0; i < 32; i++) res.write(chunk);
+        res.end();
       } else {
         res.writeHead(404);
         res.end();
@@ -319,6 +325,14 @@ describe('defaultFetcher (real undici transport)', () => {
     expect(r.status).toBe(403);
     expect(r.headers?.server).toBe('AkamaiGHost');
     expect(classifyResponse(r.status, r.headers ?? {}).blocked).toBe(true);
+  });
+
+  it('reads a multi-chunk body to completion (streaming reader round-trips intact)', async () => {
+    const { defaultFetcher } = await import('../src/scraping/engine');
+    const r = await defaultFetcher(`${base}/large`, { headers: browserHeaders() });
+    expect(r.status).toBe(200);
+    expect(r.body.length).toBe(2 * 1024 * 1024); // full body, nothing dropped under the cap
+    expect(r.body).toMatch(/^a+$/);
   });
 });
 
