@@ -9,6 +9,14 @@ describe('loadConfig', () => {
     expect(cfg.defaultCheckIntervalMs).toBe(600_000);
     expect(cfg.benchmarkMinSample).toBe(4);
     expect(cfg.botToken).toBeUndefined();
+    // Browser fallback is OFF by default so the base install never needs Chromium.
+    expect(cfg.enableBrowserFallback).toBe(false);
+    expect(cfg.circuitBreakerThreshold).toBe(10);
+  });
+
+  it('enables the browser fallback only when explicitly set to "true"', () => {
+    expect(loadConfig({ ENABLE_BROWSER_FALLBACK: 'true' }).enableBrowserFallback).toBe(true);
+    expect(loadConfig({ ENABLE_BROWSER_FALLBACK: 'false' }).enableBrowserFallback).toBe(false);
   });
 
   it('parses proxy CSV and coerces numbers', () => {

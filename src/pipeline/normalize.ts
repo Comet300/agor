@@ -105,13 +105,60 @@ function coercePrivateOwner(value: unknown, negate: boolean): boolean {
   return negate ? !truthy : truthy;
 }
 
+/** Named & numeric HTML entities that show up in vendor JSON text. */
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+};
+
+/**
+ * Decode HTML entities in text vendors ship raw inside JSON strings (publi24
+ * titles carry `&#238;`/`&#259;`/`&amp;`). Leaves text without entities intact.
+ */
+function decodeEntities(text: string): string {
+  if (!text.includes('&')) return text;
+  return text
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => safeFromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec: string) => safeFromCodePoint(parseInt(dec, 10)))
+    .replace(/&([a-zA-Z]+);/g, (m, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? m);
+}
+
+function safeFromCodePoint(code: number): string {
+  try {
+    return String.fromCodePoint(code);
+  } catch {
+    return '';
+  }
+}
+
+/** True when stringifying a value yields a useless "[object …]" tag. */
+function isObjectTag(s: string): boolean {
+  return /^\[object [A-Za-z]+\]$/.test(s);
+}
+
 /**
  * Coerce a resolved (possibly missing) value into a string field.
  * Missing/undefined/null becomes an empty string so callers can detect absence.
+ * An object that would stringify to "[object Object]" is also treated as absent
+ * (empty) so a mis-pathed object-typed field fails loud rather than emitting the
+ * tag; HTML entities in genuine text are decoded.
  */
 function coerceString(value: unknown): string {
   if (value == null) return '';
-  return String(value).trim();
+  const s = String(value).trim();
+  if (isObjectTag(s)) return '';
+  return decodeEntities(s);
+}
+
+/** ISO currency canonicalization: upper-case and map Romanian "lei" -> RON. */
+function canonicalCurrency(raw: string): string {
+  const v = raw.trim().toUpperCase();
+  if (v === 'LEI' || v === 'RON') return 'RON';
+  return v;
 }
 
 /** A resolved field: its raw value plus whether a leading "!" should negate it. */
@@ -153,7 +200,8 @@ function buildItem(
       : true;
 
   // ── Optional string fields ────────────────────────────────────────────────
-  const currency = coerceString(get('currency').value);
+  const currencyRaw = coerceString(get('currency').value);
+  const currency = currencyRaw === '' ? '' : canonicalCurrency(currencyRaw);
   const location = coerceString(get('location').value);
   const imageUrl = coerceString(get('imageUrl').value);
   const phone = coerceString(get('phone').value);
@@ -207,12 +255,18 @@ export function normalizeItems(
               return { negate: false, value: path.slice(1) };
             }
             // Template field: a value with {sub.path} placeholders is built by
-            // interpolating each resolved sub-path (e.g. Storia's offer URL).
+            // interpolating each resolved sub-path (e.g. Storia's offer URL). A
+            // placeholder resolving to empty makes the whole field invalid (an
+            // empty `{slug}` would yield a broken `/ad/-<id>` deep link) — signal
+            // that with `undefined` so a required field (url) drops the item.
             if (path.includes('{')) {
-              const value = path.replace(/\{([^}]+)\}/g, (_, sub: string) =>
-                coerceString(resolvePath(node, sub.trim())),
-              );
-              return { negate: false, value };
+              let anyEmpty = false;
+              const value = path.replace(/\{([^}]+)\}/g, (_, sub: string) => {
+                const resolved = coerceString(resolvePath(node, sub.trim()));
+                if (resolved === '') anyEmpty = true;
+                return resolved;
+              });
+              return { negate: false, value: anyEmpty ? undefined : value };
             }
             const { negate, path: real } = splitNot(path);
             return { negate, value: resolvePath(node, real) };

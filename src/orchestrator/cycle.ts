@@ -45,6 +45,8 @@ export interface CycleResult {
   status: number;
   itemsActive: number;
   newItems: number;
+  /** True when the scrape was a recognised anti-bot hard block (circuit breaker). */
+  blocked?: boolean;
 }
 
 export class MonitorCycle {
@@ -111,8 +113,8 @@ export class MonitorCycle {
     const at = this.now();
     const outcome = await this.deps.engine.scrapeSearch(plugin, monitor.url, at);
     if (!outcome.ok) {
-      this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: 'scrape_failed' });
-      return { notifications: [], ok: false, status: outcome.status, itemsActive: 0, newItems: 0 };
+      this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: outcome.blocked ? 'blocked' : 'scrape_failed' });
+      return { notifications: [], ok: false, status: outcome.status, itemsActive: 0, newItems: 0, blocked: outcome.blocked };
     }
 
     // The pipeline does the heavy lifting: normalize -> exclude -> seller filter
@@ -192,8 +194,8 @@ export class MonitorCycle {
     const at = this.now();
     const outcome = await this.deps.engine.scrapeProduct(plugin, monitor.url, at);
     if (!outcome.ok) {
-      this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: 'scrape_failed' });
-      return { notifications: [], ok: false, status: outcome.status, itemsActive: 0, newItems: 0 };
+      this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: outcome.blocked ? 'blocked' : 'scrape_failed' });
+      return { notifications: [], ok: false, status: outcome.status, itemsActive: 0, newItems: 0, blocked: outcome.blocked };
     }
 
     // A product page yields exactly one node; bail if it failed to normalize.

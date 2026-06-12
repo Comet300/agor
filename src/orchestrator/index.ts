@@ -18,10 +18,12 @@ import type { MessageRef, Monitor, Notification } from '../contracts';
 import type { Store } from '../persistence';
 import type { PluginRegistry } from '../registry';
 import type { ScrapingEngine } from '../scraping/engine';
+import { CircuitBreaker } from '../scraping/circuitBreaker';
 import { DedupBuffer } from '../pipeline';
 import { Scheduler } from '../scheduler';
 import { RegistrationService, type RegisterInput, type RegisterResult } from './registration';
 import { MonitorCycle, type CycleResult } from './cycle';
+import { log } from '../logging/logger';
 
 export { RegistrationService } from './registration';
 export type { RegisterInput, RegisterResult } from './registration';
@@ -57,6 +59,8 @@ export class Orchestrator {
   private readonly now: () => number;
   /** Shared cross-cycle dedup buffer; also holds original alerts' message refs. */
   private readonly dedup: DedupBuffer;
+  /** Per-vendor circuit breaker: pauses polling a hard-blocked/failing vendor. */
+  private readonly breaker: CircuitBreaker;
 
   constructor(deps: OrchestratorDeps) {
     this.deps = deps;
@@ -66,6 +70,8 @@ export class Orchestrator {
     // listing once per retention window).
     const dedup = new DedupBuffer(deps.config.dedupWindowMs);
     this.dedup = dedup;
+
+    this.breaker = new CircuitBreaker(deps.config.circuitBreakerThreshold);
 
     this.registration = new RegistrationService({
       registry: deps.registry,
@@ -100,9 +106,33 @@ export class Orchestrator {
 
   /** Run a monitor's cycle, dispatch its notifications, and update its health. */
   private async runAndDispatch(monitor: Monitor): Promise<CycleResult> {
+    // Circuit breaker: a vendor tripped open is not polled at all (it is blocked
+    // or persistently failing — polling it is pure cost and ban risk). The watch
+    // stays registered and resumes when the breaker is reset.
+    if (this.breaker.isOpen(monitor.vendor)) {
+      log('orchestrator').debug(
+        { monitorId: monitor.id, vendor: monitor.vendor, event: 'CIRCUIT-OPEN' },
+        'skipping poll — vendor circuit breaker is open',
+      );
+      return { notifications: [], ok: false, status: 0, itemsActive: 0, newItems: 0 };
+    }
+
     const result = await this.cycle.run(monitor);
     await this.dispatch(result.notifications);
     await this.trackHealth(monitor, result);
+
+    // Feed the breaker: a blocked or failed cycle is unhealthy. The user was
+    // already told the watch is failing at `failureAlertThreshold` (a lower
+    // count); the breaker is internal cost-control that pauses polling once a
+    // higher threshold of consecutive failures is reached, so it only logs.
+    const healthy = result.ok && !result.blocked;
+    const tripped = this.breaker.record(monitor.vendor, { healthy });
+    if (tripped) {
+      log('orchestrator').warn(
+        { monitorId: monitor.id, vendor: monitor.vendor, event: 'CIRCUIT-TRIPPED' },
+        'vendor circuit breaker tripped — pausing polls until re-enabled',
+      );
+    }
     return result;
   }
 
@@ -196,5 +226,16 @@ export class Orchestrator {
   /** Stop the scheduler heartbeat. Safe to call when already stopped. */
   stop(): void {
     this.scheduler.stop();
+  }
+
+  /** Vendors whose circuit breaker is currently open (polling paused). */
+  blockedVendors(): string[] {
+    return this.breaker.openVendors();
+  }
+
+  /** Manually re-enable a circuit-broken vendor so its watches poll again. */
+  resetCircuit(vendor: string): void {
+    this.breaker.reset(vendor);
+    log('orchestrator').info({ vendor, event: 'CIRCUIT-RESET' }, 'vendor circuit breaker reset');
   }
 }

@@ -47,22 +47,61 @@ export function dealTag(price: number, med: number): DealTag {
   return 'overpriced';
 }
 
+/** A price observation tagged with its currency, for per-currency benchmarking. */
+export interface PricedSample {
+  price: number;
+  currency: string;
+}
+
+/** Group sample prices by currency so each bucket benchmarks on its own scale. */
+function bucketByCurrency(samples: PricedSample[]): Map<string, number[]> {
+  const buckets = new Map<string, number[]>();
+  for (const s of samples) {
+    const bucket = buckets.get(s.currency);
+    if (bucket) bucket.push(s.price);
+    else buckets.set(s.currency, [s.price]);
+  }
+  return buckets;
+}
+
 /**
- * Enrich items with the shared benchmark and a per-item deal tag.
- * The deal tag is only attached when the benchmark is confident; otherwise it is
- * omitted (an unreliable median should not mislabel a listing).
+ * Enrich items with a benchmark and a per-item deal tag, measured PER CURRENCY.
+ *
+ * Pooling prices across currencies corrupts the median (a single RON listing in
+ * a EUR real-estate SERP would skew every EUR deal tag), so the sample is
+ * bucketed by currency and each item is tagged against the median of its OWN
+ * currency. A deal tag is attached only when that bucket is confident.
+ *
+ * Accepts either a currency-tagged sample (preferred) or a bare `number[]` for
+ * back-compat (treated as a single implicit currency bucket).
  */
 export function enrichWithBenchmark(
   items: IScrapedItem[],
-  allActivePrices: number[],
+  allActivePrices: number[] | PricedSample[],
   minSample: number,
 ): EnrichedItem[] {
-  const benchmark = benchmarkFor(allActivePrices, minSample);
+  // Back-compat: a plain number[] is one undifferentiated bucket.
+  const isNumberSample = allActivePrices.every((p) => typeof p === 'number');
+  if (isNumberSample) {
+    const benchmark = benchmarkFor(allActivePrices as number[], minSample);
+    return items.map((item) => {
+      const enriched: EnrichedItem = { ...item, benchmark };
+      if (benchmark.confident) enriched.dealTag = dealTag(item.price, benchmark.median);
+      return enriched;
+    });
+  }
+
+  const buckets = bucketByCurrency(allActivePrices as PricedSample[]);
+  const benchmarkByCurrency = new Map<string, ReturnType<typeof benchmarkFor>>();
+  for (const [currency, prices] of buckets) {
+    benchmarkByCurrency.set(currency, benchmarkFor(prices, minSample));
+  }
+
   return items.map((item) => {
+    const benchmark =
+      benchmarkByCurrency.get(item.currency) ?? benchmarkFor([item.price], minSample);
     const enriched: EnrichedItem = { ...item, benchmark };
-    if (benchmark.confident) {
-      enriched.dealTag = dealTag(item.price, benchmark.median);
-    }
+    if (benchmark.confident) enriched.dealTag = dealTag(item.price, benchmark.median);
     return enriched;
   });
 }

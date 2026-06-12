@@ -82,10 +82,23 @@ gotchas and a ready-made Grafana dashboard (`grafana/agor-logs.json`), is in
 Node 20 (ESM) · TypeScript · [grammY](https://grammy.dev) · better-sqlite3 ·
 undici · @napi-rs/canvas · pino (→ Loki) · vitest.
 
-Anti-bot etiquette: browser-mirroring headers (`ro-RO` and everything),
-per-vendor rate limits, rotating proxy pool with bench-and-retry on 429/403,
-and *soft-fail* extraction — a site redesign degrades into an empty cycle and
-a polite health notice, never a crash loop.
+Anti-bot etiquette: browser-mirroring headers (rotated desktop-Chrome UA with
+matching Client Hints + `Sec-Fetch-*`, `ro-RO` and everything), **redirect
+following** (a `www→apex` 301 no longer silently yields zero items), per-vendor
+rate limits, rotating proxy pool with bench-and-retry on 429/403, and *soft-fail*
+extraction — a site redesign degrades into an empty cycle and a polite health
+notice, never a crash loop.
+
+Block-aware fetching: a recognised anti-bot wall is detected from **response
+headers** (Akamai/Cloudflare/Imperva/Fastly/CloudFront signatures + a deny
+status — never a body grep, which false-positives the anti-bot SDKs every
+working page embeds). A vendor that stays blocked or failing trips a **per-vendor
+circuit breaker** so a dead domain isn't hammered every cycle. Manifests may opt
+into a **headless-browser fallback** (`fetch_strategy: browser`, lazy Playwright
++ stealth) for JS-gated or fingerprinted vendors (e.g. mobile.de) — off by
+default (`ENABLE_BROWSER_FALLBACK`), so the Raspberry Pi base install never needs
+Chromium. New watches are validated at registration: a 4xx/dead URL is rejected
+up-front, and a post-redirect canonical URL is persisted.
 
 The architecture is fully specified: every behavior lives in
 `openspec/specs/`, and every change ships through an

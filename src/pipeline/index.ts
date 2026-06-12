@@ -78,10 +78,11 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
     deduped = news as EnrichedItem[];
   }
 
-  // 6. Enrich the survivors with the shared benchmark (sampled from `active`).
+  // 6. Enrich the survivors with the benchmark (sampled from `active`, bucketed
+  //    by currency so a mixed-currency SERP cannot contaminate a deal tag).
   const newEnriched = enrichWithBenchmark(
     deduped,
-    active.map((i) => i.price),
+    active.map((i) => ({ price: i.price, currency: i.currency })),
     minSample,
   );
 
@@ -102,6 +103,7 @@ export {
   benchmarkFor,
   dealTag,
   enrichWithBenchmark,
+  type PricedSample,
 } from './benchmarking';
 export { DedupBuffer, collapseDuplicates } from './dedup';
 export type { DedupEntry, CrossPost, CollapseResult, AlternativeSource } from './dedup';

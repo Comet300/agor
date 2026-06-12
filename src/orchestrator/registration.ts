@@ -13,7 +13,7 @@ import type { Store } from '../persistence';
 import type { PluginRegistry } from '../registry';
 import type { ScrapingEngine } from '../scraping/engine';
 import { normalizeItems } from '../pipeline';
-import { scrubUrl } from '../util/url';
+import { scrubUrl, extractDomain } from '../util/url';
 import { log } from '../logging/logger';
 
 /** What the caller supplies to register a new watch. */
@@ -103,11 +103,52 @@ export class RegistrationService {
         ? await this.deps.engine.scrapeSearch(plugin, scrubbed, startedAt)
         : await this.deps.engine.scrapeProduct(plugin, scrubbed, startedAt);
 
-    // A failed/empty baseline is not fatal: the monitor still exists and will
-    // pick up listings on its first real cycle (with no false "new" backlog,
-    // since whatever it sees then will simply be unknown ids).
+    // A 4xx (but NOT a recognised anti-bot block) means the URL itself is wrong
+    // or dead — a 404/410 maintenance stub or a mistyped path that will never
+    // yield listings (the live carzz apex-404 and imoradar24 wrong-path cases).
+    // Reject at add-time and drop the transient monitor row rather than register
+    // a watch that polls nothing forever.
+    const status = outcome.status;
+    if (status >= 400 && status < 500 && !outcome.blocked) {
+      this.deps.store.monitors.delete(monitor.id);
+      log('registration').debug(
+        { vendor: plugin.vendor, url: scrubbed, status, chatId: input.chatId, event: 'REGISTER-REJECTED' },
+        'registration rejected — URL returned a client error',
+      );
+      return {
+        ok: false,
+        error: 'That URL is not reachable (it returned an error) — check it points at a results or product page.',
+      };
+    }
+
+    // Any other failed baseline is NOT fatal when the cause is transient or
+    // environmental (a hard block, a 5xx, no proxy): the URL may be perfectly
+    // valid, so the monitor stays and picks up listings once the condition clears.
     if (!outcome.ok) {
       return { ok: true, monitor, baselineCount: 0 };
+    }
+
+    // Canonicalize: if the baseline followed a redirect to a URL still owned by
+    // the SAME vendor plugin, persist that final URL so future polls skip the
+    // redirect. A cross-domain redirect is NOT trusted (open-redirect guard).
+    let effectiveUrl = scrubbed;
+    if (outcome.finalUrl && outcome.finalUrl !== scrubbed) {
+      const sameVendor = this.deps.registry.matchUrl(outcome.finalUrl)?.vendor === plugin.vendor;
+      let sameRegistrableDomain = false;
+      try {
+        sameRegistrableDomain = extractDomain(outcome.finalUrl) === extractDomain(scrubbed);
+      } catch {
+        sameRegistrableDomain = false;
+      }
+      if (sameVendor && sameRegistrableDomain) {
+        effectiveUrl = scrubUrl(outcome.finalUrl);
+        monitor.url = effectiveUrl;
+        this.deps.store.monitors.update(monitor);
+        log('registration').debug(
+          { vendor: plugin.vendor, from: scrubbed, to: effectiveUrl, event: 'CANONICAL-URL' },
+          'persisted canonical post-redirect URL',
+        );
+      }
     }
 
     // Normalize the raw nodes with this monitor's mapping and seed persistence.

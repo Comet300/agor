@@ -5,14 +5,17 @@
  * (no real waiting), keeping the suite deterministic and instant. Timestamps are
  * passed explicitly so cooldown/rate-limit behavior is reproducible.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import type { IVendorPlugin } from '../src/contracts/index';
 import { ProxyPool } from '../src/scraping/proxyPool';
 import { browserHeaders } from '../src/scraping/headers';
 import { extractPayload } from '../src/scraping/extract';
+import { classifyResponse } from '../src/scraping/blockDetection';
 import { ScrapingEngine, type Fetcher } from '../src/scraping/engine';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -149,6 +152,26 @@ describe('browserHeaders', () => {
     expect(h.Accept).toBeDefined();
     expect(h['Cache-Control']).toBeDefined();
   });
+
+  it('carries modern Client Hints + Sec-Fetch metadata consistent with the UA', () => {
+    const h = browserHeaders();
+    expect(h['sec-ch-ua']).toMatch(/Chromium|Chrome|Not.A.Brand/);
+    expect(h['sec-ch-ua-mobile']).toBe('?0');
+    expect(h['sec-ch-ua-platform']).toBeDefined();
+    expect(h['Sec-Fetch-Mode']).toBe('navigate');
+    expect(h['Sec-Fetch-Dest']).toBe('document');
+    expect(h['Upgrade-Insecure-Requests']).toBe('1');
+    // The advertised brand version must agree with the UA's Chrome major.
+    const major = /Chrome\/(\d+)/.exec(h['User-Agent'] ?? '')?.[1];
+    expect(major).toBeDefined();
+    expect(h['sec-ch-ua']).toContain(major!);
+  });
+
+  it('rotates the User-Agent across calls (not a single static string)', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 40; i++) seen.add(browserHeaders()['User-Agent']!);
+    expect(seen.size).toBeGreaterThan(1);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -212,6 +235,224 @@ describe('ScrapingEngine.scrapeSearch', () => {
     expect(outcome.status).toBe(403);
     expect(outcome.rawNodes).toEqual([]);
     expect(outcome.benched).toEqual(['p1', 'p2']);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// classifyResponse — header-signature block detection (never body substring)
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('classifyResponse', () => {
+  it('flags an Akamai 403 (server: AkamaiGHost) as a hard block', () => {
+    const v = classifyResponse(403, { server: 'AkamaiGHost' });
+    expect(v.blocked).toBe(true);
+    expect(v.provider).toBe('akamai');
+  });
+
+  it('flags a Cloudflare 403 (cf-ray) as a block', () => {
+    const v = classifyResponse(403, { 'cf-ray': '8a1b2c3d4e5f', server: 'cloudflare' });
+    expect(v.blocked).toBe(true);
+    expect(v.provider).toBe('cloudflare');
+  });
+
+  it('flags Imperva (x-iinfo + 403) and CloudFront (x-amz-cf-id + 403)', () => {
+    expect(classifyResponse(403, { 'x-iinfo': '1-2-3' }).provider).toBe('imperva');
+    expect(classifyResponse(403, { 'x-amz-cf-id': 'abc' }).provider).toBe('cloudfront');
+  });
+
+  it('does NOT flag a 200 even when anti-bot SDK headers/bodies are present', () => {
+    // The live crawl proved working vendors ship cf-ray + datadome on 200s.
+    const v = classifyResponse(200, { 'cf-ray': '8a1b2c3d4e5f', server: 'cloudflare' });
+    expect(v.blocked).toBe(false);
+  });
+
+  it('treats a bare 403 with no provider signature as a soft ban, not a hard block', () => {
+    const v = classifyResponse(403, {});
+    expect(v.blocked).toBe(false);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// defaultFetcher — follows redirects and surfaces headers + finalUrl
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('defaultFetcher (real undici transport)', () => {
+  let server: Server;
+  let base: string;
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      if (req.url === '/redirect') {
+        res.writeHead(301, { location: '/final' });
+        res.end();
+      } else if (req.url === '/final') {
+        res.writeHead(200, { 'content-type': 'text/html', 'x-test': 'final' });
+        res.end('<html>FINAL BODY</html>');
+      } else if (req.url === '/deny') {
+        res.writeHead(403, { server: 'AkamaiGHost' });
+        res.end('Access Denied');
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise<void>((r) => server.listen(0, r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  it('follows a 301 and returns the final 200 body, headers, and finalUrl', async () => {
+    const { defaultFetcher } = await import('../src/scraping/engine');
+    const r = await defaultFetcher(`${base}/redirect`, { headers: browserHeaders() });
+    expect(r.status).toBe(200);
+    expect(r.body).toContain('FINAL BODY');
+    expect(r.headers?.['x-test']).toBe('final');
+    expect(r.finalUrl).toBe(`${base}/final`);
+  });
+
+  it('surfaces provider headers on a 403 so the engine can classify a block', async () => {
+    const { defaultFetcher } = await import('../src/scraping/engine');
+    const r = await defaultFetcher(`${base}/deny`, { headers: browserHeaders() });
+    expect(r.status).toBe(403);
+    expect(r.headers?.server).toBe('AkamaiGHost');
+    expect(classifyResponse(r.status, r.headers ?? {}).blocked).toBe(true);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// ScrapingEngine — hard-block signalling
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('ScrapingEngine hard-block signalling', () => {
+  it('marks a hard block (403 + AkamaiGHost) distinctly from a soft ban', async () => {
+    const pool = new ProxyPool([], 1000);
+    const akamaiFetcher: Fetcher = async () => ({
+      status: 403,
+      body: 'Access Denied',
+      headers: { server: 'AkamaiGHost' },
+    });
+    const engine = new ScrapingEngine({ pool, cooldownMs: 1000, fetcher: akamaiFetcher, sleep: noSleep });
+    const outcome = await engine.scrapeSearch(synth, 'https://suchen.mobile.de/x', 0);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.status).toBe(403);
+    expect(outcome.blocked).toBe(true);
+    expect(outcome.blockProvider).toBe('akamai');
+  });
+
+  it('a plain 200 extraction reports blocked:false', async () => {
+    const pool = new ProxyPool([], 1000);
+    const engine = new ScrapingEngine({ pool, cooldownMs: 1000, fetcher: okFetcher, sleep: noSleep });
+    const outcome = await engine.scrapeSearch(synth, 'https://www.olx.ro/search', 0);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.blocked).toBe(false);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// ScrapingEngine — opt-in browser-fallback escalation on a hard block
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('ScrapingEngine browser-fallback escalation', () => {
+  const browserPlugin: IVendorPlugin = { ...synth, fetch_strategy: 'browser' };
+
+  it('escalates to the browser fetcher on a hard block (opted-in manifest)', async () => {
+    const pool = new ProxyPool([], 1000);
+    const httpFetcher: Fetcher = async () => ({
+      status: 403,
+      body: 'Access Denied',
+      headers: { server: 'AkamaiGHost' },
+    });
+    let browserCalls = 0;
+    const browserFetcher: Fetcher = async () => {
+      browserCalls++;
+      return { status: 200, body: fixtureBody };
+    };
+    const engine = new ScrapingEngine({
+      pool,
+      cooldownMs: 1000,
+      fetcher: httpFetcher,
+      browserFetcher,
+      sleep: noSleep,
+    });
+
+    const outcome = await engine.scrapeSearch(browserPlugin, 'https://suchen.mobile.de/x', 0);
+    expect(browserCalls).toBe(1);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.usedBrowser).toBe(true);
+    expect(outcome.rawNodes.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does NOT escalate when the manifest did not opt in (default http)', async () => {
+    const pool = new ProxyPool([], 1000);
+    const httpFetcher: Fetcher = async () => ({
+      status: 403,
+      body: 'Access Denied',
+      headers: { server: 'AkamaiGHost' },
+    });
+    let browserCalls = 0;
+    const browserFetcher: Fetcher = async () => {
+      browserCalls++;
+      return { status: 200, body: fixtureBody };
+    };
+    const engine = new ScrapingEngine({
+      pool,
+      cooldownMs: 1000,
+      fetcher: httpFetcher,
+      browserFetcher,
+      sleep: noSleep,
+    });
+
+    const outcome = await engine.scrapeSearch(synth, 'https://www.olx.ro/x', 0);
+    expect(browserCalls).toBe(0);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.blocked).toBe(true);
+  });
+
+  it('does NOT escalate a bare 403 soft-ban (no provider header) to the browser', async () => {
+    const pool = new ProxyPool(['p1', 'p2'], 1000);
+    const bareBan: Fetcher = async () => ({ status: 403, body: '' }); // no headers
+    let browserCalls = 0;
+    const browserFetcher: Fetcher = async () => {
+      browserCalls++;
+      return { status: 200, body: fixtureBody };
+    };
+    const engine = new ScrapingEngine({
+      pool,
+      cooldownMs: 1000,
+      fetcher: bareBan,
+      browserFetcher,
+      sleep: noSleep,
+    });
+
+    const outcome = await engine.scrapeSearch(browserPlugin, 'https://suchen.mobile.de/x', 0);
+    expect(browserCalls).toBe(0); // a soft ban rotates proxies, it does not render
+    expect(outcome.ok).toBe(false);
+    expect(outcome.blocked).toBe(false);
+    expect(outcome.benched).toEqual(['p1', 'p2']);
+  });
+
+  it('does NOT escalate a normal 200 even for a browser-opted-in manifest', async () => {
+    const pool = new ProxyPool([], 1000);
+    let browserCalls = 0;
+    const browserFetcher: Fetcher = async () => {
+      browserCalls++;
+      return { status: 200, body: fixtureBody };
+    };
+    const engine = new ScrapingEngine({
+      pool,
+      cooldownMs: 1000,
+      fetcher: okFetcher,
+      browserFetcher,
+      sleep: noSleep,
+    });
+
+    const outcome = await engine.scrapeSearch(browserPlugin, 'https://suchen.mobile.de/x', 0);
+    expect(browserCalls).toBe(0);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.usedBrowser).toBe(false);
   });
 });
 

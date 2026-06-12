@@ -15,6 +15,16 @@
 
 export type PluginEngine = 'json-extractor' | 'dom-selector';
 
+/**
+ * How a manifest's pages are fetched:
+ *   - `http`    — raw undici GET (default; works for vendors that ship listing
+ *                 data in the initial HTML / flight payload),
+ *   - `browser` — escalate to a real headless browser when the HTTP fetch hits a
+ *                 recognised anti-bot hard block (for JS-gated / fingerprinted
+ *                 vendors). Requires the optional browser dependency installed.
+ */
+export type FetchStrategy = 'http' | 'browser';
+
 export interface IPluginMapping {
   /** Where the raw payload lives in the page (e.g. `script#__NEXT_DATA__`). */
   payload_locator: string;
@@ -35,6 +45,8 @@ export interface IVendorPlugin {
   vendor: string;
   domain: string;
   engine: PluginEngine;
+  /** Transport strategy; defaults to `http` when the manifest omits it. */
+  fetch_strategy?: FetchStrategy;
   rate_limit_ms: number;
   search_mapping: IPluginSearchMapping;
   product_mapping: IPluginMapping;
