@@ -24,6 +24,10 @@ export function openDb(path: string): DB {
     // which matters once the scheduler and bot share one file.
     db.pragma('journal_mode = WAL');
   }
+  // Foreign keys are OFF by default in SQLite and are a per-connection setting,
+  // so enable them on every open. Combined with the ON DELETE CASCADE clauses in
+  // the schema, deleting a monitor removes its items + price history atomically.
+  db.pragma('foreign_keys = ON');
   migrate(db);
   return db;
 }
@@ -56,7 +60,8 @@ export function migrate(db: DB): void {
       currency   TEXT,
       first_seen INTEGER,
       last_seen  INTEGER,
-      PRIMARY KEY (monitor_id, item_id)
+      PRIMARY KEY (monitor_id, item_id),
+      FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS price_history (
@@ -65,7 +70,8 @@ export function migrate(db: DB): void {
       item_id     TEXT,
       price       REAL,
       currency    TEXT,
-      observed_at INTEGER
+      observed_at INTEGER,
+      FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS chat_prefs (
@@ -82,6 +88,14 @@ export function migrate(db: DB): void {
       requested_at INTEGER,
       decided_at   INTEGER,
       decided_by   INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS dedup (
+      chat_id       INTEGER NOT NULL,
+      signature     TEXT NOT NULL,
+      first_seen_at INTEGER NOT NULL,
+      entry_json    TEXT NOT NULL,
+      PRIMARY KEY (chat_id, signature)
     );
 
     CREATE INDEX IF NOT EXISTS idx_monitors_next_due_at

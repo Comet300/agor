@@ -131,6 +131,23 @@ describe('MonitorRepo', () => {
     store.monitors.delete(m.id);
     expect(store.monitors.get(m.id)).toBeUndefined();
   });
+
+  it('deleting a monitor CASCADES to its items and price history (FK on)', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    const item = scrapedItem({ id: 'casc-1' });
+    store.items.upsert(m.id, item, 1_000);
+    store.priceHistory.append({ monitorId: m.id, itemId: item.id, price: 4300, currency: 'RON', observedAt: 1_000 });
+    // Sanity: both rows exist.
+    expect(store.items.knownIds(m.id).has('casc-1')).toBe(true);
+    expect(store.priceHistory.history(m.id, 'casc-1')).toHaveLength(1);
+
+    store.monitors.delete(m.id);
+
+    // FK ON DELETE CASCADE removed the dependent rows — no orphans left behind.
+    expect(store.items.knownIds(m.id).size).toBe(0);
+    expect(store.priceHistory.history(m.id, 'casc-1')).toHaveLength(0);
+  });
 });
 
 describe('ItemRepo', () => {
@@ -236,6 +253,72 @@ describe('PriceHistoryRepo', () => {
     const m = store.monitors.create(newMonitorInput());
     expect(store.priceHistory.lastPrice(m.id, 'ghost')).toBeUndefined();
     expect(store.priceHistory.history(m.id, 'ghost')).toEqual([]);
+  });
+
+  it('store-on-change: a repeated identical price does NOT append a new row', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    // First sight is always recorded.
+    store.priceHistory.append({ monitorId: m.id, itemId: 'z', price: 4300, currency: 'RON', observedAt: 100 });
+    // Three more polls at the SAME price → no new rows (flat is implied).
+    store.priceHistory.append({ monitorId: m.id, itemId: 'z', price: 4300, currency: 'RON', observedAt: 200 });
+    store.priceHistory.append({ monitorId: m.id, itemId: 'z', price: 4300, currency: 'RON', observedAt: 300 });
+    const hist = store.priceHistory.history(m.id, 'z');
+    expect(hist).toHaveLength(1);
+    expect(hist[0]!.observedAt).toBe(100); // only the original change point
+    expect(store.priceHistory.lastPrice(m.id, 'z')).toBe(4300);
+  });
+
+  it('store-on-change: only genuine price changes are recorded (delta log)', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    const seq = [4300, 4300, 4300, 3900, 3900, 4100, 4100];
+    seq.forEach((price, i) =>
+      store.priceHistory.append({ monitorId: m.id, itemId: 'z', price, currency: 'RON', observedAt: 100 + i }),
+    );
+    // Only the distinct change points survive: 4300 → 3900 → 4100.
+    expect(store.priceHistory.history(m.id, 'z').map((p) => p.price)).toEqual([4300, 3900, 4100]);
+    expect(store.priceHistory.lastPrice(m.id, 'z')).toBe(4100);
+  });
+
+  it('store-on-change: a price that returns to an earlier value is still recorded', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    [4300, 3900, 4300].forEach((price, i) =>
+      store.priceHistory.append({ monitorId: m.id, itemId: 'z', price, currency: 'RON', observedAt: 100 + i }),
+    );
+    // 4300 → 3900 → 4300: the bounce-back differs from the immediately-previous
+    // (3900), so it IS a change and must be kept.
+    expect(store.priceHistory.history(m.id, 'z').map((p) => p.price)).toEqual([4300, 3900, 4300]);
+  });
+});
+
+describe('Store.transaction', () => {
+  it('commits all writes on success', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    store.transaction(() => {
+      store.items.upsert(m.id, scrapedItem({ id: 'tx-1' }), 1_000);
+      store.priceHistory.append({ monitorId: m.id, itemId: 'tx-1', price: 100, currency: 'RON', observedAt: 1_000 });
+    });
+    expect(store.items.knownIds(m.id).has('tx-1')).toBe(true);
+    expect(store.priceHistory.lastPrice(m.id, 'tx-1')).toBe(100);
+  });
+
+  it('rolls back EVERY write when the block throws (atomicity)', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    expect(() =>
+      store.transaction(() => {
+        store.items.upsert(m.id, scrapedItem({ id: 'tx-2' }), 1_000);
+        // Second write would happen, then we blow up before commit.
+        store.priceHistory.append({ monitorId: m.id, itemId: 'tx-2', price: 100, currency: 'RON', observedAt: 1_000 });
+        throw new Error('mid-transaction failure');
+      }),
+    ).toThrow('mid-transaction failure');
+    // Neither write survived — the item upsert was rolled back with the rest.
+    expect(store.items.knownIds(m.id).has('tx-2')).toBe(false);
+    expect(store.priceHistory.history(m.id, 'tx-2')).toHaveLength(0);
   });
 });
 
