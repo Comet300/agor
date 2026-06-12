@@ -8,7 +8,7 @@
  * listener speaks plain HTTP on a local port; a secret-token header rejects
  * forged requests.
  */
-import { createServer, type Server } from 'node:http';
+import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { webhookCallback, type Bot } from 'grammy';
 import type { AppConfig } from '../config';
 
@@ -26,6 +26,12 @@ export interface WebhookOptions {
   secret?: string;
   /** Bind address; default `0.0.0.0` so a co-located tunnel can reach it. */
   host?: string;
+  /**
+   * Optional handler layered AHEAD of the grammY webhook (e.g. the health
+   * endpoint). It returns true when it has answered the request; otherwise the
+   * request falls through to the webhook callback.
+   */
+  preHandler?: (req: IncomingMessage, res: ServerResponse) => boolean;
 }
 
 /**
@@ -33,7 +39,13 @@ export interface WebhookOptions {
  * Returns the HTTP {@link Server} (keeps the process alive while listening).
  */
 export async function startWebhook(bot: Bot, opts: WebhookOptions): Promise<Server> {
-  const handler = webhookCallback(bot, 'http', { secretToken: opts.secret });
+  const webhook = webhookCallback(bot, 'http', { secretToken: opts.secret });
+  // Layer the optional pre-handler (health) in front; if it handled the request
+  // it returns true and we stop, else the update flows to grammY.
+  const handler = (req: IncomingMessage, res: ServerResponse): void => {
+    if (opts.preHandler && opts.preHandler(req, res)) return;
+    void webhook(req, res);
+  };
   const server = createServer(handler);
   await new Promise<void>((resolve) => server.listen(opts.port, opts.host ?? '0.0.0.0', resolve));
 

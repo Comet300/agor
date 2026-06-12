@@ -23,6 +23,27 @@
  * contents fail to parse; the scraping engine treats that as a soft failure.
  */
 
+/** Machine-readable categories of extraction failure (for diagnostic logging). */
+export type ExtractionFailureReason =
+  | 'payload_missing' // the located element/global/chunk is not on the page
+  | 'json_malformed' // found the payload, but it did not parse as JSON
+  | 'unbalanced' // a brace/quote-balanced slice could not be closed
+  | 'no_ldjson_block' // no parseable application/ld+json block present
+  | 'no_flight_value' // the flight anchor produced no JSON value
+  | 'unsupported_locator'; // the manifest's payload_locator dialect is unknown
+
+/**
+ * An extraction failure carrying a machine-readable {@link ExtractionFailureReason}
+ * so the engine can log *why* a page failed to yield data (vendor layout change
+ * vs. malformed response vs. a bad manifest) instead of one opaque `extract_failed`.
+ */
+export class ExtractionError extends Error {
+  constructor(public readonly reason: ExtractionFailureReason, message: string) {
+    super(message);
+    this.name = 'ExtractionError';
+  }
+}
+
 /** Parse a `script#<id>` locator into its element id. */
 function parseScriptLocator(locator: string): string | undefined {
   const m = /^script#(.+)$/.exec(locator);
@@ -116,14 +137,14 @@ function sliceStringLiteral(body: string, start: number): string | undefined {
 function extractWindowPayload(body: string, name: string): unknown {
   const start = findWindowValueStart(body, name);
   if (start === undefined) {
-    throw new Error(`extractPayload: window.${name} assignment not found`);
+    throw new ExtractionError('payload_missing', `extractPayload: window.${name} assignment not found`);
   }
   const first = body[start];
 
   if (first === '{') {
     const raw = sliceBalancedObject(body, start);
     if (raw === undefined) {
-      throw new Error(`extractPayload: window.${name} object literal is unbalanced`);
+      throw new ExtractionError('unbalanced', `extractPayload: window.${name} object literal is unbalanced`);
     }
     return parseJson(raw, `window.${name}`);
   }
@@ -133,16 +154,17 @@ function extractWindowPayload(body: string, name: string): unknown {
     // the JS string literal to recover that text, then parse the JSON.
     const literal = sliceStringLiteral(body, start);
     if (literal === undefined) {
-      throw new Error(`extractPayload: window.${name} string literal is unterminated`);
+      throw new ExtractionError('unbalanced', `extractPayload: window.${name} string literal is unterminated`);
     }
     const innerText = parseJson(literal, `window.${name} (string literal)`);
     if (typeof innerText !== 'string') {
-      throw new Error(`extractPayload: window.${name} string literal did not yield text`);
+      throw new ExtractionError('json_malformed', `extractPayload: window.${name} string literal did not yield text`);
     }
     return parseJson(innerText, `window.${name} (decoded JSON)`);
   }
 
-  throw new Error(
+  throw new ExtractionError(
+    'json_malformed',
     `extractPayload: window.${name} value is neither an object literal nor a string`,
   );
 }
@@ -152,7 +174,7 @@ function parseJson(raw: string, where: string): unknown {
   try {
     return JSON.parse(raw);
   } catch (err) {
-    throw new Error(`extractPayload: failed to JSON.parse ${where}: ${(err as Error).message}`);
+    throw new ExtractionError('json_malformed', `extractPayload: failed to JSON.parse ${where}: ${(err as Error).message}`);
   }
 }
 
@@ -216,7 +238,7 @@ function extractLdJsonCandidates(body: string): unknown[] {
       /* skip the block */
     }
   }
-  if (out.length === 0) throw new Error('extractPayload: no parseable application/ld+json block');
+  if (out.length === 0) throw new ExtractionError('no_ldjson_block', 'extractPayload: no parseable application/ld+json block');
   return out;
 }
 
@@ -238,7 +260,7 @@ function extractFlightCandidates(body: string, anchor: string): unknown[] {
       /* skip an undecodable chunk */
     }
   }
-  if (decoded === '') throw new Error('extractPayload: no self.__next_f flight chunks found');
+  if (decoded === '') throw new ExtractionError('payload_missing', 'extractPayload: no self.__next_f flight chunks found');
 
   const out: unknown[] = [];
   const needle = `"${anchor}":`;
@@ -259,7 +281,7 @@ function extractFlightCandidates(body: string, anchor: string): unknown[] {
     }
   }
   if (out.length === 0) {
-    throw new Error(`extractPayload: flight anchor "${anchor}" yielded no JSON value`);
+    throw new ExtractionError('no_flight_value', `extractPayload: flight anchor "${anchor}" yielded no JSON value`);
   }
   return out;
 }
@@ -292,7 +314,7 @@ export function extractPayload(body: string, locator: string): unknown {
     );
     const m = re.exec(body);
     if (!m) {
-      throw new Error(`extractPayload: <script id="${scriptId}"> not found`);
+      throw new ExtractionError('payload_missing', `extractPayload: <script id="${scriptId}"> not found`);
     }
     return parseJson(m[1]!.trim(), `<script id="${scriptId}">`);
   }
@@ -302,5 +324,5 @@ export function extractPayload(body: string, locator: string): unknown {
     return extractWindowPayload(body, windowName);
   }
 
-  throw new Error(`extractPayload: unsupported locator "${locator}"`);
+  throw new ExtractionError('unsupported_locator', `extractPayload: unsupported locator "${locator}"`);
 }

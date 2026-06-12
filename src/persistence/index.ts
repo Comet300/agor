@@ -10,6 +10,7 @@ import { PriceHistoryRepo } from './priceHistory';
 import { ChatPrefsRepo } from './chatPrefs';
 import { AccessRepo } from './access';
 import { DedupRepo } from './dedupStore';
+import { AuditRepo } from './audit';
 
 export { MonitorRepo } from './monitors';
 export { ItemRepo } from './items';
@@ -17,8 +18,10 @@ export { PriceHistoryRepo } from './priceHistory';
 export { ChatPrefsRepo } from './chatPrefs';
 export { AccessRepo } from './access';
 export { DedupRepo } from './dedupStore';
+export { AuditRepo } from './audit';
 export type { DedupStore, PersistedDedupEntry } from './dedupStore';
-export { openDb, migrate, type DB } from './db';
+export type { AuditAction, AuditEntry } from './audit';
+export { openDb, migrate, maintainDb, type DB } from './db';
 export type { NewMonitor } from './monitors';
 export type { ItemState } from './items';
 export type { AccessStatus, AccessRecord, RequestOutcome } from './access';
@@ -34,6 +37,8 @@ export interface Store {
   access: AccessRepo;
   /** Cross-cycle dedup persistence so seen listings survive a restart. */
   dedup: DedupRepo;
+  /** Durable audit trail of access-control decisions. */
+  audit: AuditRepo;
   /**
    * Run `fn`'s writes inside a single SQLite transaction (atomic + faster):
    * either every write commits or, on a thrown error, all roll back. Used to
@@ -55,6 +60,7 @@ export function openStore(path: string): Store {
     chatPrefs: new ChatPrefsRepo(db),
     access: new AccessRepo(db),
     dedup: new DedupRepo(db),
+    audit: new AuditRepo(db),
     transaction: <T>(fn: () => T): T => db.transaction(fn)(),
   };
 }

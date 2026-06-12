@@ -18,7 +18,7 @@ import { request, Agent, ProxyAgent, interceptors } from 'undici';
 import type { IVendorPlugin } from '../contracts';
 import { resolvePath } from '../util/jsonPath';
 import { browserHeaders } from './headers';
-import { extractPayload, extractCandidates } from './extract';
+import { extractPayload, extractCandidates, ExtractionError } from './extract';
 import { domExtractSearch, domExtractProduct } from './domExtract';
 import { classifyResponse, type BlockProvider } from './blockDetection';
 import { ProxyPool } from './proxyPool';
@@ -313,8 +313,12 @@ export class ScrapingEngine {
     try {
       rawNodes = extract(result.body);
     } catch (err) {
+      // Distinguish WHY extraction failed (vendor layout change vs. malformed
+      // response vs. a bad manifest) via the ExtractionError's machine-readable
+      // reason; a non-ExtractionError keeps the generic 'extract_failed'.
+      const reason = err instanceof ExtractionError ? err.reason : 'extract_failed';
       log('engine').warn(
-        { vendor: plugin.vendor, url, status: result.status, reason: 'extract_failed', err: (err as Error).message },
+        { vendor: plugin.vendor, url, status: result.status, reason, err: (err as Error).message },
         'payload extraction failed (vendor layout change?)',
       );
       return { ok: false, status: result.status, rawNodes: [], benched, ...blockFields };
