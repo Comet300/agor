@@ -121,4 +121,26 @@ describe('product-page mappings (real manifests vs trimmed-real detail fixtures)
     expect(a.currency).toBe('EUR');
     expect(a.url).toContain('/oferta/');
   });
+
+  it('autovit product: resolves the advert node (flat price + seller type)', async () => {
+    const items = await scrapeProduct('autovit.ro', 'autovit-product-next.html');
+    expect(items).toHaveLength(1);
+    const a = items[0]!;
+    expect(a.title.toLowerCase()).toContain('passat');
+    expect(a.price).toBe(10450); // price.value
+    expect(a.currency).toBe('EUR');
+    expect(a.url).toMatch(/^https:\/\/www\.autovit\.ro\/autoturisme\/anunt\//);
+    expect(a.isPrivateOwner).toBe(false); // seller.type "PROFESSIONAL"
+  });
+
+  it('homezz product: reads its OWN price from .main-price (not the sidebar)', async () => {
+    const items = await scrapeProduct('homezz.ro', 'homezz-product-dom.html');
+    expect(items).toHaveLength(1);
+    const a = items[0]!;
+    expect(a.title.toLowerCase()).toContain('teren');
+    expect(a.price).toBe(183370); // .main-price "183.370 €", NOT the 165.000 sidebar
+    expect(a.currency).toBe('EUR');
+    expect(a.url).toMatch(/homezz\.ro\/.+\.html$/); // og:url canonical
+    expect(a.id).toBeTruthy();
+  });
 });
