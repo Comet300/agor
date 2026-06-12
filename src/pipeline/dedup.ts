@@ -15,6 +15,7 @@
  */
 import type { EnrichedItem, IScrapedItem, MessageRef } from '../contracts';
 import { compositeSignature } from '../util/hash';
+import type { DedupStore } from '../persistence/dedupStore';
 
 export interface AlternativeSource {
   vendor: string;
@@ -43,6 +44,7 @@ function signatureOf(item: IScrapedItem): string {
     title: item.title,
     price: item.price,
     location: item.location,
+    id: item.id,
   });
 }
 
@@ -54,15 +56,45 @@ export interface CollapseResult {
   crossPosts: CrossPost[];
 }
 
+/** Optional persistence binding so a buffer survives process restarts. */
+export interface DedupPersistence {
+  store: DedupStore;
+  /** The chat this buffer belongs to (the store is keyed per chat). */
+  chatId: number;
+}
+
 /**
  * A time-windowed signature buffer that survives across cycles. Entries older
  * than `windowMs` are considered expired and pruned, so a listing re-appearing
  * after the window can legitimately notify again.
+ *
+ * When a {@link DedupPersistence} is supplied, the buffer rehydrates from it on
+ * construction and writes every mutation through, so already-seen listings are
+ * not re-alerted after a restart. Without it the buffer is purely in-memory
+ * (the default — keeps it trivially unit-testable).
  */
 export class DedupBuffer {
   private readonly entries = new Map<string, DedupEntry>();
+  private readonly persistence?: DedupPersistence;
 
-  constructor(private readonly windowMs: number) {}
+  constructor(private readonly windowMs: number, persistence?: DedupPersistence) {
+    this.persistence = persistence;
+    if (persistence) {
+      for (const p of persistence.store.load(persistence.chatId)) {
+        this.entries.set(p.signature, p.entry as DedupEntry);
+      }
+    }
+  }
+
+  /** Write an entry through to the backing store, if persistence is bound. */
+  private persist(entry: DedupEntry): void {
+    if (!this.persistence) return;
+    this.persistence.store.save(this.persistence.chatId, {
+      signature: entry.signature,
+      firstSeenAt: entry.firstSeenAt,
+      entry,
+    });
+  }
 
   /** Composite signature for an item (exposed so callers key consistently). */
   signatureOf(item: IScrapedItem): string {
@@ -74,6 +106,7 @@ export class DedupBuffer {
     for (const [sig, entry] of this.entries) {
       if (now - entry.firstSeenAt >= this.windowMs) {
         this.entries.delete(sig);
+        if (this.persistence) this.persistence.store.remove(this.persistence.chatId, sig);
       }
     }
   }
@@ -92,13 +125,17 @@ export class DedupBuffer {
       item: { ...item, alternativeSources: [...(item.alternativeSources ?? [])] },
     };
     this.entries.set(signature, entry);
+    this.persist(entry);
     return entry;
   }
 
   /** Attach the original alert's Telegram message so later cross-posts can edit it. */
   setMessageRef(signature: string, ref: MessageRef): void {
     const entry = this.entries.get(signature);
-    if (entry) entry.messageRef = ref;
+    if (entry) {
+      entry.messageRef = ref;
+      this.persist(entry);
+    }
   }
 
   /**
@@ -114,6 +151,7 @@ export class DedupBuffer {
       if (!merged.some((m) => m.url === s.url)) merged.push(s);
     }
     entry.item = { ...item, alternativeSources: merged };
+    this.persist(entry);
   }
 
   /** Append an alternative source to a stored original (de-duplicated by url). */
@@ -121,7 +159,10 @@ export class DedupBuffer {
     const entry = this.entries.get(signature);
     if (!entry) return;
     const sources = entry.item.alternativeSources ?? (entry.item.alternativeSources = []);
-    if (!sources.some((s) => s.url === source.url)) sources.push(source);
+    if (!sources.some((s) => s.url === source.url)) {
+      sources.push(source);
+      this.persist(entry);
+    }
   }
 
   /**

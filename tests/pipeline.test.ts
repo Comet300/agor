@@ -532,6 +532,30 @@ describe('dedup', () => {
     buffer.prune(2000); // beyond window -> evicted
     expect(buffer.seen(b, 2000)).toBeUndefined(); // recorded fresh again
   });
+
+  it('persists across a simulated restart so a seen listing is not re-recorded', () => {
+    // A tiny in-memory DedupStore standing in for the SQLite repo.
+    const rows = new Map<string, { signature: string; firstSeenAt: number; entry: unknown }>();
+    const store = {
+      load: () => [...rows.values()],
+      save: (_chatId: number, e: { signature: string; firstSeenAt: number; entry: unknown }) => { rows.set(e.signature, e); },
+      remove: (_chatId: number, sig: string) => { rows.delete(sig); },
+    };
+
+    // First process lifetime: record `a`.
+    const first = new DedupBuffer(60_000, { store, chatId: 7 });
+    expect(first.seen(a, 1_000)).toBeUndefined(); // recorded + persisted
+    expect(rows.size).toBe(1);
+
+    // "Restart": a brand-new buffer rehydrates from the same store.
+    const second = new DedupBuffer(60_000, { store, chatId: 7 });
+    const hit = second.seen(b, 2_000); // same signature as `a`
+    expect(hit?.item.id).toBe('a'); // recognised as already-seen, NOT re-recorded
+
+    // A prune past the window removes it from the store too.
+    second.prune(120_000);
+    expect(rows.size).toBe(0);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────

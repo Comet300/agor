@@ -1,6 +1,10 @@
 /**
- * Append-only price log per (monitor, item). Powers price-drop detection and
- * the median benchmark analytics downstream.
+ * Store-on-change price log per (monitor, item). Each row is a genuine change
+ * point: a poll whose price equals the last recorded one is NOT appended (the
+ * price is assumed flat between change points). This keeps a forever history
+ * that grows with price *changes*, not poll *count*. Powers price-drop detection
+ * and the median benchmark analytics downstream; readers are unaffected since the
+ * latest row is always the current price.
  */
 
 import type { PricePoint } from '../contracts';
@@ -18,7 +22,11 @@ interface PriceRow {
 export class PriceHistoryRepo {
   constructor(private readonly db: DB) {}
 
-  /** Record one observed price for an item. */
+  /**
+   * Record an observed price for an item — but only when it differs from the
+   * last recorded one (or there is none yet). A poll at the same price is a
+   * no-op, so the table stores change points, not every poll.
+   */
   append(p: {
     monitorId: number;
     itemId: string;
@@ -26,6 +34,8 @@ export class PriceHistoryRepo {
     currency: string;
     observedAt: number;
   }): void {
+    const last = this.lastPrice(p.monitorId, p.itemId);
+    if (last === p.price) return; // unchanged → assume flat, store nothing
     this.db
       .prepare(
         `INSERT INTO price_history

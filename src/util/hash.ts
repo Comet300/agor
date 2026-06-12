@@ -22,18 +22,24 @@ export function normalizeLocation(location: string | undefined): string {
 }
 
 /**
- * Composite signature hash: f(NormalizedTitle, RoundedPrice, ApproximateLocation).
+ * Composite signature hash: f(NormalizedTitle, PriceBucket, ApproximateLocation).
  * Identical cross-posted listings collapse to the same signature.
+ *
+ * A non-positive / non-bucketable price (0 = "price on request", free) would make
+ * the price slot a shared constant, wrongly collapsing every non-priced ad with
+ * the same title+location into one. In that case the slot falls back to the
+ * item's own `id` (when supplied), so distinct non-priced listings stay separate
+ * while the SAME listing seen again is still stable. A real price ignores `id`,
+ * so genuine cross-vendor dedup is unaffected.
  */
 export function compositeSignature(input: {
   title: string;
   price: number;
   location?: string;
+  id?: string;
 }): string {
-  const parts = [
-    normalizeTitle(input.title),
-    String(priceBucket(input.price)),
-    normalizeLocation(input.location),
-  ];
+  const bucket = priceBucket(input.price);
+  const priceSlot = bucket > 0 ? String(bucket) : `noprice:${input.id ?? ''}`;
+  const parts = [normalizeTitle(input.title), priceSlot, normalizeLocation(input.location)];
   return createHash('sha1').update(parts.join('|')).digest('hex');
 }

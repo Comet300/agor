@@ -44,6 +44,27 @@ describe('composite signature', () => {
     const b = compositeSignature({ title: 'Apartament 3 camere', price: 290000, location: 'Bucuresti' });
     expect(a).not.toBe(b);
   });
+
+  it('does NOT collapse distinct non-priced listings (price 0 / on-request)', () => {
+    // Two different "price on request" ads with the same title+location must stay
+    // distinct — a zero price must not bucket them all together.
+    const a = compositeSignature({ id: 'X1', title: 'Apartament', price: 0, location: 'Bucuresti' });
+    const b = compositeSignature({ id: 'X2', title: 'Apartament', price: 0, location: 'Bucuresti' });
+    expect(a).not.toBe(b);
+  });
+
+  it('still collapses the SAME non-priced listing seen twice (stable by id)', () => {
+    const a = compositeSignature({ id: 'X1', title: 'Apartament', price: 0, location: 'Bucuresti' });
+    const b = compositeSignature({ id: 'X1', title: 'apartament', price: -5, location: 'bucuresti' });
+    expect(a).toBe(b);
+  });
+
+  it('priced signatures ignore id (cross-vendor dedup still works)', () => {
+    // A real price means different ids (different vendors) still collapse.
+    const a = compositeSignature({ id: 'olx-1', title: 'VW Golf', price: 4300, location: 'Cluj' });
+    const b = compositeSignature({ id: 'storia-9', title: 'VW Golf', price: 4300, location: 'Cluj' });
+    expect(a).toBe(b);
+  });
 });
 
 describe('url scrubbing', () => {

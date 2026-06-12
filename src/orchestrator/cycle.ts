@@ -155,20 +155,24 @@ export class MonitorCycle {
 
     // Persist every active item; the NEW ones also get a first price point.
     // (Determine "new" via the pre-cycle known set so already-stored ids that
-    // re-appear this cycle don't double-log a price.)
+    // re-appear this cycle don't double-log a price.) Wrapped in one transaction
+    // so a mid-cycle crash can't leave an item stored without its price (or vice
+    // versa), and so the whole batch commits as a single fsync.
     const newIds = new Set(out.newEnriched.map((i) => i.id));
-    for (const item of out.active) {
-      this.deps.store.items.upsert(monitor.id, item, at);
-      if (newIds.has(item.id)) {
-        this.deps.store.priceHistory.append({
-          monitorId: monitor.id,
-          itemId: item.id,
-          price: item.price,
-          currency: item.currency,
-          observedAt: at,
-        });
+    this.deps.store.transaction(() => {
+      for (const item of out.active) {
+        this.deps.store.items.upsert(monitor.id, item, at);
+        if (newIds.has(item.id)) {
+          this.deps.store.priceHistory.append({
+            monitorId: monitor.id,
+            itemId: item.id,
+            price: item.price,
+            currency: item.currency,
+            observedAt: at,
+          });
+        }
       }
-    }
+    });
 
     this.logPoll(monitor, at, {
       ok: true,
@@ -253,15 +257,18 @@ export class MonitorCycle {
       });
     }
 
-    // Always record the new price point and refresh stored state.
-    this.deps.store.priceHistory.append({
-      monitorId: monitor.id,
-      itemId: item.id,
-      price: item.price,
-      currency: item.currency,
-      observedAt: at,
+    // Always record the new price point and refresh stored state — atomically,
+    // so a crash between the two writes can't desynchronize price vs. state.
+    this.deps.store.transaction(() => {
+      this.deps.store.priceHistory.append({
+        monitorId: monitor.id,
+        itemId: item.id,
+        price: item.price,
+        currency: item.currency,
+        observedAt: at,
+      });
+      this.deps.store.items.upsert(monitor.id, item, at);
     });
-    this.deps.store.items.upsert(monitor.id, item, at);
 
     // Reflect current stock onto the in-memory monitor so the scheduler can
     // place it on the fast (out-of-stock) tier when it re-arms the schedule.

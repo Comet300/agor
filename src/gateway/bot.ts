@@ -35,18 +35,57 @@ import { resolveLang } from './lang';
 import { log } from '../logging/logger';
 
 /**
- * Chats awaiting an exclusion-keyword reply, keyed by chat id → monitor id.
- * The next plain text message from such a chat is consumed as the CSV keyword
- * input rather than treated as a URL. Module-level by design (one bot process).
+ * A Map whose entries expire after a TTL, so an abandoned conversation never
+ * leaks memory. `get`/`has` transparently drop a stale entry (and lazily sweep
+ * the rest), so callers use it like a plain Map. Time is `Date.now()` — these
+ * are short-lived UI prompts, not domain state, so no injected clock is needed.
  */
-const pendingExclusion = new Map<number, number>();
+class ExpiringMap<K, V> {
+  private readonly entries = new Map<K, { value: V; expiresAt: number }>();
+  constructor(private readonly ttlMs: number) {}
+
+  set(key: K, value: V): void {
+    this.sweep();
+    this.entries.set(key, { value, expiresAt: Date.now() + this.ttlMs });
+  }
+  get(key: K): V | undefined {
+    const e = this.entries.get(key);
+    if (!e) return undefined;
+    if (Date.now() >= e.expiresAt) { this.entries.delete(key); return undefined; }
+    return e.value;
+  }
+  has(key: K): boolean {
+    return this.get(key) !== undefined;
+  }
+  delete(key: K): void {
+    this.entries.delete(key);
+  }
+  /** Drop every expired entry (called opportunistically on writes). */
+  private sweep(): void {
+    const now = Date.now();
+    for (const [k, e] of this.entries) if (now >= e.expiresAt) this.entries.delete(k);
+  }
+}
+
+/** How long an in-flight conversational prompt stays valid before it expires. */
+const PENDING_TTL_MS = 15 * 60_000; // 15 minutes
+
+/**
+ * Chats awaiting an exclusion-keyword reply, keyed by chat id → monitor id.
+ * The next plain text from that chat is consumed as the CSV keyword input rather
+ * than treated as a URL. Entries expire so an abandoned prompt cannot leak.
+ */
+const pendingExclusion = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
 /**
  * Chats mid-way through the /request-access flow, keyed by chat id. `step` says
  * which field the next plain-text reply fills; `name` holds the captured name
- * once we advance to asking for the email. Module-level (one bot process).
+ * once we advance to asking for the email. Entries expire so an abandoned flow
+ * cannot leak.
  */
-const pendingAccess = new Map<number, { step: 'name' | 'email'; name?: string }>();
+const pendingAccess = new ExpiringMap<number, { step: 'name' | 'email'; name?: string }>(
+  PENDING_TTL_MS,
+);
 
 /** A minimal email shape check — good enough to reject obvious typos, not RFC 5322. */
 function looksLikeEmail(text: string): boolean {
