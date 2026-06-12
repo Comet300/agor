@@ -19,6 +19,13 @@ describe('loadConfig', () => {
     expect(loadConfig({ ENABLE_BROWSER_FALLBACK: 'false' }).enableBrowserFallback).toBe(false);
   });
 
+  it('parses ADMIN_CHAT_IDS into a numeric list (empty when unset)', () => {
+    expect(loadConfig({}).adminChatIds).toEqual([]);
+    expect(loadConfig({ ADMIN_CHAT_IDS: '111, 222 ,333' }).adminChatIds).toEqual([111, 222, 333]);
+    // Non-numeric entries are dropped, not coerced to NaN.
+    expect(loadConfig({ ADMIN_CHAT_IDS: '111,abc,222' }).adminChatIds).toEqual([111, 222]);
+  });
+
   it('parses proxy CSV and coerces numbers', () => {
     const cfg = loadConfig({
       PROXY_URLS: 'http://a:1, http://b:2 ,',

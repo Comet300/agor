@@ -8,14 +8,18 @@ import { MonitorRepo } from './monitors';
 import { ItemRepo } from './items';
 import { PriceHistoryRepo } from './priceHistory';
 import { ChatPrefsRepo } from './chatPrefs';
+import { AccessRepo } from './access';
 
 export { MonitorRepo } from './monitors';
 export { ItemRepo } from './items';
 export { PriceHistoryRepo } from './priceHistory';
 export { ChatPrefsRepo } from './chatPrefs';
+export { AccessRepo } from './access';
 export { openDb, migrate, type DB } from './db';
 export type { NewMonitor } from './monitors';
 export type { ItemState } from './items';
+export type { AccessStatus, AccessRecord, RequestOutcome } from './access';
+export { REAPPLY_COOLDOWN_DAYS } from './access';
 
 /** The bundle of repos every component reads/writes through. */
 export interface Store {
@@ -24,6 +28,7 @@ export interface Store {
   items: ItemRepo;
   priceHistory: PriceHistoryRepo;
   chatPrefs: ChatPrefsRepo;
+  access: AccessRepo;
 }
 
 /** Open the database at `path` (or `':memory:'`) and assemble its repos. */
@@ -35,5 +40,6 @@ export function openStore(path: string): Store {
     items: new ItemRepo(db),
     priceHistory: new PriceHistoryRepo(db),
     chatPrefs: new ChatPrefsRepo(db),
+    access: new AccessRepo(db),
   };
 }
