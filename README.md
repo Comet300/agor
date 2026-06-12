@@ -1,12 +1,20 @@
 # agor 🕵️
 
-**Your tireless deal-hunting robot for Romanian marketplaces.**
+**Your tireless deal-hunting robot for online marketplaces.**
 
-You know the ritual: refresh OLX, refresh again, check Autovit, *maybe* peek at
-Storia, miss the good Suzuki by 20 minutes, see it reposted next day for 800 €
-more. agor ends the ritual. Paste a search link into Telegram, tap **▶️
-Pornește**, and go live your life — the bot watches the market and pings you
+*Read this in another language: [English](./README.md) · [Română](./README.ro.md)*
+
+You know the ritual: refresh a marketplace, refresh again, check another site,
+*maybe* peek at a third, miss the good deal by 20 minutes, see it reposted next
+day for 800 € more. agor ends the ritual. Paste a search link into Telegram, tap
+**▶️ Start**, and go live your life — the bot watches the market and pings you
 the moment something happens.
+
+agor is **marketplace-agnostic**. The engine has **zero per-site code** — every
+marketplace is a declarative YAML file in `plugins/`, so onboarding a new site
+(any country, any category) means writing a manifest, not touching the engine.
+It ships with eleven marketplaces integrated today (they happen to be Romanian —
+that's where this started). **[Add your own →](./docs/ONBOARDING.md)**
 
 ## What it catches
 
@@ -15,8 +23,8 @@ the moment something happens.
 - 📉 **Price drops** on a watched listing (with the savings spelled out)
 - 🟢 **Back in stock** — out-of-stock items get polled on a *faster* tier,
   because restocks don't wait for polite schedules
-- 🔥 **Deal tags** — every alert is benchmarked against the live market median:
-  `🔥 Chilipir`, `📊 Preț corect`, or `📈 Supraevaluat`
+- 🔥 **Deal tags** — every alert is benchmarked against the live market median
+  (per currency): `🔥 great deal`, `📊 fair price`, or `📈 overpriced`
 - 👯 **Cross-post collapse** — the same car posted on two sites becomes ONE
   alert with an "Also on:" line, not two pings at 7am
 - 🚫 **Filters** — private vs. dealer sellers, exclusion keywords
@@ -27,34 +35,42 @@ the moment something happens.
 - ⚠️ **Health notices** — if a watch gets blocked or goes silent, the bot
   *tells you* instead of sulking quietly
 
-## Where it hunts
+## Add a marketplace
 
-| Cars | Real estate | Everything else |
-|---|---|---|
-| OLX.ro | Storia.ro | Lajumate.ro |
-| Autovit.ro | Imobiliare.ro | Publi24.ro |
-| Carzz.ro | Imoradar24.ro | Vinted.ro |
-| mobile.de (RO) | Homezz.ro | |
+**Any marketplace can be onboarded by dropping a YAML manifest into `plugins/` —
+no engine changes, no redeploy of logic.** A manifest declares *where the data
+lives* and *which field maps to what*; the generic engine does the rest. New
+site = new YAML; site redesign = edit that YAML.
 
-Eleven marketplaces, **zero per-site code**. Every vendor is a declarative YAML
-manifest (`plugins/*.yaml`); the engine speaks four generic dialects of
-"where did you hide the data":
+The engine speaks four generic dialects of "where did you hide the data", so a
+manifest just picks one:
 
-- `script#__NEXT_DATA__` / `window.*` — embedded state JSON (incl. OLX's
-  double-encoded `__PRERENDERED_STATE__`)
-- `ldjson` — schema.org blocks, tolerant of, ahem, *creatively formatted* JSON
+- `script#__NEXT_DATA__` / `window.*` — embedded state JSON (incl. double-encoded
+  `window.*` blobs)
+- `ldjson` — schema.org blocks, tolerant of *creatively formatted* JSON
 - `flight:<anchor>` — Next.js RSC streams (`self.__next_f` chunks, decoded and
   balanced-sliced)
-- `dom-selector` — good old CSS selectors for honest server-rendered HTML
+- `dom-selector` — plain CSS selectors for server-rendered HTML
 
-New marketplace = new YAML file. Site redesign = edit the YAML. The engine
-doesn't care.
+**→ Full walkthrough: [docs/ONBOARDING.md](./docs/ONBOARDING.md)** — pick a
+dialect, find the payload, map the fields, and verify with a local test.
 
-## The bot speaks Romanian 🇷🇴
+## Languages
 
-Romanian-first UI (it's hunting Romanian marketplaces, after all), full English
-one tap away with `/lang en`. Commands: `/track <url>` (or just paste a link),
-`/list`, `/check <id>`, `/remove <id>`, `/lang`, `/help`.
+The bot's UI is fully localized; pick yours with `/lang <code>`. Available today:
+
+| Code | Language | README |
+|---|---|---|
+| `en` | English (default) | [README.md](./README.md) |
+| `ro` | Română | [README.ro.md](./README.ro.md) |
+
+Every user-facing string lives in one typed catalog (`src/gateway/strings.ts`),
+and the type system makes a missing translation a *compile* error — so adding a
+language is mechanical and can't ship half-done. Per-chat preference is
+remembered; new chats default to English.
+
+Commands: `/track <url>` (or just paste a link), `/list`, `/check <id>`,
+`/remove <id>`, `/lang`, `/request-access`, `/help`.
 
 ## Who gets in
 
@@ -74,7 +90,7 @@ live in the database (so you can see who a chat belongs to), never in logs.
 ```bash
 npm ci
 cp .env.example .env       # add your BOT_TOKEN from @BotFather
-npm test                   # ~190 tests, all green or your money back
+npm test                   # 300+ tests, all green or your money back
 npm start                  # long-polling — works from any laptop, behind any NAT
 ```
 
@@ -96,8 +112,8 @@ Node 20 (ESM) · TypeScript · [grammY](https://grammy.dev) · better-sqlite3 ·
 undici · @napi-rs/canvas · pino (→ Loki) · vitest.
 
 Anti-bot etiquette: browser-mirroring headers (rotated desktop-Chrome UA with
-matching Client Hints + `Sec-Fetch-*`, `ro-RO` and everything), **redirect
-following** (a `www→apex` 301 no longer silently yields zero items), per-vendor
+matching Client Hints + `Sec-Fetch-*` and a per-storefront `Accept-Language`),
+**redirect following** (a `www→apex` 301 no longer silently yields zero items), per-vendor
 rate limits, rotating proxy pool with bench-and-retry on 429/403, and *soft-fail*
 extraction — a site redesign degrades into an empty cycle and a polite health
 notice, never a crash loop.
@@ -118,6 +134,18 @@ The architecture is fully specified: every behavior lives in
 [OpenSpec](https://github.com/Fission-AI/OpenSpec) propose → implement →
 archive cycle (`openspec/changes/`). Yes, even this README's repo had its
 features speced first. 📋
+
+## Integrated marketplaces
+
+Eleven shipped today (all Romanian — the first market this was pointed at).
+Adding more from any country is a manifest away ([guide](./docs/ONBOARDING.md)).
+
+| Cars | Real estate | General / other |
+|---|---|---|
+| OLX.ro | Storia.ro | Lajumate.ro |
+| Autovit.ro | Imobiliare.ro | Publi24.ro |
+| Carzz.ro | Imoradar24.ro | Vinted.ro |
+| mobile.de (RO) | Homezz.ro | |
 
 ## License
 
