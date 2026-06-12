@@ -124,6 +124,10 @@ function makeConfig(over: Partial<AppConfig> = {}): AppConfig {
     enableBrowserFallback: false,
     circuitBreakerThreshold: 10,
     dbMaintenanceIntervalTicks: 360,
+    auditRetentionDays: 365,
+    maxMonitorsPerChat: 50,
+    checkCooldownMs: 10_000,
+    urlRegisterCooldownMs: 5_000,
     healthCheckPort: 0,
     logLevel: 'silent',
     logService: 'agor',
@@ -218,6 +222,49 @@ function makeHarness(configOver: Partial<AppConfig> = {}): Harness {
     },
   };
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Per-chat monitor quota (flood protection)
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('monitor quota', () => {
+  it('refuses a new watch once a non-admin chat reaches maxMonitorsPerChat', async () => {
+    const h = makeHarness({ maxMonitorsPerChat: 2 });
+    h.setBody(searchDoc([{ id: 'A', title: 'x', price: 1, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' }]));
+
+    const a = await h.orchestrator.register({ chatId: 7, rawUrl: SEARCH_URL });
+    const b = await h.orchestrator.register({ chatId: 7, rawUrl: SEARCH_URL + '&p=2' });
+    expect(a.ok && b.ok).toBe(true);
+
+    // Third registration for the same chat is over the limit.
+    const c = await h.orchestrator.register({ chatId: 7, rawUrl: SEARCH_URL + '&p=3' });
+    expect(c.ok).toBe(false);
+    if (c.ok) throw new Error('expected quota refusal');
+    expect(c.reason).toBe('quota');
+    // Only the two allowed monitors persisted.
+    expect(h.store.monitors.listByChat(7)).toHaveLength(2);
+  });
+
+  it('exempts admins from the quota', async () => {
+    const h = makeHarness({ maxMonitorsPerChat: 1 });
+    h.store.access.seedAdmin(7);
+    h.setBody(searchDoc([{ id: 'A', title: 'x', price: 1, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' }]));
+
+    const a = await h.orchestrator.register({ chatId: 7, rawUrl: SEARCH_URL });
+    const b = await h.orchestrator.register({ chatId: 7, rawUrl: SEARCH_URL + '&p=2' });
+    expect(a.ok).toBe(true);
+    expect(b.ok).toBe(true); // admin sails past the limit
+  });
+
+  it('treats maxMonitorsPerChat=0 as unlimited', async () => {
+    const h = makeHarness({ maxMonitorsPerChat: 0 });
+    h.setBody(searchDoc([{ id: 'A', title: 'x', price: 1, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' }]));
+    for (let i = 0; i < 5; i++) {
+      const r = await h.orchestrator.register({ chatId: 7, rawUrl: `${SEARCH_URL}&p=${i}` });
+      expect(r.ok).toBe(true);
+    }
+  });
+});
 
 // ────────────────────────────────────────────────────────────────────────────
 // 10.1 — Search new-listing (Feature 9.1)
@@ -709,6 +756,35 @@ describe('watch health: failure surfacing and /check semantics', () => {
     const ok = await h.orchestrator.runMonitorOnce(id);
     expect(ok.ok).toBe(true);
     expect(h.notes.filter((n) => n.kind === 'watch_recovered')).toHaveLength(1);
+    expect(h.store.monitors.get(id)!.consecutiveFailures).toBe(0);
+  });
+
+  it('persists the failure counter even when the health notice fails to send', async () => {
+    const id = await registerSearch();
+
+    // Every watch_failing/watch_recovered delivery throws (e.g. chat blocked).
+    h.notify.mockImplementation(async (n: Notification): Promise<MessageRef | void> => {
+      if (n.kind === 'watch_failing' || n.kind === 'watch_recovered') {
+        throw new Error('telegram delivery failed');
+      }
+      h.notes.push(n);
+      return { chatId: n.chatId, messageId: 1 };
+    });
+
+    // 3 failing cycles → reaches the threshold, where the (throwing) notice fires.
+    h.setBody('boom');
+    for (let i = 0; i < 3; i++) {
+      h.setNow(2_000 + i);
+      await h.orchestrator.runMonitorOnce(id);
+    }
+
+    // The notice throw must NOT prevent the DB counter from being persisted.
+    expect(h.store.monitors.get(id)!.consecutiveFailures).toBe(3);
+
+    // Recovery: a healthy cycle's notice also throws, but the reset must persist.
+    h.setBody(searchDoc([{ id: 'A', title: 'iPhone 13', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' }]));
+    h.setNow(10_000);
+    await h.orchestrator.runMonitorOnce(id);
     expect(h.store.monitors.get(id)!.consecutiveFailures).toBe(0);
   });
 

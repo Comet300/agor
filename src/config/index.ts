@@ -48,6 +48,17 @@ const EnvSchema = z.object({
   // Scheduler ticks between periodic DB maintenance (wal_checkpoint). Default
   // 360 ≈ 6h at the typical ~1-min tick cadence.
   DB_MAINTENANCE_INTERVAL_TICKS: z.coerce.number().int().positive().default(360),
+  // Days of access-decision audit history to retain; older rows are pruned
+  // during DB maintenance so the audit_log stays bounded on a long-running Pi.
+  AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
+  // Max monitors a single (non-admin) chat may register. A backstop against
+  // accidental or abusive floods that would swamp the scheduler. 0 = unlimited.
+  MAX_MONITORS_PER_CHAT: z.coerce.number().int().min(0).default(50),
+  // Per-chat cooldown (ms) on /check — it forces a synchronous scrape, so spam
+  // is expensive. Default 10s.
+  CHECK_COOLDOWN_MS: z.coerce.number().int().min(0).default(10_000),
+  // Per-chat cooldown (ms) on registering a watch from a pasted URL. Default 5s.
+  URL_REGISTER_COOLDOWN_MS: z.coerce.number().int().min(0).default(5_000),
   // Port for a GET /health endpoint (0 = disabled). In webhook mode the health
   // route is served on WEBHOOK_PORT automatically; this only spins up a separate
   // listener for long-polling deployments that want a probe.
@@ -89,6 +100,14 @@ export interface AppConfig {
   circuitBreakerThreshold: number;
   /** Scheduler ticks between periodic DB maintenance (wal_checkpoint). */
   dbMaintenanceIntervalTicks: number;
+  /** Days of audit-log history to retain (older rows pruned during maintenance). */
+  auditRetentionDays: number;
+  /** Max monitors a non-admin chat may register (0 = unlimited). */
+  maxMonitorsPerChat: number;
+  /** Per-chat cooldown (ms) on the /check on-demand poll. */
+  checkCooldownMs: number;
+  /** Per-chat cooldown (ms) on registering a watch from a pasted URL. */
+  urlRegisterCooldownMs: number;
   /** Port for the GET /health endpoint (0 = disabled in long-poll mode). */
   healthCheckPort: number;
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent';
@@ -127,6 +146,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     enableBrowserFallback: parsed.ENABLE_BROWSER_FALLBACK,
     circuitBreakerThreshold: parsed.CIRCUIT_BREAKER_THRESHOLD,
     dbMaintenanceIntervalTicks: parsed.DB_MAINTENANCE_INTERVAL_TICKS,
+    auditRetentionDays: parsed.AUDIT_RETENTION_DAYS,
+    maxMonitorsPerChat: parsed.MAX_MONITORS_PER_CHAT,
+    checkCooldownMs: parsed.CHECK_COOLDOWN_MS,
+    urlRegisterCooldownMs: parsed.URL_REGISTER_COOLDOWN_MS,
     // In webhook mode the health route rides the existing webhook listener;
     // otherwise it only runs when an explicit HEALTH_CHECK_PORT is set.
     healthCheckPort: parsed.WEBHOOK_URL ? parsed.WEBHOOK_PORT : parsed.HEALTH_CHECK_PORT,

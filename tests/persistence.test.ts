@@ -251,6 +251,20 @@ describe('PriceHistoryRepo', () => {
     expect(store.priceHistory.lastPrice(m.id, 'x')).toBe(3900);
   });
 
+  it('history(limit) returns the most recent N change points, still ascending', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    // 6 distinct change points at observed_at 100..105.
+    [10, 20, 30, 40, 50, 60].forEach((price, i) =>
+      store.priceHistory.append({ monitorId: m.id, itemId: 'x', price, currency: 'RON', observedAt: 100 + i }),
+    );
+    // Cap to the 3 newest, returned oldest-first for charting.
+    const hist = store.priceHistory.history(m.id, 'x', 3);
+    expect(hist.map((p) => p.price)).toEqual([40, 50, 60]);
+    // Without a limit, the whole series comes back (back-compat default).
+    expect(store.priceHistory.history(m.id, 'x')).toHaveLength(6);
+  });
+
   it('lastPrice and history are empty/undefined when nothing logged', () => {
     const store = freshStore();
     const m = store.monitors.create(newMonitorInput());
@@ -341,6 +355,61 @@ describe('maintainDb', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('prunes dedup entries older than the dedup window, keeping recent ones', () => {
+    const store = freshStore();
+    const now = 100 * 86_400_000; // day 100
+    const dedupMaxAgeMs = 86_400_000; // 1 day
+    // Old (2 days ago) and recent (1 hour ago) entries for one chat.
+    store.dedup.save(5, { signature: 'old', firstSeenAt: now - 2 * 86_400_000, entry: {} });
+    store.dedup.save(5, { signature: 'fresh', firstSeenAt: now - 3_600_000, entry: {} });
+
+    maintainDb(store.db, { now, dedupMaxAgeMs });
+
+    const remaining = store.dedup.load(5).map((e) => e.signature);
+    expect(remaining).toEqual(['fresh']);
+  });
+
+  it('prunes audit_log entries older than the retention window', () => {
+    const store = freshStore();
+    const now = 400 * 86_400_000; // day 400
+    const auditRetentionDays = 365;
+    store.audit.log('allow', 1, 9, now - 400 * 86_400_000, 'too old'); // > 365d
+    store.audit.log('deny', 2, 9, now - 100 * 86_400_000, 'keep'); // < 365d
+    store.audit.log('promote', 3, 9, now); // now
+
+    maintainDb(store.db, { now, auditRetentionDays });
+
+    const actions = store.audit.recent(100).map((e) => e.action);
+    expect(actions).toEqual(['promote', 'deny']); // newest-first; 'allow' pruned
+  });
+
+  it('does not prune when no retention options are supplied (back-compat)', () => {
+    const store = freshStore();
+    const now = 400 * 86_400_000;
+    store.dedup.save(5, { signature: 'old', firstSeenAt: 0, entry: {} });
+    store.audit.log('allow', 1, 9, 0);
+
+    maintainDb(store.db); // no opts → checkpoint/optimize only, no DELETEs
+
+    expect(store.dedup.load(5)).toHaveLength(1);
+    expect(store.audit.recent(100)).toHaveLength(1);
+  });
+});
+
+describe('DedupRepo.pruneExpired', () => {
+  it('deletes entries older than maxAgeMs across ALL chats', () => {
+    const store = freshStore();
+    const now = 50 * 86_400_000;
+    store.dedup.save(1, { signature: 'a-old', firstSeenAt: now - 10 * 86_400_000, entry: {} });
+    store.dedup.save(2, { signature: 'b-old', firstSeenAt: now - 10 * 86_400_000, entry: {} });
+    store.dedup.save(2, { signature: 'b-fresh', firstSeenAt: now - 1_000, entry: {} });
+
+    store.dedup.pruneExpired(now, 86_400_000); // 1-day window
+
+    expect(store.dedup.load(1)).toHaveLength(0);
+    expect(store.dedup.load(2).map((e) => e.signature)).toEqual(['b-fresh']);
   });
 });
 

@@ -89,4 +89,31 @@ describe('renderPriceHistory', () => {
     if (!result.ok) throw new Error('expected ok result');
     expect([...result.png.subarray(0, 8)]).toEqual(PNG_SIGNATURE);
   });
+
+  it('downsamples a very large series instead of rendering every point', () => {
+    // A long-lived item can accumulate thousands of change points; rendering
+    // them all risks OOM on a Pi. The renderer caps the work and still produces
+    // a valid PNG that preserves the first and last observation.
+    const points: PricePoint[] = Array.from({ length: 5_000 }, (_, i) =>
+      makePoint({ price: 1_000 + (i % 100), observedAt: 1_000 + i }),
+    );
+
+    const result = renderPriceHistory(points);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok result');
+    expect([...result.png.subarray(0, 8)]).toEqual(PNG_SIGNATURE);
+    // A simple line chart stays small even with many input points (proves we
+    // didn't plot 5000 markers).
+    expect(result.png.length).toBeLessThan(1024 * 1024);
+  });
+
+  it('rejects non-positive or oversized canvas dimensions', () => {
+    const points: PricePoint[] = [
+      makePoint({ price: 4500, observedAt: 1_000 }),
+      makePoint({ price: 4300, observedAt: 2_000 }),
+    ];
+    expect(renderPriceHistory(points, { width: -1 })).toEqual({ ok: false, reason: 'invalid_dimensions' });
+    expect(renderPriceHistory(points, { height: 0 })).toEqual({ ok: false, reason: 'invalid_dimensions' });
+    expect(renderPriceHistory(points, { width: 10_000 })).toEqual({ ok: false, reason: 'invalid_dimensions' });
+  });
 });

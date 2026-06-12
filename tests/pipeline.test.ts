@@ -128,6 +128,18 @@ describe('normalizeItems', () => {
     expect(out.map((i) => i.price)).toEqual([1234.56, 1234.56, 4300]);
   });
 
+  it('parses scientific-notation price strings without dropping the exponent', () => {
+    // A JSON payload that ships a large price in exponential form must not be
+    // mangled by the digit-stripping cleaner (which would turn "1e6" into 16).
+    const nodes = [
+      { id: 'a', title: 'T', price: '1e6', url: 'u' }, // -> 1_000_000
+      { id: 'b', title: 'T', price: '5e-3', url: 'u' }, // -> 0.005
+      { id: 'c', title: 'T', price: '1.5E+2', url: 'u' }, // -> 150
+    ];
+    const out = normalizeItems(nodes, PLUGIN, 'search');
+    expect(out.map((i) => i.price)).toEqual([1_000_000, 0.005, 150]);
+  });
+
   it('skips nodes missing id/title/url or with unparseable price', () => {
     const nodes = [
       { title: 'no id', price: '10', url: 'u' }, // missing id
@@ -592,6 +604,9 @@ describe('dedup', () => {
       load: () => [...rows.values()],
       save: (_chatId: number, e: { signature: string; firstSeenAt: number; entry: unknown }) => { rows.set(e.signature, e); },
       remove: (_chatId: number, sig: string) => { rows.delete(sig); },
+      pruneExpired: (now: number, maxAgeMs: number) => {
+        for (const [sig, e] of rows) if (e.firstSeenAt < now - maxAgeMs) rows.delete(sig);
+      },
     };
 
     // First process lifetime: record `a`.

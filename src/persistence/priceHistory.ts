@@ -58,16 +58,26 @@ export class PriceHistoryRepo {
     return row?.price;
   }
 
-  /** Full price history for an item, oldest observation first. */
-  history(monitorId: number, itemId: string): PricePoint[] {
+  /**
+   * Price history for an item, oldest observation first. With `limit`, returns
+   * only the most recent `limit` change points (still ascending) so a years-long
+   * history is bounded before it reaches the chart renderer; omit it for the
+   * full series.
+   */
+  history(monitorId: number, itemId: string, limit?: number): PricePoint[] {
+    // Fetch newest-first when capped (so LIMIT keeps the most recent points),
+    // then restore ascending order for charting; uncapped stays plain ascending.
+    const capped = limit !== undefined && limit > 0;
     const rows = this.db
       .prepare(
         `SELECT monitor_id, item_id, price, currency, observed_at
            FROM price_history
           WHERE monitor_id = ? AND item_id = ?
-          ORDER BY observed_at ASC, id ASC`,
+          ORDER BY observed_at ${capped ? 'DESC' : 'ASC'}, id ${capped ? 'DESC' : 'ASC'}
+          ${capped ? 'LIMIT ?' : ''}`,
       )
-      .all(monitorId, itemId) as PriceRow[];
+      .all(...(capped ? [monitorId, itemId, limit] : [monitorId, itemId])) as PriceRow[];
+    if (capped) rows.reverse();
     return rows.map((r) => ({
       monitorId: r.monitor_id,
       itemId: r.item_id,

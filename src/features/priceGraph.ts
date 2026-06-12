@@ -13,7 +13,7 @@ import { formatMoney } from '../util/money';
 /** Result of a price-history render. */
 export type PriceChartResult =
   | { ok: true; png: Buffer }
-  | { ok: false; reason: 'insufficient_history' };
+  | { ok: false; reason: 'insufficient_history' | 'invalid_dimensions' };
 
 /** Optional render tuning. */
 export interface PriceChartOptions {
@@ -24,6 +24,32 @@ export interface PriceChartOptions {
 
 // Inner plot padding (px) — leaves room for axis labels and an optional title.
 const PADDING = { top: 48, right: 24, bottom: 36, left: 64 } as const;
+
+/** Hard cap on plotted points: a long-lived item can accumulate thousands of
+ *  change points; rendering them all wastes CPU and risks OOM on a small host. */
+const MAX_POINTS = 500;
+/** Upper bound on caller-supplied canvas dimensions (guards against OOM). */
+const MAX_DIMENSION = 2048;
+
+/**
+ * Reduce a long series to at most {@link MAX_POINTS} points, always keeping the
+ * first and last observation so the chart's endpoints stay truthful. Evenly
+ * strides through the middle — enough for a faithful trend at a bounded cost.
+ */
+function downsample(points: PricePoint[]): PricePoint[] {
+  if (points.length <= MAX_POINTS) return points;
+  const first = points[0]!;
+  const last = points[points.length - 1]!;
+  const step = (points.length - 1) / (MAX_POINTS - 1);
+  const out: PricePoint[] = [];
+  for (let i = 0; i < MAX_POINTS - 1; i++) {
+    out.push(points[Math.round(i * step)]!);
+  }
+  out.push(last);
+  // Guarantee the true first point leads even if rounding skipped it.
+  if (out[0] !== first) out[0] = first;
+  return out;
+}
 
 /**
  * Render a simple line chart of price over time.
@@ -45,10 +71,19 @@ export function renderPriceHistory(
 
   const width = opts.width ?? 800;
   const height = opts.height ?? 400;
+  // Reject pathological/oversized dimensions before allocating a canvas.
+  if (
+    !Number.isInteger(width) || !Number.isInteger(height) ||
+    width <= 0 || height <= 0 ||
+    width > MAX_DIMENSION || height > MAX_DIMENSION
+  ) {
+    return { ok: false, reason: 'invalid_dimensions' };
+  }
 
-  // Sort chronologically without mutating the caller's array.
+  // Sort chronologically without mutating the caller's array, then bound the
+  // plotted-point count so a years-long history can't OOM the renderer.
   // Non-empty (length >= 2 guaranteed above), so first/last are defined.
-  const sorted = [...points].sort((a, b) => a.observedAt - b.observedAt);
+  const sorted = downsample([...points].sort((a, b) => a.observedAt - b.observedAt));
   const firstPoint = sorted[0]!;
   const lastPoint = sorted[sorted.length - 1]!;
 
