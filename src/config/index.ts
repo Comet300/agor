@@ -10,10 +10,19 @@ const csv = (raw: string | undefined): string[] =>
     .map((s) => s.trim())
     .filter(Boolean);
 
+/** CSV of integers; non-numeric entries are dropped (not coerced to NaN). */
+const numericCsv = (raw: string | undefined): number[] =>
+  csv(raw)
+    .map((s) => Number(s))
+    .filter((n) => Number.isInteger(n));
+
 const EnvSchema = z.object({
   BOT_TOKEN: z.string().optional(),
   DATABASE_PATH: z.string().default('./agor.db'),
   PROXY_URLS: z.string().optional(),
+  // Comma-separated Telegram chat ids that bootstrap as admins (always allowed,
+  // can grant/revoke others). Unset ⇒ no admins ⇒ access control is fail-open.
+  ADMIN_CHAT_IDS: z.string().optional(),
   DEFAULT_CHECK_INTERVAL_MS: z.coerce.number().int().positive().default(600_000),
   OOS_FAST_INTERVAL_MS: z.coerce.number().int().positive().default(120_000),
   DEDUP_WINDOW_MS: z.coerce.number().int().positive().default(86_400_000),
@@ -52,6 +61,8 @@ export interface AppConfig {
   botToken?: string;
   databasePath: string;
   proxyUrls: string[];
+  /** Bootstrap admin chat ids; empty ⇒ access control is fail-open. */
+  adminChatIds: number[];
   defaultCheckIntervalMs: number;
   oosFastIntervalMs: number;
   dedupWindowMs: number;
@@ -88,6 +99,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     botToken: parsed.BOT_TOKEN || undefined,
     databasePath: parsed.DATABASE_PATH,
     proxyUrls: csv(parsed.PROXY_URLS),
+    adminChatIds: numericCsv(parsed.ADMIN_CHAT_IDS),
     defaultCheckIntervalMs: parsed.DEFAULT_CHECK_INTERVAL_MS,
     oosFastIntervalMs: parsed.OOS_FAST_INTERVAL_MS,
     dedupWindowMs: parsed.DEDUP_WINDOW_MS,

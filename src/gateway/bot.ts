@@ -22,7 +22,7 @@
  * Handlers are defensive: each wraps its body in try/catch and replies with a
  * friendly error instead of crashing the polling loop.
  */
-import { Bot, InputFile } from 'grammy';
+import { Bot, InlineKeyboard, InputFile } from 'grammy';
 import type { MessageRef, Notification, SellerVisibility } from '../contracts';
 import type { Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
@@ -40,6 +40,18 @@ import { log } from '../logging/logger';
  * input rather than treated as a URL. Module-level by design (one bot process).
  */
 const pendingExclusion = new Map<number, number>();
+
+/**
+ * Chats mid-way through the /request-access flow, keyed by chat id. `step` says
+ * which field the next plain-text reply fills; `name` holds the captured name
+ * once we advance to asking for the email. Module-level (one bot process).
+ */
+const pendingAccess = new Map<number, { step: 'name' | 'email'; name?: string }>();
+
+/** A minimal email shape check — good enough to reject obvious typos, not RFC 5322. */
+function looksLikeEmail(text: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text.trim());
+}
 
 /** Quick test for an http(s) URL — the only plain text we treat as a watch. */
 function looksLikeUrl(text: string): boolean {
@@ -104,12 +116,88 @@ async function handleTrack(
   await reply(card.text, card.keyboard);
 }
 
+/** Options controlling access: the bootstrap admin chat ids. */
+export interface BotAccessOptions {
+  /** Bootstrap admin chat ids (always allowed). Empty ⇒ access control fail-open. */
+  adminChatIds?: number[];
+}
+
 /**
  * Build (but do not start) the grammY bot. Caller is responsible for invoking
  * `bot.start()` (long polling) — see `src/index.ts`.
+ *
+ * Access control: the bot is deny-by-default — only allowed chats (and admins)
+ * may use it; everyone else is limited to `/start` and `/request-access`. The
+ * first chat to complete `/request-access` (when no admin exists yet) is
+ * auto-approved as the admin, so no env setup is required; `adminChatIds` can
+ * still seed known admins on boot.
  */
-export function buildBot(orchestrator: Orchestrator, store: Store, token: string): Bot {
+export function buildBot(
+  orchestrator: Orchestrator,
+  store: Store,
+  token: string,
+  options: BotAccessOptions = {},
+): Bot {
   const bot = new Bot(token);
+  const adminChatIds = options.adminChatIds ?? [];
+
+  // Seed bootstrap admins from config (always allowed, can grant/revoke).
+  // Idempotent — also a no-op when ADMIN_CHAT_IDS is unset, in which case the
+  // first /request-access claims admin (see the request flow below).
+  for (const id of adminChatIds) store.access.seedAdmin(id);
+
+  /** True when `chatId` may use the bot fully (deny-by-default). */
+  const hasAccess = (chatId: number): boolean =>
+    store.access.isAllowed(chatId) || store.access.isAdmin(chatId);
+
+  /** True when `chatId` is an admin. */
+  const isAdmin = (chatId: number): boolean => store.access.isAdmin(chatId);
+
+  /** Notify every admin chat (DB admins + any configured) with text + keyboard. */
+  const notifyAdmins = async (text: string, keyboard?: InlineKeyboard): Promise<void> => {
+    const ids = new Set<number>(adminChatIds);
+    for (const u of store.access.list()) if (u.isAdmin) ids.add(u.chatId);
+    for (const id of ids) {
+      try {
+        await bot.api.sendMessage(id, text, keyboard ? { reply_markup: keyboard } : undefined);
+      } catch (err) {
+        log('access').warn({ adminId: id, err: (err as Error).message }, 'admin notify failed');
+      }
+    }
+  };
+
+  // ── Access gate ─────────────────────────────────────────────────────────────
+  // Runs BEFORE every handler. A chat without access may only reach /start and
+  // /request-access (and, mid-flow, its own name/email replies); everything else
+  // is refused. Fail-safe: a lookup error denies (logged), never lets through.
+  bot.use(async (ctx, next) => {
+    const chatId = ctx.chat?.id;
+    if (chatId === undefined) return next(); // non-chat update; nothing to gate
+    let allowed: boolean;
+    try {
+      allowed = hasAccess(chatId);
+    } catch (err) {
+      log('access').error({ chatId, err: (err as Error).message }, 'access check failed — denying');
+      allowed = false;
+    }
+    if (allowed) return next();
+
+    const lang = langFor(store, chatId);
+    const text = ctx.message?.text ?? '';
+    const isStart = text.startsWith('/start');
+    const isRequest = text.startsWith('/request-access');
+    const midFlow = pendingAccess.has(chatId);
+    // Let the request-access entry points and an in-flight name/email reply through.
+    if (isStart || isRequest || (midFlow && !text.startsWith('/'))) return next();
+
+    // Refuse everything else. Answer callback queries so the spinner clears.
+    if (ctx.callbackQuery) {
+      try { await ctx.answerCallbackQuery(tr(lang).access_denied); } catch { /* expired */ }
+    } else {
+      try { await ctx.reply(tr(lang).access_denied); } catch { /* best effort */ }
+    }
+    return; // do NOT call next() — handler chain stops here
+  });
 
   // ── Commands ──────────────────────────────────────────────────────────────
 
@@ -233,7 +321,211 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
     }
   });
 
+  // ── Access control ──────────────────────────────────────────────────────────
+
+  // /request-access — start the name → email capture flow (non-allowed users).
+  bot.command('request-access', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      // Already allowed? Nothing to request.
+      if (store.access.isAllowed(chatId) || store.access.isAdmin(chatId)) {
+        await ctx.reply(tr(lang).access_granted_user);
+        return;
+      }
+      const rec = store.access.get(chatId);
+      if (rec?.status === 'pending') {
+        await ctx.reply(tr(lang).access_request_pending);
+        return;
+      }
+      // Denied within the 7-day cooldown? Refuse up-front — don't make them fill
+      // in name/email only to be told to wait.
+      const daysLeft = store.access.cooldownDaysLeft(chatId, Date.now());
+      if (daysLeft > 0) {
+        await ctx.reply(tr(lang).access_request_too_soon(daysLeft));
+        return;
+      }
+      pendingAccess.set(chatId, { step: 'name' });
+      await ctx.reply(tr(lang).access_request_intro + tr(lang).access_ask_name);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  /** Parse a leading numeric chat-id argument from a command match. */
+  const parseId = (raw: string): number | undefined => {
+    const n = Number((raw ?? '').trim().split(/\s+/)[0]);
+    return Number.isInteger(n) ? n : undefined;
+  };
+
+  // /allow <id> — admin grants access; the requester is notified.
+  bot.command('allow', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+    try {
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await ctx.reply(tr(lang).access_allow_usage); return; }
+      store.access.allow(id, { by: chatId, at: Date.now() });
+      const rec = store.access.get(id);
+      log('access').info({ chatId: id, action: 'allow', by: chatId }, 'access granted');
+      await ctx.reply(tr(lang).access_allow_done({ id, name: rec?.name ?? '' }));
+      try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_granted_user); } catch { /* user may have blocked */ }
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  // /deny <id> — admin denies/revokes; the requester is notified.
+  bot.command('deny', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+    try {
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await ctx.reply(tr(lang).access_deny_usage); return; }
+      store.access.deny(id, { by: chatId, at: Date.now() });
+      const rec = store.access.get(id);
+      log('access').info({ chatId: id, action: 'deny', by: chatId }, 'access denied');
+      await ctx.reply(tr(lang).access_deny_done({ id, name: rec?.name ?? '' }));
+      try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_denied_user); } catch { /* blocked */ }
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  // /users — admin lists everyone with status + tracking fields.
+  bot.command('users', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+    try {
+      const users = store.access.list();
+      if (users.length === 0) { await ctx.reply(tr(lang).access_users_empty); return; }
+      const lines = users.map((u) =>
+        tr(lang).access_users_item({ id: u.chatId, status: u.status, isAdmin: u.isAdmin, name: u.name ?? '', email: u.email ?? '' }),
+      );
+      await ctx.reply(`${tr(lang).access_users_intro}\n\n${lines.join('\n')}`);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  // /userinfo <id> — admin views one user's full record.
+  bot.command('userinfo', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+    try {
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await ctx.reply(tr(lang).access_userinfo_usage); return; }
+      const u = store.access.get(id);
+      if (!u) { await ctx.reply(tr(lang).access_user_not_found); return; }
+      await ctx.reply(tr(lang).access_userinfo({ id: u.chatId, status: u.status, isAdmin: u.isAdmin, name: u.name ?? '', email: u.email ?? '' }));
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  // /setname <id> <name> — admin edits a user's tracking name.
+  bot.command('setname', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+    try {
+      const parts = (ctx.match ?? '').trim().split(/\s+/);
+      const id = parseId(parts[0] ?? '');
+      const name = parts.slice(1).join(' ').trim();
+      if (id === undefined || !name) { await ctx.reply(tr(lang).access_setname_usage); return; }
+      store.access.setName(id, name);
+      log('access').info({ chatId: id, action: 'setname', by: chatId }, 'user name edited');
+      await ctx.reply(tr(lang).access_setname_done({ id, name }));
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  // /setemail <id> <email> — admin edits a user's tracking email (format-checked).
+  bot.command('setemail', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+    try {
+      const parts = (ctx.match ?? '').trim().split(/\s+/);
+      const id = parseId(parts[0] ?? '');
+      const email = (parts[1] ?? '').trim();
+      if (id === undefined || !email) { await ctx.reply(tr(lang).access_setemail_usage); return; }
+      if (!looksLikeEmail(email)) { await ctx.reply(tr(lang).access_email_invalid); return; }
+      store.access.setEmail(id, email);
+      log('access').info({ chatId: id, action: 'setemail', by: chatId }, 'user email edited');
+      await ctx.reply(tr(lang).access_setemail_done({ id, email }));
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  // /promote <id> — admin makes another chat an admin (only admins can do this).
+  bot.command('promote', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+    try {
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await ctx.reply(tr(lang).access_promote_usage); return; }
+      store.access.promote(id);
+      log('access').info({ chatId: id, action: 'promote', by: chatId }, 'user promoted to admin');
+      await ctx.reply(tr(lang).access_promote_done({ id }));
+      try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_promoted_user); } catch { /* blocked */ }
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  // /demote <id> — admin removes another chat's admin rights (never the last admin,
+  // and an admin cannot demote themselves — both guard against orphaning the bot).
+  bot.command('demote', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+    try {
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await ctx.reply(tr(lang).access_demote_usage); return; }
+      if (id === chatId) { await ctx.reply(tr(lang).access_demote_last_admin); return; } // no self-demote
+      const ok = store.access.demote(id);
+      if (!ok) { await ctx.reply(tr(lang).access_demote_last_admin); return; }
+      log('access').info({ chatId: id, action: 'demote', by: chatId }, 'user demoted from admin');
+      await ctx.reply(tr(lang).access_demote_done({ id }));
+      try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_demoted_user); } catch { /* blocked */ }
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
   // ── Callback queries (inline keyboard taps) ─────────────────────────────────
+
+  // Access allow/deny from the admin notification: al:<id> / dn:<id> (admin-only).
+  bot.callbackQuery(/^(al|dn):(-?\d+)$/, async (ctx) => {
+    const adminChatId = ctx.chat?.id ?? 0;
+    const lang = langFor(store, adminChatId);
+    try {
+      if (!isAdmin(adminChatId)) { await ctx.answerCallbackQuery(tr(lang).access_admin_only); return; }
+      const action = ctx.match[1];
+      const id = Number(ctx.match[2]);
+      if (action === 'al') {
+        store.access.allow(id, { by: adminChatId, at: Date.now() });
+        log('access').info({ chatId: id, action: 'allow', by: adminChatId }, 'access granted');
+        await ctx.answerCallbackQuery(tr(lang).cb_allow_done({ id }));
+        try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_granted_user); } catch { /* blocked */ }
+      } else {
+        store.access.deny(id, { by: adminChatId, at: Date.now() });
+        log('access').info({ chatId: id, action: 'deny', by: adminChatId }, 'access denied');
+        await ctx.answerCallbackQuery(tr(lang).cb_deny_done({ id }));
+        try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_denied_user); } catch { /* blocked */ }
+      }
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
 
   // Seller visibility: sv:<monitorId>:<private|company|both>
   bot.callbackQuery(/^sv:(\d+):(private|company|both)$/, async (ctx) => {
@@ -247,7 +539,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
       }
 
       const monitor = store.monitors.get(monitorId);
-      if (!monitor) {
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -280,7 +572,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
       const minutes = Number(ctx.match[2]);
 
       const monitor = store.monitors.get(monitorId);
-      if (!monitor) {
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -309,7 +601,7 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor) {
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -391,6 +683,54 @@ export function buildBot(orchestrator: Orchestrator, store: Store, token: string
     const text = ctx.message.text;
 
     try {
+      // 0. Are we mid-way through the /request-access name/email capture?
+      const flow = pendingAccess.get(chatId);
+      if (flow !== undefined) {
+        if (flow.step === 'name') {
+          pendingAccess.set(chatId, { step: 'email', name: text.trim() });
+          await ctx.reply(tr(lang).access_ask_email);
+          return;
+        }
+        // step === 'email': validate, then persist the request (enforces cooldown).
+        if (!looksLikeEmail(text)) {
+          await ctx.reply(tr(lang).access_email_invalid);
+          return; // stay on the email step
+        }
+        const name = flow.name ?? '';
+        const email = text.trim();
+        pendingAccess.delete(chatId);
+
+        // Bootstrap: the FIRST person to complete a request (when no admin exists
+        // yet) is auto-approved AND becomes the admin. Their name/email is still
+        // recorded for the user table.
+        if (!store.access.hasAnyAdmin()) {
+          store.access.setName(chatId, name);
+          store.access.setEmail(chatId, email);
+          store.access.seedAdmin(chatId);
+          log('access').info({ chatId, action: 'bootstrap_admin' }, 'first requester became admin');
+          await ctx.reply(tr(lang).access_first_admin);
+          return;
+        }
+
+        const result = store.access.request(chatId, { name, email }, Date.now());
+        if (result.outcome === 'too_soon') {
+          await ctx.reply(tr(lang).access_request_too_soon(result.daysLeft));
+          return;
+        }
+        if (result.outcome === 'already_allowed') {
+          await ctx.reply(tr(lang).access_granted_user);
+          return;
+        }
+        log('access').info({ chatId, action: 'request' }, 'access requested');
+        await ctx.reply(tr(lang).access_request_sent);
+        // Notify admins with inline allow/deny buttons.
+        const kb = new InlineKeyboard()
+          .text(tr('ro').btn_allow, `al:${chatId}`)
+          .text(tr('ro').btn_deny, `dn:${chatId}`);
+        await notifyAdmins(tr('ro').access_admin_new_request({ id: chatId, name, email }), kb);
+        return;
+      }
+
       // 1. Are we waiting for this chat to send exclusion keywords?
       const pendingMonitorId = pendingExclusion.get(chatId);
       if (pendingMonitorId !== undefined) {

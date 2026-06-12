@@ -57,19 +57,19 @@ export class Orchestrator {
   private readonly deps: OrchestratorDeps;
   /** Resolved clock seam — always defined after the constructor. */
   private readonly now: () => number;
-  /** Shared cross-cycle dedup buffer; also holds original alerts' message refs. */
-  private readonly dedup: DedupBuffer;
+  /**
+   * Per-chat cross-cycle dedup buffers. Each chat gets its OWN buffer so the
+   * intra-user cross-vendor dedup (same listing on two marketplaces → one alert)
+   * works, while one user's listings can never suppress or cross-edit another
+   * user's alerts (the buffer instance is the per-chat namespace).
+   */
+  private readonly dedupByChat = new Map<number, DedupBuffer>();
   /** Per-vendor circuit breaker: pauses polling a hard-blocked/failing vendor. */
   private readonly breaker: CircuitBreaker;
 
   constructor(deps: OrchestratorDeps) {
     this.deps = deps;
     this.now = deps.now ?? (() => Date.now());
-
-    // Shared cross-cycle dedup buffer (search monitors notify a cross-posted
-    // listing once per retention window).
-    const dedup = new DedupBuffer(deps.config.dedupWindowMs);
-    this.dedup = dedup;
 
     this.breaker = new CircuitBreaker(deps.config.circuitBreakerThreshold);
 
@@ -87,7 +87,7 @@ export class Orchestrator {
       store: deps.store,
       engine: deps.engine,
       minSample: deps.config.benchmarkMinSample,
-      dedup,
+      dedupFor: (chatId) => this.dedupFor(chatId),
       now: this.now,
     });
 
@@ -104,8 +104,42 @@ export class Orchestrator {
     });
   }
 
+  /**
+   * Whether the chat that owns a monitor is currently permitted to be polled.
+   * Access control activates the moment the first admin exists (the same instant
+   * the bot becomes deny-by-default). Before that — an empty access table — every
+   * monitor runs. Once active, a monitor whose owner is not `allowed` (revoked /
+   * pending) is paused — not polled, not notified — until the owner is allowed
+   * again. (A monitor can only be created by an already-allowed owner, so this is
+   * effectively the revocation gate.)
+   */
+  private ownerAllowed(chatId: number): boolean {
+    if (!this.deps.store.access.hasAnyAdmin()) return true; // pre-bootstrap: nothing enforced
+    return this.deps.store.access.isAllowed(chatId) || this.deps.store.access.isAdmin(chatId);
+  }
+
+  /** The dedup buffer for a chat, created on first use (per-chat isolation). */
+  private dedupFor(chatId: number): DedupBuffer {
+    let buf = this.dedupByChat.get(chatId);
+    if (!buf) {
+      buf = new DedupBuffer(this.deps.config.dedupWindowMs);
+      this.dedupByChat.set(chatId, buf);
+    }
+    return buf;
+  }
+
   /** Run a monitor's cycle, dispatch its notifications, and update its health. */
   private async runAndDispatch(monitor: Monitor): Promise<CycleResult> {
+    // Access gate: a revoked / non-allowed owner's monitors are paused (stateless
+    // — re-allowing resumes instantly). The watch row stays; it just isn't polled.
+    if (!this.ownerAllowed(monitor.chatId)) {
+      log('orchestrator').debug(
+        { monitorId: monitor.id, chatId: monitor.chatId, event: 'OWNER-NOT-ALLOWED' },
+        'skipping poll — monitor owner is not allowed',
+      );
+      return { notifications: [], ok: false, status: 0, itemsActive: 0, newItems: 0 };
+    }
+
     // Circuit breaker: a vendor tripped open is not polled at all (it is blocked
     // or persistently failing — polling it is pure cost and ban risk). The watch
     // stays registered and resumes when the breaker is reset.
@@ -145,10 +179,12 @@ export class Orchestrator {
     for (const n of notifications) {
       const ref = await this.deps.notify(n);
       if (n.kind === 'new_listing' && ref && n.item) {
-        const sig = this.dedup.signatureOf(n.item);
-        this.dedup.setMessageRef(sig, ref);
+        // Record the message ref on the OWNING chat's buffer (per-chat isolation).
+        const dedup = this.dedupFor(n.chatId);
+        const sig = dedup.signatureOf(n.item);
+        dedup.setMessageRef(sig, ref);
         // Store the enriched original so a later cross-post edit keeps the badge.
-        this.dedup.refreshOriginal(sig, n.item);
+        dedup.refreshOriginal(sig, n.item);
       }
     }
   }

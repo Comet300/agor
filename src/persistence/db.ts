@@ -73,6 +73,17 @@ export function migrate(db: DB): void {
       lang    TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS access (
+      chat_id      INTEGER PRIMARY KEY,
+      status       TEXT NOT NULL,
+      is_admin     INTEGER NOT NULL DEFAULT 0,
+      name         TEXT,
+      email        TEXT,
+      requested_at INTEGER,
+      decided_at   INTEGER,
+      decided_by   INTEGER
+    );
+
     CREATE INDEX IF NOT EXISTS idx_monitors_next_due_at
       ON monitors (next_due_at);
 
