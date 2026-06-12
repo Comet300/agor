@@ -328,4 +328,12 @@ describe('migrate', () => {
     const store = freshStore();
     expect(() => store.monitors.create(newMonitorInput())).not.toThrow();
   });
+
+  it('creates the items(monitor_id) lookup index', () => {
+    const store = freshStore();
+    const idx = store.db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='items'`)
+      .all() as Array<{ name: string }>;
+    expect(idx.some((r) => r.name === 'idx_items_monitor_id')).toBe(true);
+  });
 });

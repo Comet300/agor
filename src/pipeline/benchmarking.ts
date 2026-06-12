@@ -65,6 +65,25 @@ function bucketByCurrency(samples: PricedSample[]): Map<string, number[]> {
 }
 
 /**
+ * The most common NON-BLANK currency across the sample — the SERP's dominant
+ * currency, used to resolve a blank-currency item so it can still be benchmarked
+ * (vendors occasionally omit it on a stray listing). Returns '' when every item
+ * is blank (nothing to infer from).
+ */
+function dominantCurrency(samples: PricedSample[]): string {
+  const counts = new Map<string, number>();
+  for (const s of samples) {
+    if (s.currency !== '') counts.set(s.currency, (counts.get(s.currency) ?? 0) + 1);
+  }
+  let best = '';
+  let bestN = 0;
+  for (const [cur, n] of counts) {
+    if (n > bestN) { best = cur; bestN = n; }
+  }
+  return best;
+}
+
+/**
  * Enrich items with a benchmark and a per-item deal tag, measured PER CURRENCY.
  *
  * Pooling prices across currencies corrupts the median (a single RON listing in
@@ -91,15 +110,20 @@ export function enrichWithBenchmark(
     });
   }
 
-  const buckets = bucketByCurrency(allActivePrices as PricedSample[]);
+  const samples = allActivePrices as PricedSample[];
+  const buckets = bucketByCurrency(samples);
   const benchmarkByCurrency = new Map<string, ReturnType<typeof benchmarkFor>>();
   for (const [currency, prices] of buckets) {
     benchmarkByCurrency.set(currency, benchmarkFor(prices, minSample));
   }
+  // A blank-currency item borrows the SERP's dominant currency bucket so it can
+  // still be benchmarked; if every item is blank, they all share the '' bucket.
+  const dominant = dominantCurrency(samples);
 
   return items.map((item) => {
+    const bucketKey = item.currency !== '' ? item.currency : dominant;
     const benchmark =
-      benchmarkByCurrency.get(item.currency) ?? benchmarkFor([item.price], minSample);
+      benchmarkByCurrency.get(bucketKey) ?? benchmarkFor([item.price], minSample);
     const enriched: EnrichedItem = { ...item, benchmark };
     if (benchmark.confident) enriched.dealTag = dealTag(item.price, benchmark.median);
     return enriched;

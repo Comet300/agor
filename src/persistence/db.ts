@@ -103,6 +103,9 @@ export function migrate(db: DB): void {
 
     CREATE INDEX IF NOT EXISTS idx_price_history_monitor_item
       ON price_history (monitor_id, item_id);
+
+    CREATE INDEX IF NOT EXISTS idx_items_monitor_id
+      ON items (monitor_id);
   `);
 
   // Idempotent column add for databases created before this column existed
