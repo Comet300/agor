@@ -25,14 +25,19 @@ search_mapping:
     imageUrl: "photo.url"
     isPrivateOwner: "!user.business"
 
-# Best-effort (detail flight payload; calibrated on first product watch).
+# Detail page (calibrated against a live item page 2026-06). The flight `item`
+# node is RSC-referenced (price/seller are lazy refs the extractor can't deref),
+# but the page also ships a clean schema.org Product in ld+json — far more
+# reliable — so the product surface uses the `ldjson` dialect (search stays
+# flight). id is the item slug from the offer url; no seller flag in ld+json so
+# isPrivateOwner defaults (Vinted is P2P).
 product_mapping:
-  payload_locator: "flight:itemDto"
+  payload_locator: "ldjson"
   json_path: "."
   fields:
-    id: "id"
-    title: "title"
-    price: "price.amount"
-    currency: "price.currency_code"
-    url: "https://www.vinted.ro{path}"
-    isPrivateOwner: "!user.business"
+    id: "offers.url.~tail:/"
+    title: "name"
+    price: "offers.price"
+    currency: "offers.priceCurrency"
+    url: "offers.url"
+    imageUrl: "image"

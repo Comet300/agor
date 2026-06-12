@@ -36,7 +36,9 @@ product_mapping:
     id: "id"
     title: "title"
     price: "target.Price"
-    currency: "target.Currency"
+    # target.Currency is null on the live detail page; the real currency is in the
+    # characteristics list, where the price entry is always first.
+    currency: "characteristics[0].currency"
     url: "url"
     imageUrl: "images[0].thumbnail"
     isPrivateOwner: "advertiserType"

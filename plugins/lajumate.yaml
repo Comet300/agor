@@ -26,10 +26,12 @@ search_mapping:
     location: "city.name"
     phone: "user.phone"
 
-# Best-effort (product watch calibrated on first use).
+# Detail page (calibrated against a live product page 2026-06): the ad ships in
+# __NEXT_DATA__ at props.pageProps.adData with the same field shape as a search
+# node, so the search paths apply directly.
 product_mapping:
   payload_locator: "script#__NEXT_DATA__"
-  json_path: "props.pageProps.adServer"
+  json_path: "props.pageProps.adData"
   fields:
     id: "id"
     title: "title"

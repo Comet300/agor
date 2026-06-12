@@ -54,4 +54,66 @@ describe('product-page mappings (real manifests vs trimmed-real detail fixtures)
     expect(a.url).toBe('https://suchen.mobile.de/fahrzeuge/details.html?id=449939778');
     expect(a.isPrivateOwner).toBe(false); // contact.type "Dealer" => professional
   });
+
+  it('lajumate product: reads the detail ad from adData (not adServer)', async () => {
+    const items = await scrapeProduct('lajumate.ro', 'lajumate-product-next.html');
+    expect(items).toHaveLength(1);
+    const a = items[0]!;
+    expect(a.id).toBe('16868351');
+    expect(a.price).toBeGreaterThan(0);
+    expect(a.currency).toBe('RON'); // live "lei" canonicalized
+    expect(a.url).toMatch(/^https:\/\/lajumate\.ro\/ad\/.+-16868351$/);
+  });
+
+  it('storia product: recovers currency from characteristics (target.Currency is null)', async () => {
+    const items = await scrapeProduct('storia.ro', 'storia-product-next.html');
+    expect(items).toHaveLength(1);
+    const a = items[0]!;
+    expect(a.price).toBe(85900); // target.Price
+    expect(a.currency).toBe('EUR'); // characteristics[0].currency, NOT empty
+    expect(a.url).toMatch(/^https:\/\/www\.storia\.ro\/ro\/oferta\//);
+  });
+
+  it('publi24 product: uses the absolute detail url verbatim (no double-prepend)', async () => {
+    const items = await scrapeProduct('publi24.ro', 'publi24-product-ldjson.html');
+    expect(items).toHaveLength(1);
+    const a = items[0]!;
+    expect(a.price).toBeGreaterThan(0);
+    expect(a.currency).toBe('EUR');
+    // The url must be a single clean host, not https://www.publi24.ro/https://...
+    expect(a.url).toMatch(/^https:\/\/www\.publi24\.ro\/anunturi\//);
+    expect(a.url).not.toMatch(/publi24\.ro\/https/);
+  });
+
+  it('vinted product: extracts from the ld+json Product (flight item is RSC-referenced)', async () => {
+    const items = await scrapeProduct('vinted.ro', 'vinted-product-ldjson.html');
+    expect(items).toHaveLength(1);
+    const a = items[0]!;
+    expect(a.title).toBeTruthy();
+    expect(a.price).toBe(40);
+    expect(a.currency).toBe('RON');
+    expect(a.url).toBe('https://www.vinted.ro/items/9151836673-adidasi');
+    expect(a.id).toBe('9151836673-adidasi'); // offers.url tail
+  });
+
+  it('imobiliare product: spans the split @graph (Product name/id + Offer price/url)', async () => {
+    const items = await scrapeProduct('imobiliare.ro', 'imobiliare-product-ldjson.html');
+    expect(items).toHaveLength(1);
+    const a = items[0]!;
+    expect(a.id).toBe('275647684'); // Product @id tail
+    expect(a.title.toLowerCase()).toContain('apartament');
+    expect(a.price).toBe(185000); // Offer.priceSpecification.price
+    expect(a.currency).toBe('EUR');
+    expect(a.url).toContain('/oferta/'); // the Offer's real listing url
+  });
+
+  it('imoradar24 product: same split-@graph handling as imobiliare', async () => {
+    const items = await scrapeProduct('imoradar24.ro', 'imoradar24-product-ldjson.html');
+    expect(items).toHaveLength(1);
+    const a = items[0]!;
+    expect(a.id).toBe('1749046');
+    expect(a.price).toBe(185000);
+    expect(a.currency).toBe('EUR');
+    expect(a.url).toContain('/oferta/');
+  });
 });

@@ -59,4 +59,25 @@ describe('resolvePath', () => {
     expect(resolvePath({ a: 5 }, 'a.~json.b')).toBeUndefined();
     expect(resolvePath({ a: 5 }, 'a.*.b')).toBeUndefined();
   });
+
+  it('~type:<T> selects the first @graph array element of that @type', () => {
+    const graph = {
+      '@graph': [
+        { '@type': 'Organization', name: 'Acme' },
+        { '@type': 'Product', name: 'Apartment', '@id': 'https://x/Product/item-99' },
+        { '@type': 'Offer', priceSpecification: { price: 185000, priceCurrency: 'EUR' } },
+      ],
+    };
+    expect(resolvePath(graph, '@graph.~type:Product.name')).toBe('Apartment');
+    expect(resolvePath(graph, '@graph.~type:Offer.priceSpecification.price')).toBe(185000);
+    expect(resolvePath(graph, '@graph.~type:Offer.priceSpecification.priceCurrency')).toBe('EUR');
+    expect(resolvePath(graph, '@graph.~type:Product.@id.~tail:-')).toBe('99');
+    // No node of that type → undefined (item then drops on a required field).
+    expect(resolvePath(graph, '@graph.~type:RealEstateListing.name')).toBeUndefined();
+  });
+
+  it('~type:<T> on a non-array or with no match returns undefined', () => {
+    expect(resolvePath({ x: 1 }, 'x.~type:Product')).toBeUndefined();
+    expect(resolvePath({ '@graph': [{ '@type': 'A' }] }, '@graph.~type:B.name')).toBeUndefined();
+  });
 });

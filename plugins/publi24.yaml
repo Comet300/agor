@@ -26,7 +26,10 @@ search_mapping:
     isPrivateOwner: "!is_business"
     location: "offers.availableAtOrFrom.address.addressLocality"
 
-# Best-effort: detail pages embed a single schema.org node ("." = block root).
+# Detail pages embed a single schema.org Product ("." = block root). Calibrated
+# against a live product page 2026-06: unlike the SERP (relative urls), the detail
+# `url` is ABSOLUTE, so it is used verbatim (templating it would double-prepend
+# the host). image is an ImageObject[]; location is under the offer's address.
 product_mapping:
   payload_locator: "ldjson"
   json_path: "."
@@ -35,7 +38,7 @@ product_mapping:
     title: "name"
     price: "offers.price"
     currency: "offers.priceCurrency"
-    url: "https://www.publi24.ro/{url}"
+    url: "url"
     imageUrl: "image[0].contentUrl"
     isPrivateOwner: "!is_business"
     location: "offers.availableAtOrFrom.address.addressLocality"
