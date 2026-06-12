@@ -31,14 +31,18 @@ search_mapping:
     isPrivateOwner: "st"
     location: "attr.loc"
 
-# Best-effort (detail flight payload; calibrated on first product watch).
+# Detail page (calibrated against a live product page 2026-06). The ad ships in
+# the RSC flight under "listing": one object holding id + price.grs.{amount,
+# currency} + shortTitle/subTitle + contact.type ("Dealer"/private). This is a
+# different shape from the search "listings[]" (no flat `p`/`st`), so the anchor
+# and field paths differ. The detail URL is rebuilt from the id.
 product_mapping:
-  payload_locator: "flight:adDetails"
+  payload_locator: "flight:listing"
   json_path: "."
   fields:
     id: "id"
     title: "{shortTitle} {subTitle}"
-    price: "p"
-    currency: "=EUR"
+    price: "price.grs.amount"
+    currency: "price.grs.currency"
     url: "https://suchen.mobile.de/fahrzeuge/details.html?id={id}"
-    isPrivateOwner: "st"
+    isPrivateOwner: "contact.type"
