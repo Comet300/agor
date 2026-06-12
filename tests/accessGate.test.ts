@@ -72,6 +72,27 @@ async function feed(bot: Bot, chatId: number, text: string): Promise<void> {
   await bot.handleUpdate(textUpdate(chatId, text) as unknown as Parameters<Bot['handleUpdate']>[0]);
 }
 
+/** Feed a callback-query update (an inline-button tap) with the given data. */
+async function tap(bot: Bot, chatId: number, data: string): Promise<void> {
+  const update = {
+    update_id: updateId++,
+    callback_query: {
+      id: String(updateId),
+      from: { id: chatId, is_bot: false, first_name: 'T' },
+      chat_instance: 'ci',
+      message: {
+        message_id: updateId,
+        date: 1,
+        chat: { id: chatId, type: 'private' as const },
+        from: { id: 1, is_bot: true, first_name: 'agor' },
+        text: 'confirm?',
+      },
+      data,
+    },
+  };
+  await bot.handleUpdate(update as unknown as Parameters<Bot['handleUpdate']>[0]);
+}
+
 describe('boot seeding of configured admins', () => {
   it('seeds every ADMIN_CHAT_IDS entry as an allowed admin at build time', () => {
     const h = harness([ADMIN, 1234]);
@@ -186,17 +207,23 @@ describe('access gate (enforced with an admin configured)', () => {
     expect(h.sent.filter((s) => s.chatId === USER).pop()?.text).toBe(tr('ro').access_admin_only);
   });
 
-  it('/deny revokes and the requester is told they can reapply later', async () => {
+  it('/deny prompts a confirmation, then revokes once confirmed and notifies the requester', async () => {
     h.store.access.allow(USER, { by: ADMIN, at: 1 });
     await feed(h.bot, ADMIN, `/deny ${USER}`);
+    // Not yet denied — the command only asked for confirmation.
+    expect(h.store.access.statusOf(USER)).toBe('allowed');
+    expect(h.sent.filter((s) => s.chatId === ADMIN).pop()?.text).toBe(tr('ro').confirm_deny({ id: USER, name: '' }));
+    // Confirm via the inline button → the deny actually happens.
+    await tap(h.bot, ADMIN, `cf:dn:${USER}`);
     expect(h.store.access.statusOf(USER)).toBe('denied');
     expect(h.sent.some((s) => s.chatId === USER && s.text === tr('ro').access_denied_user)).toBe(true);
   });
 
   it('a denied user is refused /request-access UP-FRONT (not after filling name/email)', async () => {
-    // Deny "just now" so the 7-day cooldown is active.
+    // Deny "just now" (with confirmation) so the 7-day cooldown is active.
     h.store.access.allow(USER, { by: ADMIN, at: 1 });
     await feed(h.bot, ADMIN, `/deny ${USER}`);
+    await tap(h.bot, ADMIN, `cf:dn:${USER}`);
     const before = h.sent.length;
     await feed(h.bot, USER, '/request-access');
     // The very next reply is the cooldown notice — NOT the name prompt.
@@ -224,19 +251,44 @@ describe('access gate (enforced with an admin configured)', () => {
     expect(h.sent.some((s) => s.chatId === USER && s.text === tr('ro').access_promoted_user)).toBe(true);
   });
 
-  it('/demote removes another admin (admin only), but never the last admin or self', async () => {
+  it('/demote confirms then removes another admin, but never the last admin or self', async () => {
     // Promote USER so there are two admins.
     await feed(h.bot, ADMIN, `/promote ${USER}`);
     expect(h.store.access.isAdmin(USER)).toBe(true);
 
-    // ADMIN demotes USER → ok, USER notified.
+    // ADMIN demotes USER → prompt, not yet applied.
     await feed(h.bot, ADMIN, `/demote ${USER}`);
+    expect(h.store.access.isAdmin(USER)).toBe(true);
+    // Confirm → demote happens, USER notified.
+    await tap(h.bot, ADMIN, `cf:dm:${USER}`);
     expect(h.store.access.isAdmin(USER)).toBe(false);
     expect(h.sent.some((s) => s.chatId === USER && s.text === tr('ro').access_demoted_user)).toBe(true);
 
-    // ADMIN is now the last admin — cannot self-demote.
+    // ADMIN is now the last admin — self-demote is refused up-front (no prompt).
     await feed(h.bot, ADMIN, `/demote ${ADMIN}`);
     expect(h.store.access.isAdmin(ADMIN)).toBe(true);
     expect(h.sent.filter((s) => s.chatId === ADMIN).pop()?.text).toBe(tr('ro').access_demote_last_admin);
+  });
+
+  it('cancelling a deny confirmation leaves access unchanged', async () => {
+    h.store.access.allow(USER, { by: ADMIN, at: 1 });
+    await feed(h.bot, ADMIN, `/deny ${USER}`);
+    await tap(h.bot, ADMIN, 'cx'); // cancel
+    expect(h.store.access.statusOf(USER)).toBe('allowed'); // untouched
+  });
+
+  it('/remove confirms before deleting a watch, and only the owner can', async () => {
+    h.store.access.allow(USER, { by: ADMIN, at: 1 });
+    const mon = h.store.monitors.create({
+      type: 'search', chatId: USER, vendor: 'olx', url: 'https://www.olx.ro/x',
+      filters: { sellerVisibility: 'both', exclusionKeywords: [] }, intervalMs: 60_000, nextDueAt: 0,
+    });
+    // Prompt, not yet deleted.
+    await feed(h.bot, USER, `/remove ${mon.id}`);
+    expect(h.store.monitors.get(mon.id)).toBeDefined();
+    expect(h.sent.filter((s) => s.chatId === USER).pop()?.text).toBe(tr('ro').confirm_remove(mon.id));
+    // Confirm → deleted.
+    await tap(h.bot, USER, `cf:rm:${mon.id}`);
+    expect(h.store.monitors.get(mon.id)).toBeUndefined();
   });
 });
