@@ -67,6 +67,19 @@ describe('PluginRegistry.load', () => {
     expect(registry.getByDomain('STORIA.RO')?.vendor).toBe('Storia');
     expect(registry.getByDomain('unknown.ro')).toBeUndefined();
   });
+
+  it('throws an actionable error (not a raw ENOENT) when the manifest dir is missing', () => {
+    expect(() => PluginRegistry.load('definitely/not/a/real/dir')).toThrowError(
+      /manifest directory not found/i,
+    );
+    // The original raw scandir/ENOENT text should not leak as the message.
+    try {
+      PluginRegistry.load('definitely/not/a/real/dir');
+    } catch (err) {
+      expect((err as Error).message).toContain('definitely/not/a/real/dir');
+      expect((err as Error).message).not.toMatch(/scandir/);
+    }
+  });
 });
 
 describe('parsePlugin validation', () => {

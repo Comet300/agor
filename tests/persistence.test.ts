@@ -265,6 +265,24 @@ describe('PriceHistoryRepo', () => {
     expect(store.priceHistory.history(m.id, 'x')).toHaveLength(6);
   });
 
+  it('append(lastPrice) uses the caller-provided last price and skips the internal lookup', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    // Seed a real prior price so the table has a row at 100.
+    store.priceHistory.append({ monitorId: m.id, itemId: 'q', price: 100, currency: 'RON', observedAt: 1 });
+
+    // Caller asserts the last price IS 100 (matching) → append must skip the insert
+    // without consulting the table, so no new row appears.
+    store.priceHistory.append({ monitorId: m.id, itemId: 'q', price: 100, currency: 'RON', observedAt: 2, lastPrice: 100 });
+    expect(store.priceHistory.history(m.id, 'q')).toHaveLength(1);
+
+    // Caller asserts there is NO prior price (undefined, explicitly provided) →
+    // append must INSERT even though the table actually holds 100 (proves the
+    // provided value is honored over a re-query). 'p' has the key, value undefined.
+    store.priceHistory.append({ monitorId: m.id, itemId: 'q', price: 100, currency: 'RON', observedAt: 3, lastPrice: undefined });
+    expect(store.priceHistory.history(m.id, 'q')).toHaveLength(2);
+  });
+
   it('lastPrice and history are empty/undefined when nothing logged', () => {
     const store = freshStore();
     const m = store.monitors.create(newMonitorInput());

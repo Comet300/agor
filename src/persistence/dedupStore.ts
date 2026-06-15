@@ -9,6 +9,7 @@
  */
 
 import type { DB } from './db';
+import { log } from '../logging/logger';
 
 /** One persisted dedup entry, serialized verbatim from the buffer. */
 export interface PersistedDedupEntry {
@@ -41,8 +42,14 @@ export class DedupRepo implements DedupStore {
     for (const r of rows) {
       try {
         out.push({ signature: r.signature, firstSeenAt: r.first_seen_at, entry: JSON.parse(r.entry_json) });
-      } catch {
-        // A corrupt row is skipped rather than crashing rehydration.
+      } catch (err) {
+        // A corrupt row is skipped rather than crashing rehydration — but logged,
+        // so the resulting (one-off) re-alert has a diagnostic trail instead of
+        // vanishing silently.
+        log('dedupStore').warn(
+          { chatId, signature: r.signature, err: (err as Error).message },
+          'skipping corrupt dedup row during rehydration',
+        );
       }
     }
     return out;

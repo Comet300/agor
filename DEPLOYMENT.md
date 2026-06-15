@@ -292,7 +292,10 @@ The headline event — one per poll — looks like:
    - proxy benches: `{service="agor"} | json | component="engine" | msg=~".*benched.*"`
 
 Logs batch every 5s; if Loki is unreachable they buffer (bounded) and stdout/PM2
-still has everything. Leaving any of the three `LOKI_*` empty = stdout-only.
+still has everything. Leaving all three `LOKI_*` empty = stdout-only. Setting
+**some but not all three** is treated as a misconfiguration: agor logs a `config`
+warning at boot naming the missing var(s) and ships to stdout only (rather than
+silently dropping remote logs).
 
 ### Dashboard
 

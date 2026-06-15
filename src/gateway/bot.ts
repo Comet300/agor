@@ -121,6 +121,44 @@ function isSellerVisibility(v: string): v is SellerVisibility {
   return v === 'private' || v === 'company' || v === 'both';
 }
 
+/** Telegram's hard limit on a single text message. */
+const TELEGRAM_MAX_CHARS = 4096;
+
+/**
+ * Split `text` into chunks that each fit Telegram's {@link TELEGRAM_MAX_CHARS}
+ * limit, preferring `\n\n` (paragraph) boundaries so list items stay whole. A
+ * single paragraph longer than the limit is hard-split. Pure + exported for test.
+ */
+export function splitForTelegram(text: string, max = TELEGRAM_MAX_CHARS): string[] {
+  if (text.length <= max) return [text];
+  const chunks: string[] = [];
+  let current = '';
+  for (const para of text.split('\n\n')) {
+    const candidate = current ? `${current}\n\n${para}` : para;
+    if (candidate.length <= max) {
+      current = candidate;
+      continue;
+    }
+    if (current) {
+      chunks.push(current);
+      current = '';
+    }
+    if (para.length <= max) {
+      current = para;
+    } else {
+      // A single oversized paragraph: hard-split into max-sized slices.
+      for (let i = 0; i < para.length; i += max) chunks.push(para.slice(i, i + max));
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+/** Send `text` as one or more messages, each within Telegram's size limit. */
+async function replyChunked(reply: (t: string) => Promise<unknown>, text: string): Promise<void> {
+  for (const chunk of splitForTelegram(text)) await reply(chunk);
+}
+
 /** Resolve the language for a chat from its stored preference (Romanian-first). */
 function langFor(store: Store, chatId: number): Lang {
   return resolveLang(store.chatPrefs.getLang(chatId));
@@ -205,9 +243,12 @@ export function buildBot(
   // first /request-access claims admin (see the request flow below).
   for (const id of adminChatIds) store.access.seedAdmin(id);
 
-  /** True when `chatId` may use the bot fully (deny-by-default). */
-  const hasAccess = (chatId: number): boolean =>
-    store.access.isAllowed(chatId) || store.access.isAdmin(chatId);
+  /** True when `chatId` may use the bot fully (deny-by-default). Resolves both
+   *  conditions from a SINGLE access lookup (avoids two queries per message). */
+  const hasAccess = (chatId: number): boolean => {
+    const rec = store.access.get(chatId);
+    return rec?.status === 'allowed' || rec?.isAdmin === true;
+  };
 
   /** True when `chatId` is an admin. */
   const isAdmin = (chatId: number): boolean => store.access.isAdmin(chatId);
@@ -313,7 +354,7 @@ export function buildBot(
           exclusions: m.filters.exclusionKeywords.join(', '),
         }),
       );
-      await ctx.reply(`${tr(lang).list_intro}\n\n${lines.join('\n\n')}`);
+      await replyChunked((t) => ctx.reply(t), `${tr(lang).list_intro}\n\n${lines.join('\n\n')}`);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -821,6 +862,12 @@ export function buildBot(
         await ctx.reply(tr(lang).price_history_insufficient);
       }
     } catch (err) {
+      // Surface the failure: a canvas OOM or a Telegram photo-send error here is
+      // otherwise invisible to the operator (the user just sees a generic note).
+      log('gateway').error(
+        { chatId: ctx.chat?.id, err: (err as Error).message },
+        'price history render/send failed',
+      );
       await ctx.reply(tr(lang).price_history_error);
     }
   });
@@ -894,7 +941,8 @@ export function buildBot(
         monitor.filters.exclusionKeywords = parseExclusionInput(text);
         store.monitors.update(monitor);
         const kw = monitor.filters.exclusionKeywords;
-        await ctx.reply(
+        await replyChunked(
+          (t) => ctx.reply(t),
           kw.length > 0 ? tr(lang).exclusion_set(kw.join(', ')) : tr(lang).exclusion_cleared,
         );
         return;
