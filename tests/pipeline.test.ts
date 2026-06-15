@@ -452,6 +452,24 @@ describe('benchmarking', () => {
     expect(dealTag(105.01, med)).toBe('overpriced'); // just over fair
   });
 
+  it('dealTag returns undefined for a zero/near-zero median (no meaningful scale)', () => {
+    // A free-listing category (all price 0) gives median 0; the thresholds
+    // collapse to a single point and every priced item would read "overpriced".
+    expect(dealTag(100, 0)).toBeUndefined();
+    expect(dealTag(0, 0)).toBeUndefined();
+    expect(dealTag(1, 0.001)).toBeUndefined();
+    // A genuine small-but-real median still classifies normally.
+    expect(dealTag(50, 100)).toBe('great_deal');
+  });
+
+  it('enrichWithBenchmark omits dealTag when the (confident) median is zero', () => {
+    const items = [item({ id: 'free', price: 0 }), item({ id: 'priced', price: 100 })];
+    const enriched = enrichWithBenchmark(items, [0, 0, 0], 3); // confident, median 0
+    expect(enriched[0]?.benchmark?.confident).toBe(true);
+    expect(enriched[0]?.dealTag).toBeUndefined();
+    expect(enriched[1]?.dealTag).toBeUndefined(); // not nonsensically "overpriced"
+  });
+
   it('benchmark confidence depends on minSample', () => {
     expect(benchmarkFor([1, 2, 3], 3).confident).toBe(true);
     expect(benchmarkFor([1, 2], 3).confident).toBe(false);

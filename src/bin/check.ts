@@ -51,12 +51,31 @@ function fixtureEngine(body: string): ScrapingEngine {
 const REQUIRED: Array<'id' | 'title' | 'price' | 'url'> = ['id', 'title', 'price', 'url'];
 
 /**
+ * Read and parse the fixture map at `path`. A missing file is a dev/CI setup
+ * problem, so surface an actionable message instead of a raw ENOENT.
+ */
+export function loadFixtureMap(path: string): FixtureMap {
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(
+        `Fixture map not found: '${path}'. The manifest self-test needs tests/fixtures.json (a checked-in dev artifact).`,
+      );
+    }
+    throw err;
+  }
+  return JSON.parse(raw) as FixtureMap;
+}
+
+/**
  * Run the manifest self-test. Returns `{ ok, results }`; `ok` is false when any
  * mapped surface failed to extract a well-formed item.
  */
 export async function runCheck(): Promise<{ ok: boolean; results: ManifestResult[] }> {
   const registry = PluginRegistry.load(join(ROOT, 'plugins'));
-  const fixtures = JSON.parse(readFileSync(join(ROOT, 'tests', 'fixtures.json'), 'utf8')) as FixtureMap;
+  const fixtures = loadFixtureMap(join(ROOT, 'tests', 'fixtures.json'));
   const results: ManifestResult[] = [];
   let ok = true;
 

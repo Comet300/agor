@@ -72,4 +72,24 @@ describe('draftOffer', () => {
     expect(en).toContain(String(offerAnchor(item.price)));
     expect(en.startsWith('`') && en.endsWith('`')).toBe(true);
   });
+
+  it('keeps the single-line code span intact when the title has newlines or backticks', () => {
+    // publi24 ships literal newlines in titles; a backtick or newline inside the
+    // body would break the inline code span (a code span cannot span lines, and a
+    // bare backtick closes it early).
+    const item = makeItem({ title: 'Apartament 3 camere\nCentru `lux`', price: 4300, currency: 'EUR' });
+    const out = draftOffer(item);
+
+    // Exactly one opening + one closing backtick: a valid single-line span.
+    expect(out.startsWith('`')).toBe(true);
+    expect(out.endsWith('`')).toBe(true);
+    expect(out).not.toMatch(/\n/); // no raw newline survives inside the span
+    // Inner backticks are neutralized so they don't terminate the span early.
+    const inner = out.slice(1, -1);
+    expect(inner).not.toContain('`');
+    // The content is still recognizable.
+    expect(out).toContain('Apartament 3 camere');
+    expect(out).toContain('Centru');
+    expect(out).toContain('EUR');
+  });
 });

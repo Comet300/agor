@@ -5,7 +5,8 @@
  * if a selector/path silently stops resolving, `ok` flips to false here.
  */
 import { describe, it, expect } from 'vitest';
-import { runCheck } from '../src/bin/check';
+import { join } from 'node:path';
+import { runCheck, loadFixtureMap } from '../src/bin/check';
 
 describe('manifest self-test (runCheck)', () => {
   it('every mapped manifest extracts a well-formed item from its fixture', async () => {
@@ -26,6 +27,17 @@ describe('manifest self-test (runCheck)', () => {
     for (const m of results) {
       const mapped = m.surfaces.filter((s) => s.status !== 'skipped');
       expect(mapped.length, `${m.domain} has no mapped fixture`).toBeGreaterThan(0);
+    }
+  });
+
+  it('loadFixtureMap throws an actionable error (not a raw ENOENT) when the file is missing', () => {
+    const missing = join('definitely', 'not', 'real', 'fixtures.json');
+    expect(() => loadFixtureMap(missing)).toThrowError(/fixture map not found/i);
+    try {
+      loadFixtureMap(missing);
+    } catch (err) {
+      expect((err as Error).message).toContain('fixtures.json');
+      expect((err as Error).message).not.toMatch(/ENOENT/);
     }
   });
 });

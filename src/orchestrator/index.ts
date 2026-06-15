@@ -129,10 +129,9 @@ export class Orchestrator {
    */
   private ownerAllowed(chatId: number): boolean {
     if (!this.deps.store.access.hasAnyAdmin()) return true; // pre-bootstrap: nothing enforced
-    return (
-      this.deps.store.access.isAllowed(chatId) ||
-      this.deps.store.access.isAdmin(chatId)
-    );
+    // Single lookup resolves both allowed-status and admin.
+    const rec = this.deps.store.access.get(chatId);
+    return rec?.status === 'allowed' || rec?.isAdmin === true;
   }
 
   /**

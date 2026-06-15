@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loadConfig } from '../src/config/index';
+import { loadConfig, droppedAdminIds, incompleteLokiKeys } from '../src/config/index';
 
 describe('loadConfig', () => {
   it('applies defaults when env is empty', () => {
@@ -41,6 +41,21 @@ describe('loadConfig', () => {
     expect(loadConfig({ ADMIN_CHAT_IDS: '111, 222 ,333' }).adminChatIds).toEqual([111, 222, 333]);
     // Non-numeric entries are dropped, not coerced to NaN.
     expect(loadConfig({ ADMIN_CHAT_IDS: '111,abc,222' }).adminChatIds).toEqual([111, 222]);
+  });
+
+  it('droppedAdminIds surfaces the exact non-numeric ADMIN_CHAT_IDS entries', () => {
+    expect(droppedAdminIds({})).toEqual([]);
+    expect(droppedAdminIds({ ADMIN_CHAT_IDS: '111,222' })).toEqual([]);
+    expect(droppedAdminIds({ ADMIN_CHAT_IDS: '111,abc,222,9x' })).toEqual(['abc', '9x']);
+  });
+
+  it('incompleteLokiKeys names missing Loki vars only when partially configured', () => {
+    // None set → not partial → no warning.
+    expect(incompleteLokiKeys({})).toEqual([]);
+    // All three set → complete → no warning.
+    expect(incompleteLokiKeys({ LOKI_URL: 'https://x', LOKI_USER: '1', LOKI_TOKEN: 'glc' })).toEqual([]);
+    // Two of three → partial → names the missing one.
+    expect(incompleteLokiKeys({ LOKI_URL: 'https://x', LOKI_USER: '1' })).toEqual(['LOKI_TOKEN']);
   });
 
   it('parses proxy CSV and coerces numbers', () => {

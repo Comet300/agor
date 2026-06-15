@@ -241,8 +241,10 @@ export class MonitorCycle {
 
     // Compare against the last known snapshot to detect transitions.
     const prev = this.deps.store.items.getState(monitor.id, item.id);
-    const prevPrice =
-      this.deps.store.priceHistory.lastPrice(monitor.id, item.id) ?? prev?.lastPrice;
+    // The price_history last price specifically (may be undefined); reused below
+    // to avoid a second identical SELECT inside append().
+    const historyLastPrice = this.deps.store.priceHistory.lastPrice(monitor.id, item.id);
+    const prevPrice = historyLastPrice ?? prev?.lastPrice;
 
     const notifications: Notification[] = [];
 
@@ -278,6 +280,7 @@ export class MonitorCycle {
         price: item.price,
         currency: item.currency,
         observedAt: at,
+        lastPrice: historyLastPrice, // reuse the value already fetched above
       });
       this.deps.store.items.upsert(monitor.id, item, at);
     });
