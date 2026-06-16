@@ -8,7 +8,7 @@
  *
  * Time is injected (`now()`), keeping registration deterministic under test.
  */
-import type { Monitor, MonitorType } from '../contracts';
+import type { Monitor, MonitorOrigin, MonitorType } from '../contracts';
 import type { Store } from '../persistence';
 import type { PluginRegistry } from '../registry';
 import type { ScrapingEngine } from '../scraping/engine';
@@ -24,6 +24,8 @@ export interface RegisterInput {
   rawUrl: string;
   /** Optional explicit kind; defaults to a search-results watch. */
   type?: MonitorType;
+  /** How the watch was created; defaults to 'user'. 'tracked' marks a browse-Track. */
+  origin?: MonitorOrigin;
 }
 
 /**
@@ -112,6 +114,7 @@ export class RegistrationService {
       filters: { sellerVisibility: 'both', exclusionKeywords: [] },
       intervalMs: this.deps.defaultIntervalMs,
       nextDueAt: startedAt + this.deps.defaultIntervalMs,
+      origin: input.origin ?? 'user',
     });
 
     // 4. Baseline scrape — the silent snapshot of what already exists.

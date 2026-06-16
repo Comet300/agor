@@ -230,8 +230,47 @@ describe("ItemRepo", () => {
   });
 });
 
-describe("PriceHistoryRepo", () => {
-  it("appends entries, orders history ascending, and reports lastPrice", () => {
+describe('ItemRepo.browse', () => {
+  it('returns a chat\'s items across all its monitors, newest-seen first, paginated', () => {
+    const store = freshStore();
+    const m1 = store.monitors.create(newMonitorInput({ chatId: 7 }));
+    const m2 = store.monitors.create(newMonitorInput({ chatId: 7, url: 'https://www.olx.ro/auto/q-passat/' }));
+    const other = store.monitors.create(newMonitorInput({ chatId: 99 }));
+
+    // last_seen ascending by insert; browse must return DESC (newest first).
+    store.items.upsert(m1.id, scrapedItem({ id: 'a', title: 'A', url: 'https://x/a' }), 1_000);
+    store.items.upsert(m2.id, scrapedItem({ id: 'b', title: 'B', url: 'https://x/b' }), 2_000);
+    store.items.upsert(m1.id, scrapedItem({ id: 'c', title: 'C', url: 'https://x/c' }), 3_000);
+    store.items.upsert(other.id, scrapedItem({ id: 'z', title: 'Z', url: 'https://x/z' }), 9_000); // not chat 7
+
+    expect(store.items.countForChat(7)).toBe(3);
+    const page = store.items.browse(7, 2, 0);
+    expect(page.map((s) => s.itemId)).toEqual(['c', 'b']); // newest two, DESC
+    expect(page[0]!.title).toBe('C'); // full snapshot carried
+    expect(store.items.browse(7, 2, 2).map((s) => s.itemId)).toEqual(['a']); // second page
+    expect(store.items.browse(99, 10, 0).map((s) => s.itemId)).toEqual(['z']); // isolation
+  });
+
+  it('excludes de-listed items from browse and the count', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput({ chatId: 5 }));
+    store.items.upsert(m.id, scrapedItem({ id: 'live', title: 'Live', url: 'https://x/l' }), 1_000);
+    store.items.upsert(m.id, scrapedItem({ id: 'gone', title: 'Gone', url: 'https://x/g' }), 1_000);
+    store.items.markAbsent(m.id, ['gone'], 2_000, 1); // delist 'gone'
+
+    expect(store.items.countForChat(5)).toBe(1);
+    expect(store.items.browse(5, 10, 0).map((s) => s.itemId)).toEqual(['live']);
+  });
+
+  it('returns an empty page for a chat with no items', () => {
+    const store = freshStore();
+    expect(store.items.countForChat(123)).toBe(0);
+    expect(store.items.browse(123, 10, 0)).toEqual([]);
+  });
+});
+
+describe('PriceHistoryRepo', () => {
+  it('appends entries, orders history ascending, and reports lastPrice', () => {
     const store = freshStore();
     const m = store.monitors.create(newMonitorInput());
 

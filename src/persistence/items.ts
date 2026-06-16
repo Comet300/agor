@@ -75,6 +75,38 @@ export class ItemRepo {
   }
 
   /**
+   * Number of browsable (non-delisted) items across all of a chat's monitors —
+   * the "M" in a browse "item N of M".
+   */
+  countForChat(chatId: number): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n
+           FROM items i JOIN monitors m ON m.id = i.monitor_id
+          WHERE m.chat_id = ? AND i.delisted_at IS NULL`,
+      )
+      .get(chatId) as { n: number };
+    return row.n;
+  }
+
+  /**
+   * One page of a chat's browsable items, unioned across its monitors, newest
+   * `last_seen` first, excluding de-listed rows. `limit`/`offset` paginate.
+   */
+  browse(chatId: number, limit: number, offset: number): ItemSnapshot[] {
+    const rows = this.db
+      .prepare(
+        `SELECT i.*
+           FROM items i JOIN monitors m ON m.id = i.monitor_id
+          WHERE m.chat_id = ? AND i.delisted_at IS NULL
+          ORDER BY i.last_seen DESC, i.item_id ASC
+          LIMIT ? OFFSET ?`,
+      )
+      .all(chatId, limit, offset) as ItemSnapshotRow[];
+    return rows.map(rowToSnapshot);
+  }
+
+  /**
    * Return the subset of `currentIds` not yet stored for this monitor. Pure
    * read — it never writes, so callers can decide how to treat the newcomers.
    */

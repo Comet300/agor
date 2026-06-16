@@ -15,10 +15,11 @@
  * output is robust regardless of parse mode.
  */
 import type { EnrichedItem, Notification, DealTag, SellerVisibility } from '../contracts';
+import type { ItemSnapshot } from '../persistence';
 import type { InlineKeyboard } from 'grammy';
 import { formatMoney } from '../util/money';
 import { draftOffer } from '../features/contactOffer';
-import { quickActionsKeyboard, registrationKeyboard } from './keyboards';
+import { quickActionsKeyboard, registrationKeyboard, openOnlyKeyboard, browseKeyboard } from './keyboards';
 import { type Lang, tr, type Catalog } from './strings';
 
 /** A fully-rendered message: display text and an optional inline keyboard. */
@@ -26,6 +27,12 @@ export interface RenderedMessage {
   text: string;
   /** Absent for button-less notices (e.g. watch health). */
   keyboard?: InlineKeyboard;
+}
+
+/** A browse view: the card text + carousel keyboard + an optional photo to attach. */
+export interface BrowseView extends RenderedMessage {
+  /** The listing image to send as a photo, when the snapshot carries one. */
+  photoUrl?: string;
 }
 
 /** Catalog key for each deal tag's badge (undefined => no badge line). */
@@ -208,4 +215,72 @@ export function renderRegistrationCard(
     text: lines.join('\n'),
     keyboard: registrationKeyboard(r.monitorId, lang, r.sellerVisibility, r.intervalMinutes),
   };
+}
+
+/** Compact "k: v · k: v" specs from a snapshot's attributes (capped), or ''. */
+function snapshotSpecs(snap: ItemSnapshot): string {
+  if (!snap.attributes) return '';
+  return Object.entries(snap.attributes)
+    .filter(([, v]) => v !== '')
+    .slice(0, MAX_SPECS)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(' · ');
+}
+
+/** Single-line, length-capped description snippet from a snapshot, or ''. */
+function snapshotSnippet(snap: ItemSnapshot): string {
+  if (!snap.description) return '';
+  const oneLine = snap.description.replace(/\s+/g, ' ').trim();
+  return oneLine.length <= DESCRIPTION_SNIPPET ? oneLine : oneLine.slice(0, DESCRIPTION_SNIPPET).trimEnd() + '…';
+}
+
+/**
+ * Render one browse card from a stored {@link ItemSnapshot} at `index` of
+ * `total`, with the carousel keyboard. Mirrors a new-listing card (photo +
+ * title, price/stock, attribute bullets, location + seller, posted date,
+ * description snippet) minus the 🆕 and the offer draft. The photo (when the
+ * snapshot has an image) is returned for the caller to send as an attachment.
+ */
+export function renderBrowseCard(
+  snap: ItemSnapshot,
+  index: number,
+  total: number,
+  lang: Lang,
+): BrowseView {
+  const t = tr(lang);
+  const lines: string[] = [];
+  lines.push(`🏷️ ${snap.title ?? snap.itemId}`);
+  const stock = snap.inStock ? t.browse_in_stock : t.browse_out_of_stock;
+  lines.push(`💰 ${formatMoney(snap.lastPrice, snap.currency)} · ${stock}`);
+
+  const specs = snapshotSpecs(snap);
+  if (specs) lines.push(t.specs_line(specs));
+
+  const sellerBits: string[] = [];
+  if (snap.location) sellerBits.push(`📍 ${snap.location}`);
+  if (snap.sellerPrivate !== undefined) {
+    sellerBits.push(snap.sellerPrivate ? t.seller_private : t.seller_company);
+  }
+  if (sellerBits.length > 0) lines.push(sellerBits.join(' · '));
+
+  if (snap.postedAt !== undefined) {
+    const d = new Date(snap.postedAt);
+    if (!Number.isNaN(d.getTime())) lines.push(t.posted_line(d.toISOString().slice(0, 10)));
+  }
+
+  const snippet = snapshotSnippet(snap);
+  if (snippet) lines.push(snippet);
+
+  lines.push('');
+  lines.push(t.browse_position(index + 1, total));
+
+  // A legacy row may lack a url; fall back to '' (the keyboard's Open button is
+  // only added by the caller when a url exists — see browseKeyboard usage).
+  const url = snap.url ?? '';
+  const view: BrowseView = {
+    text: lines.join('\n'),
+    keyboard: browseKeyboard(index, total, url, lang),
+  };
+  if (snap.imageUrl) view.photoUrl = snap.imageUrl;
+  return view;
 }

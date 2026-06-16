@@ -65,6 +65,31 @@ export function quickActionsKeyboard(item: EnrichedItem, lang: Lang): InlineKeyb
 }
 
 /**
+ * A minimal keyboard with only the "🔗 Open" link — for a de-listed item, where
+ * Call and Price-history no longer make sense (the listing is gone).
+ */
+export function openOnlyKeyboard(item: EnrichedItem, lang: Lang): InlineKeyboard {
+  return new InlineKeyboard().url(tr(lang).btn_open, item.url);
+}
+
+/**
+ * Browse carousel keyboard for the item at `index` of `total`:
+ *   row 1: [◀ Prev] [📌 Track] [Next ▶]  — Prev/Next omitted at the ends,
+ *   row 2: [🔗 Open]  (URL to the listing).
+ * Nav callbacks are `br:<index>` (the bot edits the message to that item); track
+ * is `tk:<index>`. The index resolves against the chat's browse session, so the
+ * payload stays tiny and well under Telegram's 64-byte callback limit.
+ */
+export function browseKeyboard(index: number, total: number, url: string, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  const kb = new InlineKeyboard();
+  if (index > 0) kb.text(t.btn_prev, `br:${index - 1}`);
+  kb.text(t.btn_track, `tk:${index}`);
+  if (index < total - 1) kb.text(t.btn_next, `br:${index + 1}`);
+  return kb.row().url(t.btn_open, url);
+}
+
+/**
  * Build the post-registration tuning keyboard. The currently-selected seller
  * visibility AND check frequency are marked with a check so the keyboard reflects
  * state after a toggle (and so re-rendering after a change produces a real markup
