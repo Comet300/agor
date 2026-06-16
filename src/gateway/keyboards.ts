@@ -65,6 +65,14 @@ export function quickActionsKeyboard(item: EnrichedItem, lang: Lang): InlineKeyb
 }
 
 /**
+ * A minimal keyboard with only the "🔗 Open" link — for a de-listed item, where
+ * Call and Price-history no longer make sense (the listing is gone).
+ */
+export function openOnlyKeyboard(item: EnrichedItem, lang: Lang): InlineKeyboard {
+  return new InlineKeyboard().url(tr(lang).btn_open, item.url);
+}
+
+/**
  * Build the post-registration tuning keyboard. The currently-selected seller
  * visibility AND check frequency are marked with a check so the keyboard reflects
  * state after a toggle (and so re-rendering after a change produces a real markup

@@ -36,6 +36,13 @@ export interface PipelineOutput {
   newEnriched: EnrichedItem[];
   /** Cross-batch duplicates whose source should be appended to their original alert. */
   crossPosts: CrossPost[];
+  /**
+   * Every item id the vendor actually returned this cycle, BEFORE the user's
+   * exclusion/seller filters. De-listing must diff against this (not `active`),
+   * so an item merely filtered out — but still on the page — is not mistaken for
+   * a removed listing.
+   */
+  presentIds: string[];
 }
 
 /**
@@ -56,6 +63,8 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
 
   // 1. Normalize raw nodes into canonical items.
   const normalized = normalizeItems(rawNodes, plugin, mapping);
+  // Every id the vendor returned this cycle (pre-filter) — the de-listing baseline.
+  const presentIds = normalized.map((i) => i.id);
 
   // 2. Drop titles matching the exclusion blocklist.
   const afterExclusion = applyExclusion(normalized, filters.exclusionKeywords);
@@ -86,7 +95,7 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
     minSample,
   );
 
-  return { active, newEnriched, crossPosts };
+  return { active, newEnriched, crossPosts, presentIds };
 }
 
 // ── Re-export the stage functions/types for direct use & testing ────────────

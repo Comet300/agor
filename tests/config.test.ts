@@ -13,6 +13,7 @@ describe('loadConfig', () => {
     expect(cfg.enableBrowserFallback).toBe(false);
     expect(cfg.circuitBreakerThreshold).toBe(10);
     expect(cfg.auditRetentionDays).toBe(365);
+    expect(cfg.delistedMemoryDays).toBe(30);
     expect(cfg.maxMonitorsPerChat).toBe(50);
     expect(cfg.checkCooldownMs).toBe(10_000);
     expect(cfg.urlRegisterCooldownMs).toBe(5_000);

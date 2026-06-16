@@ -105,6 +105,17 @@ export interface Catalog {
   also_on: (sources: string) => string;
   price_drop: (p: { title: string; oldPrice: string; newPrice: string; savings: string }) => string;
   back_in_stock_title: string;
+  /** Tracked-item bidirectional price change. */
+  price_change: (p: { title: string; oldPrice: string; newPrice: string; direction: 'up' | 'down' }) => string;
+  /** De-listing alert. */
+  delisted_title: string;
+  delisted_reason_product_gone: string;
+  delisted_reason_search_dropped: string;
+  delisted_last_price: (price: string) => string;
+  /** Search monitor's per-cycle drop-off roll-up header. */
+  listings_dropped_title: (count: number, vendor: string) => string;
+  /** A delisted item reappeared. */
+  re_listed_title: string;
 
   // ── Access control ────────────────────────────────────────────────────────
   access_denied: string; // shown to a non-allowed chat that tries to use the bot
@@ -244,6 +255,15 @@ const ro: Catalog = {
   price_drop: ({ title, oldPrice, newPrice, savings }) =>
     `📉 Scădere de preț la ${title}: ${oldPrice} → ${newPrice} (economisești ${savings})`,
   back_in_stock_title: '🟢 REVENIT ÎN STOC',
+  price_change: ({ title, oldPrice, newPrice, direction }) =>
+    `${direction === 'down' ? '📉' : '📈'} Preț modificat la ${title}: ${oldPrice} → ${newPrice}`,
+  delisted_title: '🗑️ Anunț eliminat',
+  delisted_reason_product_gone: 'Pagina anunțului nu mai există (a fost ștearsă).',
+  delisted_reason_search_dropped: 'Anunțul a dispărut din rezultatele urmărite.',
+  delisted_last_price: (price) => `Ultimul preț văzut: ${price}`,
+  listings_dropped_title: (count, vendor) =>
+    `🗑️ ${count} ${count === 1 ? 'anunț a dispărut' : 'anunțuri au dispărut'} de pe ${vendor}`,
+  re_listed_title: '♻️ Anunț reapărut',
 
   access_denied:
     'Nu ai acces la acest bot. Folosește /request-access ca să ceri accesul.',
@@ -387,6 +407,15 @@ const en: Catalog = {
   price_drop: ({ title, oldPrice, newPrice, savings }) =>
     `📉 Price drop on ${title}: ${oldPrice} → ${newPrice} (save ${savings})`,
   back_in_stock_title: '🟢 BACK IN STOCK',
+  price_change: ({ title, oldPrice, newPrice, direction }) =>
+    `${direction === 'down' ? '📉' : '📈'} Price changed on ${title}: ${oldPrice} → ${newPrice}`,
+  delisted_title: '🗑️ Listing removed',
+  delisted_reason_product_gone: 'The listing page no longer exists (it was deleted).',
+  delisted_reason_search_dropped: 'The listing dropped out of the tracked results.',
+  delisted_last_price: (price) => `Last seen price: ${price}`,
+  listings_dropped_title: (count, vendor) =>
+    `🗑️ ${count} ${count === 1 ? 'listing dropped' : 'listings dropped'} off ${vendor}`,
+  re_listed_title: '♻️ Listing reappeared',
 
   access_denied: 'You do not have access to this bot. Use /request-access to ask for it.',
   access_request_intro: "Let's request access. ",

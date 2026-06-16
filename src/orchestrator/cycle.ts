@@ -12,8 +12,8 @@
  * dispatches anything itself — it returns the notifications for the caller (the
  * scheduler/orchestrator) to deliver. Time is injected for determinism.
  */
-import type { Monitor, Notification } from '../contracts';
-import type { Store } from '../persistence';
+import type { EnrichedItem, Monitor, Notification } from '../contracts';
+import type { ItemSnapshot, Store } from '../persistence';
 import type { PluginRegistry } from '../registry';
 import type { ScrapingEngine } from '../scraping/engine';
 import {
@@ -34,6 +34,8 @@ interface CycleDeps {
   minSample: number;
   /** Resolve the per-chat cross-cycle dedup buffer (search monitors). */
   dedupFor?: (chatId: number) => DedupBuffer;
+  /** Consecutive absent cycles before a search item is treated as de-listed (default 2). */
+  delistThreshold?: number;
   /** Clock seam; defaults to the real epoch-ms wall clock for production use. */
   now?: () => number;
 }
@@ -165,13 +167,36 @@ export class MonitorCycle {
       }
     }
 
-    // Persist every active item; the NEW ones also get a first price point.
-    // (Determine "new" via the pre-cycle known set so already-stored ids that
-    // re-appear this cycle don't double-log a price.) Wrapped in one transaction
-    // so a mid-cycle crash can't leave an item stored without its price (or vice
-    // versa), and so the whole batch commits as a single fsync.
+    // ── De-listing bookkeeping (read BEFORE the upsert clears the flags) ──────
+    // An active item that was previously delisted (within memory) is a re-listing.
+    const reListed: Notification[] = [];
+    for (const item of out.active) {
+      const prior = this.deps.store.items.delistState(monitor.id, item.id);
+      if (prior?.delistedAt !== undefined) {
+        reListed.push({ kind: 're_listed', chatId: monitor.chatId, item });
+      }
+    }
+    // Items previously known but absent from THIS scrape (pre-filter, so a merely
+    // filtered-out item still on the page is not mistaken for a removal).
+    const known = this.deps.store.items.knownIds(monitor.id);
+    const present = new Set(out.presentIds);
+    const absentIds = [...known].filter((id) => !present.has(id));
+
+    // Persist every active item (NEW ones also get a first price point) AND mark
+    // absent items' de-list counter — all in ONE transaction so a mid-cycle crash
+    // can't leave an item stored without its price, or clear a re-sighted item's
+    // flag while failing to increment a vanished one (state stays consistent).
+    // The upsert clears gone_count/delisted_at for every re-sighted item.
+    //
+    // Absent-diff guard: only run it when the scrape actually returned items. An
+    // all-empty result (presentIds empty) would otherwise mark EVERY known item
+    // absent and mass-de-list the whole watch — but an empty page is far more
+    // likely a transient/layout glitch (already surfaced by watch-health), not
+    // the simultaneous removal of every listing. A genuine single removal always
+    // leaves other items present, so this never suppresses a real drop.
     const newIds = new Set(out.newEnriched.map((i) => i.id));
-    this.deps.store.transaction(() => {
+    const threshold = this.deps.delistThreshold ?? 2;
+    const crossed = this.deps.store.transaction(() => {
       for (const item of out.active) {
         this.deps.store.items.upsert(monitor.id, item, at);
         if (newIds.has(item.id)) {
@@ -184,7 +209,24 @@ export class MonitorCycle {
           });
         }
       }
+      return out.presentIds.length > 0
+        ? this.deps.store.items.markAbsent(monitor.id, absentIds, at, threshold)
+        : [];
     });
+
+    // Items crossing the grace threshold this cycle are collected into ONE
+    // roll-up (search SERPs churn, so per-item de-list alerts would be noise).
+    if (crossed.length > 0) {
+      const titles = crossed
+        .map((cid) => this.deps.store.items.getSnapshot(monitor.id, cid)?.title)
+        .filter((t): t is string => Boolean(t));
+      notifications.push({
+        kind: 'listings_dropped',
+        chatId: monitor.chatId,
+        dropped: { monitorId: monitor.id, vendor: monitor.vendor, count: crossed.length, titles },
+      });
+    }
+    notifications.push(...reListed);
 
     this.logPoll(monitor, at, {
       ok: true,
@@ -202,6 +244,32 @@ export class MonitorCycle {
     };
   }
 
+  /**
+   * Mark a product monitor's tracked item(s) absent this cycle and, for any that
+   * cross the grace threshold, return an `item_delisted` notification carrying the
+   * last-seen price from the stored snapshot. Empty when the monitor has no stored
+   * item yet (a baseline that never succeeded) or the threshold isn't reached.
+   */
+  private markProductGone(monitor: Monitor, at: number): Notification[] {
+    const known = [...this.deps.store.items.knownIds(monitor.id)];
+    if (known.length === 0) return [];
+    const threshold = this.deps.delistThreshold ?? 2;
+    const crossed = this.deps.store.items.markAbsent(monitor.id, known, at, threshold);
+    return crossed.map((itemId) => {
+      const snap = this.deps.store.items.getSnapshot(monitor.id, itemId);
+      const item = snapshotToItem(snap, monitor, itemId);
+      return {
+        kind: 'item_delisted',
+        chatId: monitor.chatId,
+        item,
+        delist: {
+          reason: 'product_gone',
+          ...(snap?.lastPrice !== undefined ? { lastSeenPrice: snap.lastPrice } : {}),
+        },
+      };
+    });
+  }
+
   /** Product monitor: detect `price_drop` and `back_in_stock` for the one ad. */
   private async runProduct(
     monitor: Monitor,
@@ -210,6 +278,19 @@ export class MonitorCycle {
     const at = this.now();
     const outcome = await this.deps.engine.scrapeProduct(plugin, monitor.url, at);
     if (!outcome.ok) {
+      // A non-block client error (404/410) on an ESTABLISHED product watch means
+      // the listing was removed — emit a one-off item_delisted (the page is gone,
+      // distinct from a transient 5xx/block which stays a plain failure). Crossing
+      // the absent threshold guards against a single fluke 404.
+      const gone =
+        !outcome.blocked && outcome.status >= 400 && outcome.status < 500;
+      if (gone) {
+        const delistNotes = this.markProductGone(monitor, at);
+        if (delistNotes.length > 0) {
+          this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: 'delisted', notifications: delistNotes.length });
+          return { notifications: delistNotes, ok: false, status: outcome.status, itemsActive: 0, newItems: 0 };
+        }
+      }
       this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: outcome.blocked ? 'blocked' : 'scrape_failed' });
       return { notifications: [], ok: false, status: outcome.status, itemsActive: 0, newItems: 0, blocked: outcome.blocked };
     }
@@ -245,11 +326,33 @@ export class MonitorCycle {
     // to avoid a second identical SELECT inside append().
     const historyLastPrice = this.deps.store.priceHistory.lastPrice(monitor.id, item.id);
     const prevPrice = historyLastPrice ?? prev?.lastPrice;
+    // Read the de-listing flag BEFORE the upsert clears it (for re-listing).
+    const wasDelisted = this.deps.store.items.delistState(monitor.id, item.id)?.delistedAt !== undefined;
 
     const notifications: Notification[] = [];
 
-    // Price drop: a strictly lower price than what we last recorded.
-    if (prevPrice !== undefined && item.price < prevPrice) {
+    // Re-listing: the watched item is back after having been marked delisted.
+    if (wasDelisted) {
+      notifications.push({ kind: 're_listed', chatId: monitor.chatId, item });
+    }
+
+    if (monitor.origin === 'tracked') {
+      // A tracked item alerts on ANY price move (the user chose to watch THIS
+      // item, so a rise matters too), not only drops.
+      if (prevPrice !== undefined && item.price !== prevPrice) {
+        notifications.push({
+          kind: 'price_change',
+          chatId: monitor.chatId,
+          item,
+          priceChange: {
+            previousPrice: prevPrice,
+            currentPrice: item.price,
+            direction: item.price < prevPrice ? 'down' : 'up',
+          },
+        });
+      }
+    } else if (prevPrice !== undefined && item.price < prevPrice) {
+      // Classic product watch: only a price DROP is notified.
       notifications.push({
         kind: 'price_drop',
         chatId: monitor.chatId,
@@ -304,4 +407,27 @@ export class MonitorCycle {
       newItems: notifications.length,
     };
   }
+}
+
+/**
+ * Reconstruct a renderable {@link EnrichedItem} from a stored snapshot for a
+ * de-listed product (the live scrape failed, so we render from what we last saw).
+ * Falls back to the monitor's URL/vendor when a legacy row lacks them.
+ */
+function snapshotToItem(snap: ItemSnapshot | undefined, monitor: Monitor, itemId: string): EnrichedItem {
+  return {
+    id: itemId,
+    title: snap?.title ?? itemId,
+    price: snap?.lastPrice ?? 0,
+    currency: snap?.currency ?? '',
+    url: snap?.url ?? monitor.url,
+    isPrivateOwner: snap?.sellerPrivate ?? true,
+    inStock: snap?.inStock ?? false,
+    vendor: monitor.vendor,
+    ...(snap?.imageUrl ? { imageUrl: snap.imageUrl } : {}),
+    ...(snap?.location ? { location: snap.location } : {}),
+    ...(snap?.description ? { description: snap.description } : {}),
+    ...(snap?.postedAt !== undefined ? { postedAt: snap.postedAt } : {}),
+    ...(snap?.attributes ? { attributes: snap.attributes } : {}),
+  };
 }

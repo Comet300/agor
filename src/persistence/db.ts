@@ -45,6 +45,9 @@ export interface MaintainOptions {
   dedupMaxAgeMs?: number;
   /** Delete audit_log rows older than this many days (needs `now`). */
   auditRetentionDays?: number;
+  /** Delete items delisted longer ago than this many days — the re-listing
+   *  memory window; after it a delisted item is a dead end (needs `now`). */
+  delistedMemoryDays?: number;
 }
 
 /**
@@ -56,12 +59,16 @@ export interface MaintainOptions {
  * the caller swallows failures so it never crashes a polling cycle.
  */
 export function maintainDb(db: DB, opts: MaintainOptions = {}): void {
-  const { now, dedupMaxAgeMs, auditRetentionDays } = opts;
+  const { now, dedupMaxAgeMs, auditRetentionDays, delistedMemoryDays } = opts;
   if (now !== undefined && dedupMaxAgeMs !== undefined) {
     db.prepare(`DELETE FROM dedup WHERE first_seen_at < ?`).run(now - dedupMaxAgeMs);
   }
   if (now !== undefined && auditRetentionDays !== undefined) {
     db.prepare(`DELETE FROM audit_log WHERE at < ?`).run(now - auditRetentionDays * 86_400_000);
+  }
+  if (now !== undefined && delistedMemoryDays !== undefined) {
+    db.prepare(`DELETE FROM items WHERE delisted_at IS NOT NULL AND delisted_at < ?`)
+      .run(now - delistedMemoryDays * 86_400_000);
   }
   db.pragma('wal_checkpoint(TRUNCATE)');
   db.pragma('optimize');
@@ -95,6 +102,20 @@ export function migrate(db: DB): void {
       currency   TEXT,
       first_seen INTEGER,
       last_seen  INTEGER,
+      -- Browsable snapshot (nullable; forward-filled on the next poll of a row
+      -- first stored before these columns existed).
+      title           TEXT,
+      url             TEXT,
+      image_url       TEXT,
+      location        TEXT,
+      seller_private  INTEGER,
+      posted_at       INTEGER,
+      description     TEXT,
+      attributes_json TEXT,
+      -- De-listing: consecutive cycles an item was absent; delisted_at stamped
+      -- when it crosses the grace threshold (NULL = active).
+      gone_count  INTEGER DEFAULT 0,
+      delisted_at INTEGER,
       PRIMARY KEY (monitor_id, item_id),
       FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE
     );
@@ -151,14 +172,37 @@ export function migrate(db: DB): void {
     CREATE INDEX IF NOT EXISTS idx_items_monitor_id
       ON items (monitor_id);
 
+    CREATE INDEX IF NOT EXISTS idx_items_last_seen
+      ON items (last_seen DESC);
+
     CREATE INDEX IF NOT EXISTS idx_audit_log_at
       ON audit_log (at DESC);
   `);
 
-  // Idempotent column add for databases created before this column existed
+  // Idempotent column adds for databases created before a column existed
   // (CREATE TABLE IF NOT EXISTS does not alter an existing table).
-  const cols = db.prepare('PRAGMA table_info(monitors)').all() as Array<{ name: string }>;
-  if (!cols.some((c) => c.name === 'consecutive_failures')) {
-    db.exec('ALTER TABLE monitors ADD COLUMN consecutive_failures INTEGER DEFAULT 0');
+  addColumnIfMissing(db, 'monitors', 'consecutive_failures', 'INTEGER DEFAULT 0');
+  addColumnIfMissing(db, 'monitors', 'origin', "TEXT DEFAULT 'user'");
+  for (const [name, type] of [
+    ['title', 'TEXT'],
+    ['url', 'TEXT'],
+    ['image_url', 'TEXT'],
+    ['location', 'TEXT'],
+    ['seller_private', 'INTEGER'],
+    ['posted_at', 'INTEGER'],
+    ['description', 'TEXT'],
+    ['attributes_json', 'TEXT'],
+    ['gone_count', 'INTEGER DEFAULT 0'],
+    ['delisted_at', 'INTEGER'],
+  ] as const) {
+    addColumnIfMissing(db, 'items', name, type);
+  }
+}
+
+/** Add `column` to `table` if it is not already present (idempotent migration). */
+function addColumnIfMissing(db: DB, table: string, column: string, type: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
 }

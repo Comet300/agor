@@ -65,6 +65,15 @@ describe('MonitorRepo', () => {
     expect(store.monitors.get(999)).toBeUndefined();
   });
 
+  it('origin defaults to user and round-trips a tracked origin', () => {
+    const store = freshStore();
+    const normal = store.monitors.create(newMonitorInput());
+    expect(store.monitors.get(normal.id)!.origin).toBe('user');
+
+    const tracked = store.monitors.create(newMonitorInput({ type: 'product', origin: 'tracked' }));
+    expect(store.monitors.get(tracked.id)!.origin).toBe('tracked');
+  });
+
   it('listByChat returns only that chat\'s monitors', () => {
     const store = freshStore();
     store.monitors.create(newMonitorInput({ chatId: 1 }));
@@ -208,6 +217,119 @@ describe('ItemRepo', () => {
     const store = freshStore();
     const m = store.monitors.create(newMonitorInput());
     expect(store.items.getState(m.id, 'nope')).toBeUndefined();
+  });
+
+  it('upsert persists the full item snapshot, readable via getSnapshot', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    store.items.upsert(
+      m.id,
+      scrapedItem({
+        id: 'snap',
+        title: 'VW Golf 7',
+        price: 12500,
+        currency: 'EUR',
+        url: 'https://www.olx.ro/d/snap',
+        imageUrl: 'https://img/snap.jpg',
+        location: 'Cluj-Napoca',
+        isPrivateOwner: true,
+        inStock: true,
+        description: 'Stare excelenta, full options',
+        postedAt: 1_700_000_000_000,
+        attributes: { year: '2016', km: '145000', fuel: 'Diesel' },
+      }),
+      1_000,
+    );
+
+    const snap = store.items.getSnapshot(m.id, 'snap');
+    expect(snap).toMatchObject({
+      itemId: 'snap',
+      title: 'VW Golf 7',
+      lastPrice: 12500,
+      currency: 'EUR',
+      url: 'https://www.olx.ro/d/snap',
+      imageUrl: 'https://img/snap.jpg',
+      location: 'Cluj-Napoca',
+      sellerPrivate: true,
+      inStock: true,
+      description: 'Stare excelenta, full options',
+      postedAt: 1_700_000_000_000,
+      attributes: { year: '2016', km: '145000', fuel: 'Diesel' },
+    });
+  });
+
+  it('getSnapshot returns undefined for an unknown item', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    expect(store.items.getSnapshot(m.id, 'ghost')).toBeUndefined();
+  });
+
+  it('getSnapshot treats a non-object attributes_json (array/corrupt) as absent', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    store.items.upsert(m.id, scrapedItem({ id: 'x', url: 'https://x/x' }), 1_000);
+    // Corrupt the attributes_json to an array, then to garbage.
+    store.db.prepare(`UPDATE items SET attributes_json = '[1,2,3]' WHERE monitor_id = ? AND item_id = ?`).run(m.id, 'x');
+    expect(store.items.getSnapshot(m.id, 'x')?.attributes).toBeUndefined();
+    store.db.prepare(`UPDATE items SET attributes_json = 'not json' WHERE monitor_id = ? AND item_id = ?`).run(m.id, 'x');
+    expect(store.items.getSnapshot(m.id, 'x')?.attributes).toBeUndefined();
+  });
+
+  it('upsert backfills metadata onto a row first stored without it (forward-heal)', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    // Simulate a pre-migration row: only the legacy columns set.
+    store.db
+      .prepare(
+        `INSERT INTO items (monitor_id, item_id, in_stock, last_price, currency, first_seen, last_seen)
+         VALUES (?, ?, 1, 100, 'RON', 1, 1)`,
+      )
+      .run(m.id, 'legacy');
+    expect(store.items.getSnapshot(m.id, 'legacy')?.title).toBeUndefined();
+
+    // A normal poll re-sights it with full metadata → row heals.
+    store.items.upsert(m.id, scrapedItem({ id: 'legacy', title: 'Healed', url: 'https://x/h' }), 2_000);
+    expect(store.items.getSnapshot(m.id, 'legacy')?.title).toBe('Healed');
+  });
+
+  it('markAbsent increments gone_count and stamps delisted_at only at the threshold', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    store.items.upsert(m.id, scrapedItem({ id: 'a', title: 'A', url: 'https://x/a' }), 1_000);
+
+    // Cycle 1 absent: gone_count 1, below threshold(2) → not delisted yet.
+    let crossed = store.items.markAbsent(m.id, ['a'], 2_000, 2);
+    expect(crossed).toEqual([]);
+    expect(store.items.delistState(m.id, 'a')?.goneCount).toBe(1);
+    expect(store.items.delistState(m.id, 'a')?.delistedAt).toBeUndefined();
+
+    // Cycle 2 absent: gone_count 2 → crosses → delisted_at stamped, id returned once.
+    crossed = store.items.markAbsent(m.id, ['a'], 3_000, 2);
+    expect(crossed).toEqual(['a']);
+    expect(store.items.delistState(m.id, 'a')).toMatchObject({ goneCount: 2, delistedAt: 3_000 });
+
+    // Cycle 3 still absent: stays delisted, NOT reported again (already crossed).
+    crossed = store.items.markAbsent(m.id, ['a'], 4_000, 2);
+    expect(crossed).toEqual([]);
+    expect(store.items.delistState(m.id, 'a')?.delistedAt).toBe(3_000); // unchanged
+  });
+
+  it('a re-sight (upsert) clears gone_count and delisted_at', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    store.items.upsert(m.id, scrapedItem({ id: 'a', url: 'https://x/a' }), 1_000);
+    store.items.markAbsent(m.id, ['a'], 2_000, 1); // threshold 1 → delisted immediately
+    expect(store.items.delistState(m.id, 'a')?.delistedAt).toBe(2_000);
+
+    store.items.upsert(m.id, scrapedItem({ id: 'a', url: 'https://x/a' }), 3_000);
+    expect(store.items.delistState(m.id, 'a')?.goneCount).toBe(0);
+    expect(store.items.delistState(m.id, 'a')?.delistedAt).toBeUndefined();
+  });
+
+  it('markAbsent ignores ids not stored for the monitor', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    expect(store.items.markAbsent(m.id, ['ghost'], 1_000, 1)).toEqual([]);
   });
 
   it('knownIds reflects upserts and is scoped per monitor', () => {
@@ -401,6 +523,26 @@ describe('maintainDb', () => {
 
     const actions = store.audit.recent(100).map((e) => e.action);
     expect(actions).toEqual(['promote', 'deny']); // newest-first; 'allow' pruned
+  });
+
+  it('prunes delisted items older than the memory window, keeping active + recent-delist', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    const now = 100 * 86_400_000; // day 100
+    const delistedMemoryDays = 30;
+
+    // Active item (never delisted) → kept.
+    store.items.upsert(m.id, scrapedItem({ id: 'active', url: 'https://x/a' }), now);
+    // Delisted 40 days ago → past the 30-day window → pruned.
+    store.items.upsert(m.id, scrapedItem({ id: 'old', url: 'https://x/o' }), now - 41 * 86_400_000);
+    store.items.markAbsent(m.id, ['old'], now - 40 * 86_400_000, 1);
+    // Delisted 10 days ago → within the window → kept (re-listing still possible).
+    store.items.upsert(m.id, scrapedItem({ id: 'recent', url: 'https://x/r' }), now - 11 * 86_400_000);
+    store.items.markAbsent(m.id, ['recent'], now - 10 * 86_400_000, 1);
+
+    maintainDb(store.db, { now, delistedMemoryDays });
+
+    expect(store.items.knownIds(m.id)).toEqual(new Set(['active', 'recent']));
   });
 
   it('does not prune when no retention options are supplied (back-compat)', () => {

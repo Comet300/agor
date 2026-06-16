@@ -209,3 +209,71 @@ describe('renderRegistrationCard', () => {
     expect(labels).toContain(`✅ ${tr('en').btn_private}`);
   });
 });
+
+describe('renderNotification — browse/track/de-listing kinds', () => {
+  it('price_change shows old→new and a down arrow for a drop', () => {
+    const item = makeItem({ price: 4000, currency: 'EUR' });
+    const msg = renderNotification(
+      { kind: 'price_change', chatId: 1, item,
+        priceChange: { previousPrice: 5000, currentPrice: 4000, direction: 'down' } },
+      'en',
+    );
+    expect(msg.text).toContain('📉');
+    expect(msg.text).toContain(formatMoney(5000, 'EUR'));
+    expect(msg.text).toContain(formatMoney(4000, 'EUR'));
+    expect(buttons(msg).length).toBeGreaterThan(0); // keeps quick actions
+  });
+
+  it('price_change shows an up arrow for an increase', () => {
+    const item = makeItem({ price: 5500, currency: 'EUR' });
+    const msg = renderNotification(
+      { kind: 'price_change', chatId: 1, item,
+        priceChange: { previousPrice: 5000, currentPrice: 5500, direction: 'up' } },
+      'en',
+    );
+    expect(msg.text).toContain('📈');
+  });
+
+  it('item_delisted (product_gone) renders the reason + Open-only keyboard', () => {
+    const item = makeItem({ phone: '+40712345678' });
+    const msg = renderNotification(
+      { kind: 'item_delisted', chatId: 1, item, delist: { reason: 'product_gone', lastSeenPrice: 4300 } },
+      'en',
+    );
+    expect(msg.text).toContain(tr('en').delisted_title);
+    expect(msg.text).toContain(tr('en').delisted_reason_product_gone);
+    expect(msg.text).toContain(formatMoney(4300, 'RON'));
+    // Only the Open link — no Call / Price-history even though a phone exists.
+    const b = buttons(msg);
+    expect(b).toHaveLength(1);
+    expect('url' in b[0]!).toBe(true);
+  });
+
+  it('item_delisted (search_dropped) renders the search reason', () => {
+    const msg = renderNotification(
+      { kind: 'item_delisted', chatId: 1, item: makeItem(), delist: { reason: 'search_dropped' } },
+      'en',
+    );
+    expect(msg.text).toContain(tr('en').delisted_reason_search_dropped);
+  });
+
+  it('listings_dropped renders a count header and sample titles, no keyboard', () => {
+    const msg = renderNotification(
+      { kind: 'listings_dropped', chatId: 1,
+        dropped: { monitorId: 7, vendor: 'olx.ro', count: 3, titles: ['Golf', 'Passat', 'Octavia'] } },
+      'en',
+    );
+    expect(msg.text).toContain('3');
+    expect(msg.text).toContain('olx.ro');
+    expect(msg.text).toContain('Golf');
+    expect(msg.keyboard).toBeUndefined(); // button-less summary
+  });
+
+  it('re_listed renders a reappear card with quick actions', () => {
+    const item = makeItem({ title: 'Back again', location: 'Cluj' });
+    const msg = renderNotification({ kind: 're_listed', chatId: 1, item }, 'en');
+    expect(msg.text).toContain(tr('en').re_listed_title);
+    expect(msg.text).toContain('Back again');
+    expect(buttons(msg).length).toBeGreaterThan(0);
+  });
+});

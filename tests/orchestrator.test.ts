@@ -125,6 +125,7 @@ function makeConfig(over: Partial<AppConfig> = {}): AppConfig {
     circuitBreakerThreshold: 10,
     dbMaintenanceIntervalTicks: 360,
     auditRetentionDays: 365,
+    delistedMemoryDays: 30,
     maxMonitorsPerChat: 50,
     checkCooldownMs: 10_000,
     urlRegisterCooldownMs: 5_000,
@@ -222,6 +223,104 @@ function makeHarness(configOver: Partial<AppConfig> = {}): Harness {
     },
   };
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Search de-listing (roll-up) + re-listing
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('search de-listing roll-up', () => {
+  let h: Harness;
+  beforeEach(() => { h = makeHarness(); });
+
+  async function registerWith(items: RawNode[]): Promise<number> {
+    h.setBody(searchDoc(items));
+    const res = await h.orchestrator.register({ chatId: 5, rawUrl: SEARCH_URL });
+    if (!res.ok) throw new Error('register failed');
+    return res.monitor.id;
+  }
+
+  const A = { id: 'A', title: 'iPhone 13', price: 2000, currency: 'RON', url: 'https://www.synth.test/A', city: 'Cluj' };
+  const B = { id: 'B', title: 'Pixel 8', price: 1800, currency: 'RON', url: 'https://www.synth.test/B', city: 'Iasi' };
+
+  it('emits ONE listings_dropped roll-up after an item is absent for the threshold (2) cycles', async () => {
+    const id = await registerWith([A, B]);
+
+    // Cycle 1 — B disappears (absent 1, below threshold) → no de-list alert yet.
+    h.setBody(searchDoc([A]));
+    h.setNow(2_000);
+    await h.orchestrator.runMonitorOnce(id);
+    expect(h.notes.filter((n) => n.kind === 'listings_dropped')).toHaveLength(0);
+
+    // Cycle 2 — B still absent (absent 2 = threshold) → exactly one roll-up.
+    h.setNow(3_000);
+    await h.orchestrator.runMonitorOnce(id);
+    const dropped = h.notes.filter((n) => n.kind === 'listings_dropped');
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]!.dropped).toMatchObject({ count: 1 });
+    expect(dropped[0]!.dropped!.titles).toContain('Pixel 8');
+
+    // Cycle 3 — B STILL absent → no repeat alert (already delisted).
+    h.setNow(4_000);
+    await h.orchestrator.runMonitorOnce(id);
+    expect(h.notes.filter((n) => n.kind === 'listings_dropped')).toHaveLength(1);
+  });
+
+  it('does NOT mass-de-list when a scrape returns zero items (empty page / extraction glitch)', async () => {
+    const id = await registerWith([A, B]);
+    // Two cycles where the page returns NO items at all (ok:true, empty result).
+    // This must not be read as "A and B both vanished" — an all-empty result is a
+    // probable transient/layout glitch (the health system flags it separately).
+    h.setBody(searchDoc([]));
+    h.setNow(2_000); await h.orchestrator.runMonitorOnce(id);
+    h.setNow(3_000); await h.orchestrator.runMonitorOnce(id);
+    expect(h.notes.filter((n) => n.kind === 'listings_dropped')).toHaveLength(0);
+    // The items are NOT marked delisted, so they still resolve as active rows.
+    expect(h.store.items.delistState(id, 'A')?.delistedAt).toBeUndefined();
+    expect(h.store.items.delistState(id, 'B')?.delistedAt).toBeUndefined();
+  });
+
+  it('still de-lists a specific item that drops while OTHERS remain on the page', async () => {
+    const id = await registerWith([A, B]);
+    // B drops but A remains — a genuine single-item removal, not an empty page.
+    h.setBody(searchDoc([A]));
+    h.setNow(2_000); await h.orchestrator.runMonitorOnce(id);
+    h.setNow(3_000); await h.orchestrator.runMonitorOnce(id);
+    const dropped = h.notes.filter((n) => n.kind === 'listings_dropped');
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]!.dropped!.titles).toContain('Pixel 8');
+  });
+
+  it('does not de-list an item that is merely filtered out (still on the page)', async () => {
+    // Both private by default; baseline has A and a COMPANY item C.
+    const C = { ...A, id: 'C', title: 'Dealer phone', business: true, url: 'https://www.synth.test/C' };
+    const id = await registerWith([A, C]);
+    // User switches to private-only; C is filtered out but STILL present on the page.
+    const m = h.store.monitors.get(id)!;
+    m.filters.sellerVisibility = 'private';
+    h.store.monitors.update(m);
+
+    h.setBody(searchDoc([A, C])); // C still returned by the vendor
+    for (const t of [2_000, 3_000, 4_000]) { h.setNow(t); await h.orchestrator.runMonitorOnce(id); }
+    // C was filtered, never absent from the page → must NOT be reported delisted.
+    expect(h.notes.filter((n) => n.kind === 'listings_dropped')).toHaveLength(0);
+  });
+
+  it('emits re_listed when a dropped item reappears within the memory window', async () => {
+    const id = await registerWith([A, B]);
+    // Drop B for two cycles → delisted.
+    h.setBody(searchDoc([A]));
+    h.setNow(2_000); await h.orchestrator.runMonitorOnce(id);
+    h.setNow(3_000); await h.orchestrator.runMonitorOnce(id);
+    expect(h.notes.filter((n) => n.kind === 'listings_dropped')).toHaveLength(1);
+
+    // B comes back → one re_listed alert.
+    h.setBody(searchDoc([A, B]));
+    h.setNow(4_000); await h.orchestrator.runMonitorOnce(id);
+    const re = h.notes.filter((n) => n.kind === 're_listed');
+    expect(re).toHaveLength(1);
+    expect(re[0]!.item!.id).toBe('B');
+  });
+});
 
 // ────────────────────────────────────────────────────────────────────────────
 // Per-chat monitor quota (flood protection)
@@ -473,6 +572,74 @@ describe('10.3 product back-in-stock detection + fast tier', () => {
     const persisted = h.store.monitors.get(res.monitor.id)!;
     expect(persisted.fastTier).toBe(true);
     expect(persisted.nextDueAt).toBe(1_000 + 120_000);
+  });
+
+  it('emits item_delisted after a product page 404s for the threshold (2) cycles', async () => {
+    const base: RawNode = { id: 'PD', title: 'Goes away', price: 1000, currency: 'RON', url: PRODUCT_URL, available: true };
+    h.setBody(productDoc(base));
+    const res = await h.orchestrator.register({ chatId: 7, rawUrl: PRODUCT_URL, type: 'product' });
+    if (!res.ok) throw new Error('register failed');
+
+    // The product page 404s (deleted) — a non-block client error on an established
+    // watch. A single 404 could be a fluke, so it's gated by the same grace
+    // threshold: the first 404 increments, the second crosses → delisted.
+    h.setStatus(404);
+    h.setNow(2_000);
+    let notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.filter((n) => n.kind === 'item_delisted')).toHaveLength(0); // fluke guard
+
+    h.setNow(3_000);
+    notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    const del = notes.filter((n) => n.kind === 'item_delisted');
+    expect(del).toHaveLength(1);
+    expect(del[0]!.delist).toMatchObject({ reason: 'product_gone', lastSeenPrice: 1000 });
+    expect(del[0]!.item!.id).toBe('PD');
+
+    // A third 404 does not re-alert (already delisted).
+    h.setNow(4_000);
+    notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.filter((n) => n.kind === 'item_delisted')).toHaveLength(0);
+  });
+
+  it('does NOT emit item_delisted on a 5xx (transient), only on a 4xx gone', async () => {
+    const base: RawNode = { id: 'P5', title: 'Server hiccup', price: 1000, currency: 'RON', url: PRODUCT_URL, available: true };
+    h.setBody(productDoc(base));
+    const res = await h.orchestrator.register({ chatId: 7, rawUrl: PRODUCT_URL, type: 'product' });
+    if (!res.ok) throw new Error('register failed');
+
+    h.setNow(2_000);
+    h.setStatus(503); // transient server error → existing failure path, no de-list
+    const notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.filter((n) => n.kind === 'item_delisted')).toHaveLength(0);
+  });
+
+  it('tracked product emits price_change on a RISE; classic product stays silent on a rise', async () => {
+    const base: RawNode = { id: 'PT', title: 'Tracked thing', price: 1000, currency: 'RON', url: PRODUCT_URL, available: true };
+    h.setBody(productDoc(base));
+
+    // Classic product monitor: a price rise produces NO alert.
+    const classic = await h.orchestrator.register({ chatId: 7, rawUrl: PRODUCT_URL, type: 'product' });
+    if (!classic.ok) throw new Error('register failed');
+    h.setNow(2_000);
+    h.setBody(productDoc({ ...base, price: 1200 }));
+    const classicNotes = (await h.orchestrator.runMonitorOnce(classic.monitor.id)).notifications;
+    expect(classicNotes.filter((n) => n.kind === 'price_change')).toHaveLength(0);
+    expect(classicNotes.filter((n) => n.kind === 'price_drop')).toHaveLength(0);
+
+    // Tracked monitor on the same item: a rise DOES alert (any direction).
+    const tracked = h.store.monitors.create({
+      type: 'product', origin: 'tracked', chatId: 8, vendor: 'synth', url: PRODUCT_URL,
+      filters: { sellerVisibility: 'both', exclusionKeywords: [] }, intervalMs: 60_000, nextDueAt: 0,
+    });
+    h.setNow(3_000);
+    h.setBody(productDoc(base)); // 1000 baseline for the tracked monitor
+    await h.orchestrator.cycle.run(h.store.monitors.get(tracked.id)!);
+    h.setNow(4_000);
+    h.setBody(productDoc({ ...base, price: 1200 })); // rises 1000 → 1200
+    const trackedNotes = (await h.orchestrator.cycle.run(h.store.monitors.get(tracked.id)!)).notifications;
+    const change = trackedNotes.filter((n) => n.kind === 'price_change');
+    expect(change).toHaveLength(1);
+    expect(change[0]!.priceChange).toMatchObject({ previousPrice: 1000, currentPrice: 1200, direction: 'up' });
   });
 });
 

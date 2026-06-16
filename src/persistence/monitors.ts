@@ -5,7 +5,7 @@
  * repo translates both ways so callers only ever touch the typed {@link Monitor}.
  */
 
-import type { FilterConfig, Monitor, MonitorType } from '../contracts';
+import type { FilterConfig, Monitor, MonitorOrigin, MonitorType } from '../contracts';
 import type { DB } from './db';
 
 /** Fields a caller supplies when registering a brand-new monitor. */
@@ -18,6 +18,8 @@ export interface NewMonitor {
   intervalMs: number;
   /** ms epoch of the first scheduled poll. */
   nextDueAt: number;
+  /** How the watch was created; defaults to 'user'. */
+  origin?: MonitorOrigin;
 }
 
 /** Raw shape of a `monitors` table row (snake_case, integer booleans). */
@@ -33,6 +35,7 @@ interface MonitorRow {
   next_due_at: number;
   consecutive_failures: number | null;
   created_at: number;
+  origin: string | null;
 }
 
 /** Map a DB row into the typed domain {@link Monitor}. */
@@ -40,6 +43,7 @@ function rowToMonitor(row: MonitorRow): Monitor {
   return {
     id: row.id,
     type: row.type as MonitorType,
+    origin: (row.origin as MonitorOrigin) ?? 'user',
     chatId: row.chat_id,
     vendor: row.vendor,
     url: row.url,
@@ -58,12 +62,13 @@ export class MonitorRepo {
   /** Insert a new monitor (fast tier off, created stamped to now) and return it. */
   create(input: NewMonitor): Monitor {
     const createdAt = Date.now();
+    const origin: MonitorOrigin = input.origin ?? 'user';
     const info = this.db
       .prepare(
         `INSERT INTO monitors
-           (type, chat_id, vendor, url, filters_json, interval_ms, fast_tier, next_due_at, created_at)
+           (type, chat_id, vendor, url, filters_json, interval_ms, fast_tier, next_due_at, created_at, origin)
          VALUES
-           (@type, @chatId, @vendor, @url, @filtersJson, @intervalMs, 0, @nextDueAt, @createdAt)`,
+           (@type, @chatId, @vendor, @url, @filtersJson, @intervalMs, 0, @nextDueAt, @createdAt, @origin)`,
       )
       .run({
         type: input.type,
@@ -74,11 +79,13 @@ export class MonitorRepo {
         intervalMs: input.intervalMs,
         nextDueAt: input.nextDueAt,
         createdAt,
+        origin,
       });
 
     return {
       id: Number(info.lastInsertRowid),
       type: input.type,
+      origin,
       chatId: input.chatId,
       vendor: input.vendor,
       url: input.url,

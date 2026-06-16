@@ -72,6 +72,9 @@ const EnvSchema = z.object({
   // Days of access-decision audit history to retain; older rows are pruned
   // during DB maintenance so the audit_log stays bounded on a long-running Pi.
   AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
+  // Re-listing memory window: how long a delisted item stays remembered so a
+  // reappearance can fire a re_listed alert. After this it is pruned (dead end).
+  DELISTED_MEMORY_DAYS: z.coerce.number().int().positive().default(30),
   // Max monitors a single (non-admin) chat may register. A backstop against
   // accidental or abusive floods that would swamp the scheduler. 0 = unlimited.
   MAX_MONITORS_PER_CHAT: z.coerce.number().int().min(0).default(50),
@@ -123,6 +126,8 @@ export interface AppConfig {
   dbMaintenanceIntervalTicks: number;
   /** Days of audit-log history to retain (older rows pruned during maintenance). */
   auditRetentionDays: number;
+  /** Re-listing memory window (days) before a delisted item is pruned as a dead end. */
+  delistedMemoryDays: number;
   /** Max monitors a non-admin chat may register (0 = unlimited). */
   maxMonitorsPerChat: number;
   /** Per-chat cooldown (ms) on the /check on-demand poll. */
@@ -168,6 +173,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     circuitBreakerThreshold: parsed.CIRCUIT_BREAKER_THRESHOLD,
     dbMaintenanceIntervalTicks: parsed.DB_MAINTENANCE_INTERVAL_TICKS,
     auditRetentionDays: parsed.AUDIT_RETENTION_DAYS,
+    delistedMemoryDays: parsed.DELISTED_MEMORY_DAYS,
     maxMonitorsPerChat: parsed.MAX_MONITORS_PER_CHAT,
     checkCooldownMs: parsed.CHECK_COOLDOWN_MS,
     urlRegisterCooldownMs: parsed.URL_REGISTER_COOLDOWN_MS,

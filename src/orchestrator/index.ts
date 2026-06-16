@@ -108,6 +108,7 @@ export class Orchestrator {
           now: this.now(),
           dedupMaxAgeMs: deps.config.dedupWindowMs,
           auditRetentionDays: deps.config.auditRetentionDays,
+          delistedMemoryDays: deps.config.delistedMemoryDays,
         }),
       maintenanceIntervalTicks: deps.config.dbMaintenanceIntervalTicks,
       now: this.now,
