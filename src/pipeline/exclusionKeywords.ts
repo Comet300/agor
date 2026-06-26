@@ -57,3 +57,14 @@ export function applyExclusion(items: IScrapedItem[], keywords: string[]): IScra
   if (re === null) return items;
   return items.filter((item) => !re.test(item.title));
 }
+
+/**
+ * Required-keyword (whitelist) filter: when `keywords` is non-empty, keep only
+ * items whose title matches AT LEAST ONE keyword (same word-boundary regex as
+ * exclusions). An empty list means "no requirement" — everything passes.
+ */
+export function applyRequired(items: IScrapedItem[], keywords: string[]): IScrapedItem[] {
+  const re = buildExclusionRegex(keywords);
+  if (re === null) return items;
+  return items.filter((item) => re.test(item.title));
+}

@@ -45,6 +45,10 @@ export interface Catalog {
     paused: boolean;
     /** True when a search watch only alerts on at-or-below-median listings. */
     dealsOnly: boolean;
+    /** Comma-joined required keywords; empty when none. */
+    required: string;
+    /** Count of blocked sellers + phones; 0 when none. */
+    blocked: number;
   }) => string;
   remove_usage: string;
   remove_done: (id: number) => string;
@@ -108,6 +112,8 @@ export interface Catalog {
   btn_done: string;
   btn_remove: string;
   btn_deals_only: string;
+  btn_required: string;
+  btn_block: string;
   btn_rename: string;
   btn_pause: string;
   btn_resume: string;
@@ -152,6 +158,13 @@ export interface Catalog {
   exclusion_prompt: string;
   exclusion_set: (keywords: string) => string;
   exclusion_cleared: string;
+  required_prompt: string;
+  required_set: (keywords: string) => string;
+  required_cleared: string;
+  block_prompt: string;
+  block_added_seller: (name: string) => string;
+  block_added_phone: (phone: string) => string;
+  block_cleared: string;
   price_history_insufficient: string;
   price_history_error: string;
 
@@ -243,13 +256,15 @@ const ro: Catalog = {
   track_error: 'Nu am putut înregistra urmărirea. Te rog încearcă din nou.',
   list_empty: 'Nicio urmărire încă. Trimite un link de anunț ca să creezi una.',
   list_intro: 'Urmăririle tale:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly }) =>
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked }) =>
     `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `„${label}” (${vendor})` : vendor} · ${type}` +
-    // Seller filter, deals-only & exclusions only apply to search watches; a
+    // Seller filter, deals-only & keyword filters only apply to search watches; a
     // product watch tracks one listing, so they'd be meaningless noise.
     (type === 'search' ? ` · vânzător=${seller}` : '') +
     (type === 'search' && dealsOnly ? ' · doar oferte' : '') +
+    (type === 'search' && required ? ` · necesită: ${required}` : '') +
     (type === 'search' && exclusions ? ` · excluse: ${exclusions}` : '') +
+    (type === 'search' && blocked > 0 ? ` · blocați: ${blocked}` : '') +
     `\n${url}`,
   remove_usage: 'Folosire: /remove <id>',
   remove_done: (id) => `Urmărirea #${id} a fost oprită.`,
@@ -303,6 +318,8 @@ const ro: Catalog = {
   btn_done: '✅ Gata',
   btn_remove: '🗑 Șterge',
   btn_deals_only: '🔥 Doar oferte',
+  btn_required: '✅ Cuvinte necesare',
+  btn_block: '⛔ Blochează vânzător',
   btn_rename: '✏️ Redenumește',
   btn_pause: '⏸ Pauză',
   btn_resume: '▶️ Reia',
@@ -342,6 +359,13 @@ const ro: Catalog = {
   exclusion_prompt: 'Trimite cuvintele de exclus, separate prin virgulă (ex.: lovit, piese, dube).',
   exclusion_set: (kw) => `Exclud: ${kw}`,
   exclusion_cleared: 'Toate cuvintele excluse au fost șterse.',
+  required_prompt: 'Trimite cuvintele necesare, separate prin virgulă (anunțul trebuie să conțină cel puțin unul). „-” le șterge.',
+  required_set: (kw) => `Necesită: ${kw}`,
+  required_cleared: 'Toate cuvintele necesare au fost șterse.',
+  block_prompt: 'Trimite numele vânzătorului sau un număr de telefon de blocat. „-” golește lista.',
+  block_added_seller: (name) => `Vânzător blocat: ${name}`,
+  block_added_phone: (phone) => `Telefon blocat: ${phone}`,
+  block_cleared: 'Lista de vânzători blocați a fost golită.',
   price_history_insufficient: 'Încă nu sunt suficiente date de preț.',
   price_history_error: 'Nu am putut genera istoricul de preț.',
 
@@ -435,13 +459,15 @@ const en: Catalog = {
   track_error: 'Sorry — I could not register that watch. Please try again.',
   list_empty: 'No watches yet. Send a listing link to create one.',
   list_intro: 'Your watches:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly }) =>
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked }) =>
     `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `“${label}” (${vendor})` : vendor} · ${type}` +
-    // Seller filter, deals-only & exclusions only apply to search watches; a
+    // Seller filter, deals-only & keyword filters only apply to search watches; a
     // product watch tracks one listing, so they'd be meaningless noise.
     (type === 'search' ? ` · seller=${seller}` : '') +
     (type === 'search' && dealsOnly ? ' · deals only' : '') +
+    (type === 'search' && required ? ` · requires: ${required}` : '') +
     (type === 'search' && exclusions ? ` · excluded: ${exclusions}` : '') +
+    (type === 'search' && blocked > 0 ? ` · blocked: ${blocked}` : '') +
     `\n${url}`,
   remove_usage: 'Usage: /remove <id>',
   remove_done: (id) => `Watch #${id} stopped.`,
@@ -495,6 +521,8 @@ const en: Catalog = {
   btn_done: '✅ Done',
   btn_remove: '🗑 Remove',
   btn_deals_only: '🔥 Deals only',
+  btn_required: '✅ Required words',
+  btn_block: '⛔ Block seller',
   btn_rename: '✏️ Rename',
   btn_pause: '⏸ Pause',
   btn_resume: '▶️ Resume',
@@ -534,6 +562,13 @@ const en: Catalog = {
   exclusion_prompt: 'Send a comma-separated list of keywords to exclude (e.g. damaged, parts, salvage).',
   exclusion_set: (kw) => `Excluding: ${kw}`,
   exclusion_cleared: 'Cleared all exclusion keywords.',
+  required_prompt: 'Send comma-separated required keywords (a listing must contain at least one). “-” clears them.',
+  required_set: (kw) => `Requiring: ${kw}`,
+  required_cleared: 'Cleared all required keywords.',
+  block_prompt: 'Send a seller name or a phone number to block. “-” empties the list.',
+  block_added_seller: (name) => `Blocked seller: ${name}`,
+  block_added_phone: (phone) => `Blocked phone: ${phone}`,
+  block_cleared: 'Blocked-sellers list emptied.',
   price_history_insufficient: 'Not enough price history yet.',
   price_history_error: 'Could not render the price history.',
 

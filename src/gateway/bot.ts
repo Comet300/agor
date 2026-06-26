@@ -26,7 +26,7 @@ import { Bot, InlineKeyboard, InputFile } from 'grammy';
 import type { MessageRef, Notification, SellerVisibility } from '../contracts';
 import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
-import { parseExclusionInput } from '../pipeline';
+import { parseExclusionInput, phoneKey } from '../pipeline';
 import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard } from './render';
 import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
@@ -106,6 +106,12 @@ const pendingJump = new ExpiringMap<number, number>(PENDING_TTL_MS);
  * than treated as a URL. Entries expire so an abandoned prompt cannot leak.
  */
 const pendingRename = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
+/** Chats awaiting a required-keywords reply (chat id → monitor id). */
+const pendingRequired = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
+/** Chats awaiting a block-seller reply (chat id → monitor id). */
+const pendingBlock = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
 /**
  * Chats mid-way through the /request_access flow, keyed by chat id. `step` says
@@ -382,6 +388,8 @@ export function buildBot(
           tracked: m.origin === 'tracked',
           paused: m.paused,
           dealsOnly: m.filters.dealsOnly === true,
+          required: (m.filters.requiredKeywords ?? []).join(', '),
+          blocked: (m.filters.blockedSellers ?? []).length + (m.filters.blockedPhones ?? []).length,
           ...(m.label ? { label: m.label } : {}),
         }),
       );
@@ -1011,6 +1019,42 @@ export function buildBot(
     }
   });
 
+  // Required keywords: eq:<monitorId> → prompt + remember the pending state.
+  bot.callbackQuery(/^eq:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      pendingRequired.set(ctx.chat?.id ?? monitor.chatId, monitorId);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(tr(lang).required_prompt);
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
+  // Block seller: eb:<monitorId> → prompt + remember the pending state.
+  bot.callbackQuery(/^eb:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      pendingBlock.set(ctx.chat?.id ?? monitor.chatId, monitorId);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(tr(lang).block_prompt);
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
   // Remove monitor button: rm:<monitorId> — prompts a confirmation (the cf:rm
   // callback performs the delete), only for a watch owned by this chat.
   bot.callbackQuery(/^rm:(\d+)$/, async (ctx) => {
@@ -1348,6 +1392,61 @@ export function buildBot(
         const label = raw === '-' ? '' : raw.slice(0, 40); // cap to keep /list tidy
         store.monitors.setLabel(renameMonitorId, label);
         await ctx.reply(label ? tr(lang).rename_done(label) : tr(lang).rename_cleared);
+        return;
+      }
+
+      // 1d. Are we waiting for required keywords?
+      const requiredMonitorId = pendingRequired.get(chatId);
+      if (requiredMonitorId !== undefined) {
+        pendingRequired.delete(chatId);
+        const monitor = store.monitors.get(requiredMonitorId);
+        if (!monitor || monitor.chatId !== chatId) {
+          await ctx.reply(tr(lang).cb_watch_gone);
+          return;
+        }
+        const kw = text.trim() === '-' ? [] : parseExclusionInput(text);
+        monitor.filters.requiredKeywords = kw;
+        store.monitors.update(monitor);
+        await replyChunked(
+          (t) => ctx.reply(t),
+          kw.length > 0 ? tr(lang).required_set(kw.join(', ')) : tr(lang).required_cleared,
+        );
+        return;
+      }
+
+      // 1e. Are we waiting for a seller/phone to block?
+      const blockMonitorId = pendingBlock.get(chatId);
+      if (blockMonitorId !== undefined) {
+        pendingBlock.delete(chatId);
+        const monitor = store.monitors.get(blockMonitorId);
+        if (!monitor || monitor.chatId !== chatId) {
+          await ctx.reply(tr(lang).cb_watch_gone);
+          return;
+        }
+        const entry = text.trim();
+        if (entry === '-') {
+          monitor.filters.blockedSellers = [];
+          monitor.filters.blockedPhones = [];
+          store.monitors.update(monitor);
+          await ctx.reply(tr(lang).block_cleared);
+          return;
+        }
+        // 6+ digits → treat as a phone; otherwise a seller display name.
+        const digitCount = (entry.match(/\d/g) ?? []).length;
+        if (digitCount >= 6) {
+          const phones = monitor.filters.blockedPhones ?? [];
+          if (!phones.some((p) => phoneKey(p) === phoneKey(entry))) phones.push(entry);
+          monitor.filters.blockedPhones = phones;
+          store.monitors.update(monitor);
+          await ctx.reply(tr(lang).block_added_phone(entry));
+        } else {
+          const name = entry.toLowerCase();
+          const sellers = monitor.filters.blockedSellers ?? [];
+          if (!sellers.includes(name)) sellers.push(name);
+          monitor.filters.blockedSellers = sellers;
+          store.monitors.update(monitor);
+          await ctx.reply(tr(lang).block_added_seller(entry));
+        }
         return;
       }
 

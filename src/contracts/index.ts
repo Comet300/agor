@@ -104,6 +104,8 @@ export interface IScrapedItem {
   inStock: boolean;
   /** Parsed seller phone, when available (powers the tel: deep link). */
   phone?: string;
+  /** Parsed seller display name, when the vendor exposes one (powers block-seller). */
+  sellerName?: string;
   /** Short listing description / teaser, when the vendor exposes one. */
   description?: string;
   /** When the listing was posted (epoch ms), parsed from the vendor's date. */
@@ -147,6 +149,16 @@ export interface FilterConfig {
    * suppressed; when the sample is too small to judge, nothing is suppressed.
    */
   dealsOnly?: boolean;
+  /**
+   * Lowercased required keywords (whitelist). When non-empty, a listing is kept
+   * only if its title matches AT LEAST ONE keyword (word-boundary, like
+   * exclusions). Absent/empty means "no requirement".
+   */
+  requiredKeywords?: string[];
+  /** Lowercased seller display names to block (drops matching listings). */
+  blockedSellers?: string[];
+  /** Normalized (digits-only) seller phone numbers to block. */
+  blockedPhones?: string[];
 }
 
 export interface Monitor {

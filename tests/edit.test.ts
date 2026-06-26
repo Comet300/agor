@@ -169,4 +169,32 @@ describe('/edit', () => {
     await say(h.bot, '-');
     expect(h.store.monitors.get(m.id)!.label).toBeUndefined();
   });
+
+  it('eq sets required keywords from the next text reply', async () => {
+    const m = mkMonitor(h.store, 'search');
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `eq:${m.id}`);
+    await say(h.bot, 'hybrid, automat');
+    expect(h.store.monitors.get(m.id)!.filters.requiredKeywords).toEqual(['hybrid', 'automat']);
+    await tap(h.bot, `eq:${m.id}`);
+    await say(h.bot, '-');
+    expect(h.store.monitors.get(m.id)!.filters.requiredKeywords).toEqual([]);
+  });
+
+  it('eb blocks a seller name or a phone, classifying by digit count', async () => {
+    const m = mkMonitor(h.store, 'search');
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `eb:${m.id}`);
+    await say(h.bot, 'Premium Cars SRL');
+    expect(h.store.monitors.get(m.id)!.filters.blockedSellers).toEqual(['premium cars srl']);
+
+    await tap(h.bot, `eb:${m.id}`);
+    await say(h.bot, '+40 712 345 678');
+    expect(h.store.monitors.get(m.id)!.filters.blockedPhones).toEqual(['+40 712 345 678']);
+
+    await tap(h.bot, `eb:${m.id}`);
+    await say(h.bot, '-');
+    expect(h.store.monitors.get(m.id)!.filters.blockedSellers).toEqual([]);
+    expect(h.store.monitors.get(m.id)!.filters.blockedPhones).toEqual([]);
+  });
 });

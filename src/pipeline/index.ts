@@ -13,7 +13,8 @@
  */
 import type { EnrichedItem, FilterConfig, IScrapedItem, IVendorPlugin } from '../contracts';
 import { normalizeItems } from './normalize';
-import { applyExclusion } from './exclusionKeywords';
+import { applyExclusion, applyRequired } from './exclusionKeywords';
+import { applyBlocklist } from './sellerBlocklist';
 import { applySellerFilter } from './sellerTypeFilter';
 import { newItems } from './delta';
 import { collapseDuplicates, DedupBuffer, type CrossPost } from './dedup';
@@ -60,8 +61,18 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
   // 2. Drop titles matching the exclusion blocklist.
   const afterExclusion = applyExclusion(normalized, filters.exclusionKeywords);
 
+  // 2a. Keep only titles matching the required-keyword whitelist (if any).
+  const afterRequired = applyRequired(afterExclusion, filters.requiredKeywords ?? []);
+
+  // 2b. Drop listings from blocked sellers (by name or phone).
+  const afterBlock = applyBlocklist(
+    afterRequired,
+    filters.blockedSellers ?? [],
+    filters.blockedPhones ?? [],
+  );
+
   // 3. Apply the seller-type visibility preference -> the active set.
-  const active = applySellerFilter(afterExclusion, filters.sellerVisibility);
+  const active = applySellerFilter(afterBlock, filters.sellerVisibility);
 
   // 4. Isolate the genuinely new listings.
   const news = newItems(active, historicalIds);
@@ -95,7 +106,9 @@ export {
   parseExclusionInput,
   buildExclusionRegex,
   applyExclusion,
+  applyRequired,
 } from './exclusionKeywords';
+export { applyBlocklist, phoneKey } from './sellerBlocklist';
 export { applySellerFilter } from './sellerTypeFilter';
 export { computeDelta, newItems } from './delta';
 export {

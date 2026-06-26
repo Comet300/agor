@@ -241,7 +241,10 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
   // Filters that only make sense for a multi-result search.
   if (isSearch) {
     kb.text(t.btn_exclusion, `ex:${id}`)
+      .text(t.btn_required, `eq:${id}`)
+      .row()
       .text(mark(monitor.filters.dealsOnly === true, t.btn_deals_only), `eo:${id}`)
+      .text(t.btn_block, `eb:${id}`)
       .row();
   }
   // Rename + pause/resume on their own row, then remove + done.

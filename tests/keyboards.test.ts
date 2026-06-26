@@ -157,6 +157,8 @@ describe('editKeyboard', () => {
     expect(d).toContain('efq:4:10');       // frequency presets
     expect(d).toContain('efq:4:30');
     expect(d).toContain('ex:4');           // exclusion (reuses registration callback)
+    expect(d).toContain('eq:4');           // required keywords
+    expect(d).toContain('eb:4');           // block seller
     expect(d).toContain('eo:4');           // deals-only toggle
     expect(d).toContain('er:4');           // rename
     expect(d).toContain('ep:4');           // pause/resume
@@ -174,6 +176,8 @@ describe('editKeyboard', () => {
     expect(d).toContain('ed');
     expect(d.some((x) => x.startsWith('esv:'))).toBe(false); // seller filter N/A to one listing
     expect(d.some((x) => x.startsWith('ex:'))).toBe(false);  // exclusions N/A
+    expect(d.some((x) => x.startsWith('eq:'))).toBe(false);  // required keywords N/A
+    expect(d.some((x) => x.startsWith('eb:'))).toBe(false);  // block seller N/A
     expect(d.some((x) => x.startsWith('eo:'))).toBe(false);  // deals-only N/A
     expect(d.some((x) => x.startsWith('go:'))).toBe(false);
   });
