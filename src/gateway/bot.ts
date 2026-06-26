@@ -93,7 +93,7 @@ const browseSessions = new ExpiringMap<number, ItemSnapshot[]>(PENDING_TTL_MS);
 const pendingExclusion = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
 /**
- * Chats mid-way through the /request-access flow, keyed by chat id. `step` says
+ * Chats mid-way through the /request_access flow, keyed by chat id. `step` says
  * which field the next plain-text reply fills; `name` holds the captured name
  * once we advance to asking for the email. Entries expire so an abandoned flow
  * cannot leak.
@@ -228,8 +228,8 @@ export interface BotAccessOptions {
  * `bot.start()` (long polling) — see `src/index.ts`.
  *
  * Access control: the bot is deny-by-default — only allowed chats (and admins)
- * may use it; everyone else is limited to `/start` and `/request-access`. The
- * first chat to complete `/request-access` (when no admin exists yet) is
+ * may use it; everyone else is limited to `/start` and `/request_access`. The
+ * first chat to complete `/request_access` (when no admin exists yet) is
  * auto-approved as the admin, so no env setup is required; `adminChatIds` can
  * still seed known admins on boot.
  */
@@ -252,7 +252,7 @@ export function buildBot(
 
   // Seed bootstrap admins from config (always allowed, can grant/revoke).
   // Idempotent — also a no-op when ADMIN_CHAT_IDS is unset, in which case the
-  // first /request-access claims admin (see the request flow below).
+  // first /request_access claims admin (see the request flow below).
   for (const id of adminChatIds) store.access.seedAdmin(id);
 
   /** True when `chatId` may use the bot fully (deny-by-default). Resolves both
@@ -280,7 +280,7 @@ export function buildBot(
 
   // ── Access gate ─────────────────────────────────────────────────────────────
   // Runs BEFORE every handler. A chat without access may only reach /start and
-  // /request-access (and, mid-flow, its own name/email replies); everything else
+  // /request_access (and, mid-flow, its own name/email replies); everything else
   // is refused. Fail-safe: a lookup error denies (logged), never lets through.
   bot.use(async (ctx, next) => {
     const chatId = ctx.chat?.id;
@@ -297,9 +297,9 @@ export function buildBot(
     const lang = langFor(store, chatId);
     const text = ctx.message?.text ?? '';
     const isStart = text.startsWith('/start');
-    const isRequest = text.startsWith('/request-access');
+    const isRequest = text.startsWith('/request_access');
     const midFlow = pendingAccess.has(chatId);
-    // Let the request-access entry points and an in-flight name/email reply through.
+    // Let the request_access entry points and an in-flight name/email reply through.
     if (isStart || isRequest || (midFlow && !text.startsWith('/'))) return next();
 
     // Refuse everything else. Answer callback queries so the spinner clears.
@@ -500,8 +500,8 @@ export function buildBot(
 
   // ── Access control ──────────────────────────────────────────────────────────
 
-  // /request-access — start the name → email capture flow (non-allowed users).
-  bot.command('request-access', async (ctx) => {
+  // /request_access — start the name → email capture flow (non-allowed users).
+  bot.command('request_access', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     try {
@@ -993,7 +993,7 @@ export function buildBot(
     const text = ctx.message.text;
 
     try {
-      // 0. Are we mid-way through the /request-access name/email capture?
+      // 0. Are we mid-way through the /request_access name/email capture?
       const flow = pendingAccess.get(chatId);
       if (flow !== undefined) {
         if (flow.step === 'name') {
