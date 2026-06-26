@@ -39,14 +39,30 @@ export interface Catalog {
     exclusions: string;
     /** True for a watch created by tapping Track on a browsed item. */
     tracked: boolean;
+    /** Optional user-given label, shown in place of the vendor·query when set. */
+    label?: string;
+    /** True when the watch is paused (scheduler skips it). */
+    paused: boolean;
+    /** True when a search watch only alerts on at-or-below-median listings. */
+    dealsOnly: boolean;
   }) => string;
   remove_usage: string;
   remove_done: (id: number) => string;
   remove_not_found: string;
   edit_usage: string;
   edit_not_found: string;
+  rename_prompt: string;
+  rename_done: (label: string) => string;
+  rename_cleared: string;
   /** Header of the /edit tuning card for an existing watch. */
-  edit_card: (p: { id: number; vendor: string; type: string; minutes: number }) => string;
+  edit_card: (p: {
+    id: number;
+    vendor: string;
+    type: string;
+    minutes: number;
+    label?: string;
+    paused: boolean;
+  }) => string;
   lang_current: (langName: string) => string;
   lang_set: (langName: string) => string;
   lang_usage: string;
@@ -91,6 +107,10 @@ export interface Catalog {
   btn_start: string;
   btn_done: string;
   btn_remove: string;
+  btn_deals_only: string;
+  btn_rename: string;
+  btn_pause: string;
+  btn_resume: string;
   btn_open: string;
   btn_call: string;
   btn_price_history: string;
@@ -125,6 +145,10 @@ export interface Catalog {
   cb_removed: string;
   cb_freq_set: (minutes: number) => string;
   cb_edit_done: string;
+  cb_paused: string;
+  cb_resumed: string;
+  cb_deals_on: string;
+  cb_deals_off: string;
   exclusion_prompt: string;
   exclusion_set: (keywords: string) => string;
   exclusion_cleared: string;
@@ -219,11 +243,12 @@ const ro: Catalog = {
   track_error: 'Nu am putut înregistra urmărirea. Te rog încearcă din nou.',
   list_empty: 'Nicio urmărire încă. Trimite un link de anunț ca să creezi una.',
   list_intro: 'Urmăririle tale:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked }) =>
-    `#${id} · ${tracked ? '📌 ' : ''}${vendor} · ${type}` +
-    // Seller filter & exclusions only apply to search watches; a product watch
-    // tracks one listing, so they'd be meaningless noise.
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly }) =>
+    `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `„${label}” (${vendor})` : vendor} · ${type}` +
+    // Seller filter, deals-only & exclusions only apply to search watches; a
+    // product watch tracks one listing, so they'd be meaningless noise.
     (type === 'search' ? ` · vânzător=${seller}` : '') +
+    (type === 'search' && dealsOnly ? ' · doar oferte' : '') +
     (type === 'search' && exclusions ? ` · excluse: ${exclusions}` : '') +
     `\n${url}`,
   remove_usage: 'Folosire: /remove <id>',
@@ -231,8 +256,12 @@ const ro: Catalog = {
   remove_not_found: 'Urmărirea nu există sau nu îți aparține.',
   edit_usage: 'Folosire: /edit <id>',
   edit_not_found: 'Urmărirea nu există sau nu îți aparține.',
-  edit_card: ({ id, vendor, type, minutes }) =>
-    `✏️ Editezi urmărirea #${id} · ${vendor} · ${type}\nVerificare la fiecare ${minutes} min. Ajustează mai jos:`,
+  rename_prompt: 'Trimite o denumire pentru această urmărire (sau „-” ca să o ștergi).',
+  rename_done: (label) => `Denumire setată: „${label}”.`,
+  rename_cleared: 'Denumirea a fost ștearsă.',
+  edit_card: ({ id, vendor, type, minutes, label, paused }) =>
+    `✏️ Editezi urmărirea #${id} · ${label ? `„${label}” (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ pe pauză' : ''}\n` +
+    `Verificare la fiecare ${minutes} min. Ajustează mai jos:`,
   lang_current: (n) => `Limba curentă: ${n}. Schimbă cu /lang ro|en.`,
   lang_set: (n) => `Limba a fost setată: ${n}.`,
   lang_usage: 'Folosire: /lang ro|en',
@@ -273,6 +302,10 @@ const ro: Catalog = {
   btn_start: '▶️ Pornește',
   btn_done: '✅ Gata',
   btn_remove: '🗑 Șterge',
+  btn_deals_only: '🔥 Doar oferte',
+  btn_rename: '✏️ Redenumește',
+  btn_pause: '⏸ Pauză',
+  btn_resume: '▶️ Reia',
   btn_open: '🔗 Deschide',
   btn_call: '📞 Sună',
   btn_price_history: '📊 Istoric preț',
@@ -302,6 +335,10 @@ const ro: Catalog = {
   cb_removed: 'Urmărire ștearsă.',
   cb_freq_set: (m) => `Frecvență: ${m} min`,
   cb_edit_done: 'Modificări salvate.',
+  cb_paused: 'Urmărire pusă pe pauză.',
+  cb_resumed: 'Urmărire reluată.',
+  cb_deals_on: 'Doar oferte bune: pornit.',
+  cb_deals_off: 'Doar oferte bune: oprit.',
   exclusion_prompt: 'Trimite cuvintele de exclus, separate prin virgulă (ex.: lovit, piese, dube).',
   exclusion_set: (kw) => `Exclud: ${kw}`,
   exclusion_cleared: 'Toate cuvintele excluse au fost șterse.',
@@ -398,11 +435,12 @@ const en: Catalog = {
   track_error: 'Sorry — I could not register that watch. Please try again.',
   list_empty: 'No watches yet. Send a listing link to create one.',
   list_intro: 'Your watches:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked }) =>
-    `#${id} · ${tracked ? '📌 ' : ''}${vendor} · ${type}` +
-    // Seller filter & exclusions only apply to search watches; a product watch
-    // tracks one listing, so they'd be meaningless noise.
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly }) =>
+    `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `“${label}” (${vendor})` : vendor} · ${type}` +
+    // Seller filter, deals-only & exclusions only apply to search watches; a
+    // product watch tracks one listing, so they'd be meaningless noise.
     (type === 'search' ? ` · seller=${seller}` : '') +
+    (type === 'search' && dealsOnly ? ' · deals only' : '') +
     (type === 'search' && exclusions ? ` · excluded: ${exclusions}` : '') +
     `\n${url}`,
   remove_usage: 'Usage: /remove <id>',
@@ -410,8 +448,12 @@ const en: Catalog = {
   remove_not_found: 'That watch does not exist or is not yours.',
   edit_usage: 'Usage: /edit <id>',
   edit_not_found: 'That watch does not exist or is not yours.',
-  edit_card: ({ id, vendor, type, minutes }) =>
-    `✏️ Editing watch #${id} · ${vendor} · ${type}\nChecks every ${minutes} min. Adjust below:`,
+  rename_prompt: 'Send a name for this watch (or “-” to clear it).',
+  rename_done: (label) => `Label set: “${label}”.`,
+  rename_cleared: 'Label cleared.',
+  edit_card: ({ id, vendor, type, minutes, label, paused }) =>
+    `✏️ Editing watch #${id} · ${label ? `“${label}” (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ paused' : ''}\n` +
+    `Checks every ${minutes} min. Adjust below:`,
   lang_current: (n) => `Current language: ${n}. Change with /lang ro|en.`,
   lang_set: (n) => `Language set to ${n}.`,
   lang_usage: 'Usage: /lang ro|en',
@@ -452,6 +494,10 @@ const en: Catalog = {
   btn_start: '▶️ Start',
   btn_done: '✅ Done',
   btn_remove: '🗑 Remove',
+  btn_deals_only: '🔥 Deals only',
+  btn_rename: '✏️ Rename',
+  btn_pause: '⏸ Pause',
+  btn_resume: '▶️ Resume',
   btn_open: '🔗 Open',
   btn_call: '📞 Call',
   btn_price_history: '📊 Price history',
@@ -481,6 +527,10 @@ const en: Catalog = {
   cb_removed: 'Watch removed.',
   cb_freq_set: (m) => `Frequency: ${m} min`,
   cb_edit_done: 'Changes saved.',
+  cb_paused: 'Watch paused.',
+  cb_resumed: 'Watch resumed.',
+  cb_deals_on: 'Deals only: on.',
+  cb_deals_off: 'Deals only: off.',
   exclusion_prompt: 'Send a comma-separated list of keywords to exclude (e.g. damaged, parts, salvage).',
   exclusion_set: (kw) => `Excluding: ${kw}`,
   exclusion_cleared: 'Cleared all exclusion keywords.',

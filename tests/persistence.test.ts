@@ -86,6 +86,32 @@ describe("MonitorRepo", () => {
     expect(due.map((m) => m.id)).toEqual([b.id, a.id]); // ascending next_due_at
   });
 
+  it("listDue skips paused watches", () => {
+    const store = freshStore();
+    const a = store.monitors.create(newMonitorInput({ nextDueAt: 100 }));
+    const b = store.monitors.create(newMonitorInput({ nextDueAt: 200 }));
+    expect(a.paused).toBe(false); // default off
+
+    store.monitors.setPaused(a.id, true);
+    expect(store.monitors.listDue(1_000).map((m) => m.id)).toEqual([b.id]); // a hidden
+    expect(store.monitors.get(a.id)!.paused).toBe(true);
+
+    store.monitors.setPaused(a.id, false);
+    expect(store.monitors.listDue(1_000).map((m) => m.id)).toEqual([a.id, b.id]); // back
+  });
+
+  it("setLabel sets and clears a watch label", () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    expect(m.label).toBeUndefined();
+
+    store.monitors.setLabel(m.id, "Corolla < 15k");
+    expect(store.monitors.get(m.id)!.label).toBe("Corolla < 15k");
+
+    store.monitors.setLabel(m.id, ""); // clear
+    expect(store.monitors.get(m.id)!.label).toBeUndefined();
+  });
+
   it("update persists mutable fields including filters and fast_tier", () => {
     const store = freshStore();
     const m = store.monitors.create(newMonitorInput());

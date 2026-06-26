@@ -101,6 +101,13 @@ const pendingExclusion = new ExpiringMap<number, number>(PENDING_TTL_MS);
 const pendingJump = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
 /**
+ * Chats awaiting a watch "rename" reply, keyed by chat id → monitor id. The next
+ * plain text from that chat is consumed as the new label ("-" clears it) rather
+ * than treated as a URL. Entries expire so an abandoned prompt cannot leak.
+ */
+const pendingRename = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
+/**
  * Chats mid-way through the /request_access flow, keyed by chat id. `step` says
  * which field the next plain-text reply fills; `name` holds the captured name
  * once we advance to asking for the email. Entries expire so an abandoned flow
@@ -373,6 +380,9 @@ export function buildBot(
           url: m.url,
           exclusions: m.filters.exclusionKeywords.join(', '),
           tracked: m.origin === 'tracked',
+          paused: m.paused,
+          dealsOnly: m.filters.dealsOnly === true,
+          ...(m.label ? { label: m.label } : {}),
         }),
       );
       await replyChunked((t) => ctx.reply(t), `${tr(lang).list_intro}\n\n${lines.join('\n\n')}`);
@@ -430,7 +440,7 @@ export function buildBot(
     for (const m of store.monitors.listByChat(chatId)) {
       const count = counts.get(m.id) ?? 0;
       if (count === 0) continue; // a watch with nothing browsable isn't worth a button
-      scopes.push({ target: m.id, label: browseScopeLabel(m.vendor, m.url), count });
+      scopes.push({ target: m.id, label: m.label ?? browseScopeLabel(m.vendor, m.url), count });
     }
     return { total, scopes };
   };
@@ -914,6 +924,66 @@ export function buildBot(
     }
   });
 
+  // Edit-card deals-only toggle: eo:<monitorId> (search watches).
+  bot.callbackQuery(/^eo:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      const next = !(monitor.filters.dealsOnly === true);
+      monitor.filters.dealsOnly = next;
+      store.monitors.update(monitor);
+      await ctx.answerCallbackQuery(next ? tr(lang).cb_deals_on : tr(lang).cb_deals_off);
+      await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) });
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
+  // Edit-card pause/resume toggle: ep:<monitorId>. Resuming re-arms the next poll
+  // for now so it does not wait out the old interval.
+  bot.callbackQuery(/^ep:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      const nowPaused = !monitor.paused;
+      store.monitors.setPaused(monitorId, nowPaused);
+      if (!nowPaused) store.monitors.setSchedule(monitorId, Date.now(), monitor.fastTier);
+      monitor.paused = nowPaused;
+      await ctx.answerCallbackQuery(nowPaused ? tr(lang).cb_paused : tr(lang).cb_resumed);
+      await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) });
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
+  // Edit-card rename: er:<monitorId> → prompt + remember the pending state.
+  bot.callbackQuery(/^er:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      pendingRename.set(ctx.chat?.id ?? monitor.chatId, monitorId);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(tr(lang).rename_prompt);
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
   // Edit done: ed — acknowledge and collapse the editor (clear its keyboard).
   bot.callbackQuery(/^ed$/, async (ctx) => {
     const lang = langFor(store, ctx.chat?.id ?? 0);
@@ -1262,6 +1332,22 @@ export function buildBot(
         }
         pendingJump.delete(chatId);
         await sendBrowseItem(ctx, chatId, n - 1); // 1-based input → 0-based index
+        return;
+      }
+
+      // 1c. Are we waiting for a watch rename?
+      const renameMonitorId = pendingRename.get(chatId);
+      if (renameMonitorId !== undefined) {
+        pendingRename.delete(chatId);
+        const monitor = store.monitors.get(renameMonitorId);
+        if (!monitor || monitor.chatId !== chatId) {
+          await ctx.reply(tr(lang).cb_watch_gone);
+          return;
+        }
+        const raw = text.trim();
+        const label = raw === '-' ? '' : raw.slice(0, 40); // cap to keep /list tidy
+        store.monitors.setLabel(renameMonitorId, label);
+        await ctx.reply(label ? tr(lang).rename_done(label) : tr(lang).rename_cleared);
         return;
       }
 

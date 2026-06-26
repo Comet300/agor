@@ -73,6 +73,14 @@ function tap(bot: Bot, data: string): Promise<void> {
   } as unknown as Parameters<Bot['handleUpdate']>[0]);
 }
 
+function say(bot: Bot, text: string): Promise<void> {
+  return bot.handleUpdate({
+    update_id: updateId++,
+    message: { message_id: updateId, date: 1, chat: { id: USER, type: 'private' as const },
+      from: { id: USER, is_bot: false, first_name: 'T' }, text },
+  } as unknown as Parameters<Bot['handleUpdate']>[0]);
+}
+
 function mkMonitor(store: Store, type: 'search' | 'product') {
   return store.monitors.create({
     type, chatId: USER, vendor: 'OLX', url: `https://www.olx.ro/${type}/q-golf/`,
@@ -127,5 +135,38 @@ describe('/edit', () => {
     expect(h.sent.at(-1)!.text).toMatch(/usage: \/edit/i);
     await cmd(h.bot, '/edit 999999');
     expect(h.sent.at(-1)!.text).toMatch(/does not exist or is not yours/i);
+  });
+
+  it('ep pauses and resumes the watch (scheduler skips while paused)', async () => {
+    const m = mkMonitor(h.store, 'search');
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `ep:${m.id}`);
+    expect(h.store.monitors.get(m.id)!.paused).toBe(true);
+    expect(h.store.monitors.listDue(Number.MAX_SAFE_INTEGER).some((x) => x.id === m.id)).toBe(false);
+    await tap(h.bot, `ep:${m.id}`);
+    expect(h.store.monitors.get(m.id)!.paused).toBe(false);
+    expect(h.store.monitors.listDue(Number.MAX_SAFE_INTEGER).some((x) => x.id === m.id)).toBe(true);
+  });
+
+  it('eo toggles deals-only on a search watch', async () => {
+    const m = mkMonitor(h.store, 'search');
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `eo:${m.id}`);
+    expect(h.store.monitors.get(m.id)!.filters.dealsOnly).toBe(true);
+    await tap(h.bot, `eo:${m.id}`);
+    expect(h.store.monitors.get(m.id)!.filters.dealsOnly).toBe(false);
+  });
+
+  it('er renames the watch from the next text reply ("-" clears)', async () => {
+    const m = mkMonitor(h.store, 'search');
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `er:${m.id}`);
+    await say(h.bot, 'Corolla < 15k');
+    expect(h.store.monitors.get(m.id)!.label).toBe('Corolla < 15k');
+    expect(h.sent.at(-1)!.text).toMatch(/Corolla < 15k/);
+
+    await tap(h.bot, `er:${m.id}`);
+    await say(h.bot, '-');
+    expect(h.store.monitors.get(m.id)!.label).toBeUndefined();
   });
 });

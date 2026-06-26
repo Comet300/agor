@@ -157,11 +157,16 @@ export function migrate(db: DB): void {
 
   // Idempotent column additions for databases created before these columns existed.
   const monitorCols = db.prepare('PRAGMA table_info(monitors)').all() as Array<{ name: string }>;
-  if (!monitorCols.some((c) => c.name === 'consecutive_failures')) {
-    db.exec('ALTER TABLE monitors ADD COLUMN consecutive_failures INTEGER DEFAULT 0');
-  }
-  if (!monitorCols.some((c) => c.name === 'origin')) {
-    db.exec("ALTER TABLE monitors ADD COLUMN origin TEXT DEFAULT 'user'");
+  const monitorAlters: Array<[string, string]> = [
+    ['consecutive_failures', 'INTEGER DEFAULT 0'],
+    ['origin',               "TEXT DEFAULT 'user'"],
+    ['paused',               'INTEGER DEFAULT 0'],
+    ['label',                'TEXT'],
+  ];
+  for (const [col, type] of monitorAlters) {
+    if (!monitorCols.some((c) => c.name === col)) {
+      db.exec(`ALTER TABLE monitors ADD COLUMN ${col} ${type}`);
+    }
   }
 
   const itemCols = db.prepare('PRAGMA table_info(items)').all() as Array<{ name: string }>;
