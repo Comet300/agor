@@ -1,7 +1,7 @@
 /**
  * Gateway access-control integration: drive real Telegram updates through the
  * built bot (with a faked bot.api) and assert the authz gate, admin commands,
- * and the /request-access name/email flow behave correctly.
+ * and the /request_access name/email flow behave correctly.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { buildBot } from '../src/gateway/bot';
@@ -103,14 +103,14 @@ describe('boot seeding of configured admins', () => {
 });
 
 describe('access gate (bootstrap: first requester becomes admin)', () => {
-  it('locks the bot before any admin exists; first /request-access claims admin', async () => {
+  it('locks the bot before any admin exists; first /request_access claims admin', async () => {
     const h = harness([]); // no env admins; empty access table => locked
     // A normal command is refused before bootstrap.
     await feed(h.bot, USER, '/help');
     expect(h.sent.filter((s) => s.chatId === USER).pop()?.text).toBe(tr('ro').access_denied);
 
-    // First /request-access → name → email → auto-approved AS ADMIN.
-    await feed(h.bot, USER, '/request-access');
+    // First /request_access → name → email → auto-approved AS ADMIN.
+    await feed(h.bot, USER, '/request_access');
     await feed(h.bot, USER, 'Owner Person');
     await feed(h.bot, USER, 'owner@example.com');
     expect(h.sent.filter((s) => s.chatId === USER).pop()?.text).toBe(tr('ro').access_first_admin);
@@ -127,14 +127,14 @@ describe('access gate (bootstrap: first requester becomes admin)', () => {
   it('a SECOND requester (after an admin exists) becomes pending, not admin', async () => {
     const h = harness([]);
     // First claims admin.
-    await feed(h.bot, USER, '/request-access');
+    await feed(h.bot, USER, '/request_access');
     await feed(h.bot, USER, 'Owner');
     await feed(h.bot, USER, 'owner@example.com');
     expect(h.store.access.isAdmin(USER)).toBe(true);
 
     // Second requester: normal pending flow, admin notified.
     const SECOND = 222;
-    await feed(h.bot, SECOND, '/request-access');
+    await feed(h.bot, SECOND, '/request_access');
     await feed(h.bot, SECOND, 'Second Person');
     await feed(h.bot, SECOND, 'second@example.com');
     expect(h.sent.filter((s) => s.chatId === SECOND).pop()?.text).toBe(tr('ro').access_request_sent);
@@ -149,7 +149,7 @@ describe('access gate (enforced with an admin configured)', () => {
   let h: ReturnType<typeof harness>;
   beforeEach(() => { h = harness([ADMIN]); });
 
-  it('refuses a non-allowed chat and points it at /request-access', async () => {
+  it('refuses a non-allowed chat and points it at /request_access', async () => {
     await feed(h.bot, USER, '/help');
     const last = h.sent.filter((s) => s.chatId === USER).pop();
     expect(last?.text).toBe(tr('ro').access_denied);
@@ -162,8 +162,8 @@ describe('access gate (enforced with an admin configured)', () => {
     expect(h.sent.some((s) => s.chatId === ADMIN && s.text === tr('ro').help_body)).toBe(true);
   });
 
-  it('runs the /request-access name→email flow, records pending, notifies admin with buttons', async () => {
-    await feed(h.bot, USER, '/request-access');
+  it('runs the /request_access name→email flow, records pending, notifies admin with buttons', async () => {
+    await feed(h.bot, USER, '/request_access');
     expect(h.sent.filter((s) => s.chatId === USER).pop()?.text).toContain(tr('ro').access_ask_name);
 
     await feed(h.bot, USER, 'Ana Pop');
@@ -186,7 +186,7 @@ describe('access gate (enforced with an admin configured)', () => {
 
   it('/allow grants access and notifies the requester; they can then use the bot', async () => {
     // User requests first.
-    await feed(h.bot, USER, '/request-access');
+    await feed(h.bot, USER, '/request_access');
     await feed(h.bot, USER, 'Ana');
     await feed(h.bot, USER, 'ana@example.com');
 
@@ -222,13 +222,13 @@ describe('access gate (enforced with an admin configured)', () => {
     expect(h.sent.some((s) => s.chatId === USER && s.text === tr('ro').access_denied_user)).toBe(true);
   });
 
-  it('a denied user is refused /request-access UP-FRONT (not after filling name/email)', async () => {
+  it('a denied user is refused /request_access UP-FRONT (not after filling name/email)', async () => {
     // Deny "just now" (with confirmation) so the 7-day cooldown is active.
     h.store.access.allow(USER, { by: ADMIN, at: 1 });
     await feed(h.bot, ADMIN, `/deny ${USER}`);
     await tap(h.bot, ADMIN, `cf:dn:${USER}`);
     const before = h.sent.length;
-    await feed(h.bot, USER, '/request-access');
+    await feed(h.bot, USER, '/request_access');
     // The very next reply is the cooldown notice — NOT the name prompt.
     const reply = h.sent.slice(before).find((s) => s.chatId === USER);
     expect(reply?.text).toContain('7'); // "...request again in 7 days"
