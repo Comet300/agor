@@ -14,7 +14,7 @@ import type { AddressInfo } from 'node:net';
 import type { IVendorPlugin } from '../src/contracts/index';
 import { ProxyPool } from '../src/scraping/proxyPool';
 import { browserHeaders } from '../src/scraping/headers';
-import { extractPayload } from '../src/scraping/extract';
+import { extractPayload, extractCandidates, ExtractionError } from '../src/scraping/extract';
 import { classifyResponse } from '../src/scraping/blockDetection';
 import { ScrapingEngine, type Fetcher } from '../src/scraping/engine';
 
@@ -106,6 +106,22 @@ describe('extractPayload', () => {
 
   it('throws when the locator is missing from the body', () => {
     expect(() => extractPayload(fixtureBody, 'script#__MISSING__')).toThrow();
+  });
+
+  it('tags failures with a distinct machine-readable reason', () => {
+    const reasonOf = (fn: () => unknown): string => {
+      try { fn(); } catch (e) { return (e as ExtractionError).reason; }
+      throw new Error('expected a throw');
+    };
+    // missing script / window / flight chunks → payload_missing
+    expect(reasonOf(() => extractPayload(fixtureBody, 'script#__MISSING__'))).toBe('payload_missing');
+    expect(reasonOf(() => extractPayload('<html></html>', 'window.__NOPE__'))).toBe('payload_missing');
+    // a string global that doesn't decode to JSON → json_malformed
+    expect(reasonOf(() => extractPayload('<script>window.__X__ = "ro";</script>', 'window.__X__'))).toBe('json_malformed');
+    // an unknown locator dialect → unsupported_locator
+    expect(reasonOf(() => extractPayload('<html></html>', 'weird:thing'))).toBe('unsupported_locator');
+    // no ld+json block present → no_ldjson_block
+    expect(reasonOf(() => extractCandidates('<html></html>', 'ldjson'))).toBe('no_ldjson_block');
   });
 
   it('parses a window.<NAME> object-literal assignment', () => {

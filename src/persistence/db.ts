@@ -29,7 +29,23 @@ export function openDb(path: string): DB {
   // the schema, deleting a monitor removes its items + price history atomically.
   db.pragma('foreign_keys = ON');
   migrate(db);
+  if (path !== ':memory:') {
+    // One-time, on-boot planner-stat refresh for this session. Cheap, synchronous,
+    // not in any hot path. (No-op for in-memory test DBs.)
+    db.pragma('optimize');
+  }
   return db;
+}
+
+/**
+ * Periodic DB housekeeping for a long-running, churn-heavy deployment (e.g. a
+ * Pi). Checkpoints the WAL back into the main file (TRUNCATE resets the WAL so
+ * it cannot grow without bound) and refreshes planner stats. Best-effort: the
+ * caller swallows failures so it never crashes a polling cycle.
+ */
+export function maintainDb(db: DB): void {
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  db.pragma('optimize');
 }
 
 /**
@@ -98,6 +114,15 @@ export function migrate(db: DB): void {
       PRIMARY KEY (chat_id, signature)
     );
 
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      action         TEXT NOT NULL,
+      target_chat_id INTEGER NOT NULL,
+      actor_chat_id  INTEGER NOT NULL,
+      at             INTEGER NOT NULL,
+      note           TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_monitors_next_due_at
       ON monitors (next_due_at);
 
@@ -106,6 +131,9 @@ export function migrate(db: DB): void {
 
     CREATE INDEX IF NOT EXISTS idx_items_monitor_id
       ON items (monitor_id);
+
+    CREATE INDEX IF NOT EXISTS idx_audit_log_at
+      ON audit_log (at DESC);
   `);
 
   // Idempotent column add for databases created before this column existed

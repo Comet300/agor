@@ -40,6 +40,14 @@ export interface SchedulerDeps {
    * by default (networks can be slow); `0`/absent disables the timeout.
    */
   runTimeoutMs?: number;
+  /**
+   * Optional periodic housekeeping (e.g. DB wal_checkpoint), run every
+   * {@link maintenanceIntervalTicks} ticks before that tick's monitors. Awaited,
+   * so a slow maintenance delays the tick but never overlaps it.
+   */
+  onMaintenance?: () => Promise<void>;
+  /** Ticks between `onMaintenance` runs (default 360). Ignored without the hook. */
+  maintenanceIntervalTicks?: number;
 }
 
 /**
@@ -77,10 +85,26 @@ export class Scheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
   /** Re-entrancy guard so a long tick is never overlapped by the next interval. */
   private ticking = false;
+  /** Tick counter driving the periodic-maintenance cadence. */
+  private tickCount = 0;
+  /** Epoch ms of the last completed tick (null until the first), for /health. */
+  private lastTickAt: number | null = null;
+  /** Due-monitor count from the last tick (diagnostic, for /health). */
+  private lastDueCount = 0;
 
   constructor(deps: SchedulerDeps) {
     this.deps = deps;
     this.now = deps.now ?? (() => Date.now());
+  }
+
+  /** Epoch ms of the last completed scheduler tick, or null if it never fired. */
+  getLastTickAt(): number | null {
+    return this.lastTickAt;
+  }
+
+  /** Number of monitors processed in the last tick (diagnostic). */
+  getLastDueCount(): number {
+    return this.lastDueCount;
   }
 
   /**
@@ -109,8 +133,25 @@ export class Scheduler {
    * Resolves once all due monitors have been processed.
    */
   async tick(now: number): Promise<void> {
+    // Periodic housekeeping runs before the due monitors (and even when none are
+    // due) so DB maintenance keeps happening on an otherwise-idle bot. Awaited,
+    // so it never overlaps the polling work in the same tick.
+    this.tickCount += 1;
+    const everyN = this.deps.maintenanceIntervalTicks ?? 360;
+    if (this.deps.onMaintenance && this.tickCount % everyN === 0) {
+      try {
+        await this.deps.onMaintenance();
+      } catch (err) {
+        log('scheduler').warn({ err: (err as Error).message }, 'db maintenance failed');
+      }
+    }
+
     const due = this.deps.store.monitors.listDue(now);
-    if (due.length === 0) return;
+    this.lastDueCount = due.length;
+    if (due.length === 0) {
+      this.lastTickAt = now;
+      return;
+    }
 
     // Group identical targets so each distinct destination is a batch. We still
     // process every monitor individually (each owns its own chat/filters), but
@@ -132,6 +173,8 @@ export class Scheduler {
         }
       }
     }
+    // Stamp last-tick AFTER all monitors finish, so /health reflects a completed pass.
+    this.lastTickAt = now;
   }
 
   /**

@@ -16,6 +16,7 @@
 import type { AppConfig } from '../config';
 import type { MessageRef, Monitor, Notification } from '../contracts';
 import type { Store } from '../persistence';
+import { maintainDb } from '../persistence';
 import type { PluginRegistry } from '../registry';
 import type { ScrapingEngine } from '../scraping/engine';
 import { CircuitBreaker } from '../scraping/circuitBreaker';
@@ -101,6 +102,8 @@ export class Orchestrator {
       defaultIntervalMs: deps.config.defaultCheckIntervalMs,
       oosFastIntervalMs: deps.config.oosFastIntervalMs,
       runTimeoutMs: deps.config.monitorCycleTimeoutMs,
+      onMaintenance: async () => maintainDb(deps.store.db),
+      maintenanceIntervalTicks: deps.config.dbMaintenanceIntervalTicks,
       now: this.now,
     });
   }

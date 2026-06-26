@@ -147,6 +147,11 @@ export interface Catalog {
   btn_confirm: string;
   btn_cancel: string;
   cb_cancelled: string;
+
+  // ── Audit log ─────────────────────────────────────────────────────────────
+  audit_intro: string;
+  audit_empty: string;
+  audit_item: (p: { action: string; targetId: number; actorId: number; at: string }) => string;
 }
 
 const ro: Catalog = {
@@ -282,6 +287,10 @@ const ro: Catalog = {
   btn_confirm: '✅ Da, confirm',
   btn_cancel: '✖️ Anulează',
   cb_cancelled: 'Anulat.',
+  audit_intro: 'Jurnal de acces (recente):',
+  audit_empty: 'Nicio decizie de acces înregistrată încă.',
+  audit_item: ({ action, targetId, actorId, at }) =>
+    `${at} · ${action} · țintă ${targetId} · de către ${actorId}`,
 };
 
 const en: Catalog = {
@@ -414,6 +423,10 @@ const en: Catalog = {
   btn_confirm: '✅ Yes, confirm',
   btn_cancel: '✖️ Cancel',
   cb_cancelled: 'Cancelled.',
+  audit_intro: 'Access log (recent):',
+  audit_empty: 'No access decisions recorded yet.',
+  audit_item: ({ action, targetId, actorId, at }) =>
+    `${at} · ${action} · target ${targetId} · by ${actorId}`,
 };
 
 /**

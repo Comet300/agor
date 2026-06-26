@@ -58,6 +58,29 @@ describe('logger options', () => {
     expect(rec.token).toBe('[redacted]'); // a secret must never reach the logs
   });
 
+  it('redacts secret keys nested one level deep, and webhookSecret', () => {
+    const cfg = loadConfig({ LOG_SERVICE: 'agor' });
+    const lines: string[] = [];
+    const sink = { write: (s: string) => void lines.push(s) };
+    const logger = pino(buildLoggerOptions(cfg), sink as unknown as pino.DestinationStream);
+    logger.info({ ctx: { botToken: 'abc123def', webhookSecret: 'wh-secret-xyz' } }, 'boot');
+    const rec = JSON.parse(lines[0]!);
+    expect(rec.ctx.botToken).toBe('[redacted]');
+    expect(rec.ctx.webhookSecret).toBe('[redacted]');
+  });
+
+  it('scrubs a secret VALUE that leaks into an error message/stack', () => {
+    const cfg = loadConfig({ BOT_TOKEN: '12345:SECRETBOTTOKEN', LOG_SERVICE: 'agor' });
+    const lines: string[] = [];
+    const sink = { write: (s: string) => void lines.push(s) };
+    const logger = pino(buildLoggerOptions(cfg), sink as unknown as pino.DestinationStream);
+    // A library throwing an error that embeds the token in free text.
+    logger.error({ err: new Error('request to https://api/bot12345:SECRETBOTTOKEN/x failed') }, 'oops');
+    const rec = JSON.parse(lines[0]!);
+    expect(rec.err.message).not.toContain('SECRETBOTTOKEN');
+    expect(rec.err.message).toContain('[redacted]');
+  });
+
   it('respects the configured level (warn suppresses info)', () => {
     const cfg = loadConfig({ LOG_LEVEL: 'warn' });
     const lines: string[] = [];
