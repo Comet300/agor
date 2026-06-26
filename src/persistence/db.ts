@@ -37,6 +37,36 @@ export function openDb(path: string): DB {
   return db;
 }
 
+/** Optional retention pruning during {@link maintainDb}; all fields opt-in. */
+export interface MaintainOptions {
+  /** Injected clock (epoch ms). Required for any age-based pruning below. */
+  now?: number;
+  /** Delete dedup rows older than this many ms (needs `now`). */
+  dedupMaxAgeMs?: number;
+  /** Delete audit_log rows older than this many days (needs `now`). */
+  auditRetentionDays?: number;
+}
+
+/**
+ * Periodic DB housekeeping for a long-running, churn-heavy deployment (e.g. a
+ * Pi). Checkpoints the WAL back into the main file (TRUNCATE resets the WAL so
+ * it cannot grow without bound) and refreshes planner stats. When retention
+ * options are supplied (with a `now`), also prunes append-only tables that would
+ * otherwise grow unbounded — dedup signatures and the audit log. Best-effort:
+ * the caller swallows failures so it never crashes a polling cycle.
+ */
+export function maintainDb(db: DB, opts: MaintainOptions = {}): void {
+  const { now, dedupMaxAgeMs, auditRetentionDays } = opts;
+  if (now !== undefined && dedupMaxAgeMs !== undefined) {
+    db.prepare(`DELETE FROM dedup WHERE first_seen_at < ?`).run(now - dedupMaxAgeMs);
+  }
+  if (now !== undefined && auditRetentionDays !== undefined) {
+    db.prepare(`DELETE FROM audit_log WHERE at < ?`).run(now - auditRetentionDays * 86_400_000);
+  }
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  db.pragma('optimize');
+}
+
 /**
  * Periodic DB housekeeping for a long-running, churn-heavy deployment (e.g. a
  * Pi). Checkpoints the WAL back into the main file (TRUNCATE resets the WAL so

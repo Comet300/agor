@@ -12,9 +12,9 @@
  * whole engine is deterministic under test.
  */
 
-import type { Monitor } from '../contracts';
-import type { Store } from '../persistence';
-import { log } from '../logging/logger';
+import type { Monitor } from "../contracts";
+import type { Store } from "../persistence";
+import { log } from "../logging/logger";
 
 /** Everything the scheduler needs handed to it; nothing is imported globally. */
 export interface SchedulerDeps {
@@ -48,6 +48,12 @@ export interface SchedulerDeps {
   onMaintenance?: () => Promise<void>;
   /** Ticks between `onMaintenance` runs (default 360). Ignored without the hook. */
   maintenanceIntervalTicks?: number;
+  /**
+   * Max monitor cycles run concurrently within a tick (default 5). Bounds the
+   * fan-out so a Pi is not swamped while still keeping a tick's wall time near
+   * the slowest single cycle rather than the sum of all due cycles.
+   */
+  concurrency?: number;
 }
 
 /**
@@ -63,7 +69,9 @@ function destinationKey(monitor: Monitor): string {
  * the exact same target land in the same bucket, preserving input order within
  * each bucket. Exported so the batching behavior can be unit-tested directly.
  */
-export function groupByDestination(monitors: Monitor[]): Map<string, Monitor[]> {
+export function groupByDestination(
+  monitors: Monitor[],
+): Map<string, Monitor[]> {
   const groups = new Map<string, Monitor[]>();
   for (const monitor of monitors) {
     const key = destinationKey(monitor);
@@ -91,10 +99,23 @@ export class Scheduler {
   private lastTickAt: number | null = null;
   /** Due-monitor count from the last tick (diagnostic, for /health). */
   private lastDueCount = 0;
+  /** Max concurrent monitor cycles per tick wave (>= 1). */
+  private readonly concurrency: number;
 
   constructor(deps: SchedulerDeps) {
     this.deps = deps;
     this.now = deps.now ?? (() => Date.now());
+    this.concurrency = Math.max(1, deps.concurrency ?? 5);
+  }
+
+  /** Epoch ms of the last completed scheduler tick, or null if it never fired. */
+  getLastTickAt(): number | null {
+    return this.lastTickAt;
+  }
+
+  /** Number of monitors processed in the last tick (diagnostic). */
+  getLastDueCount(): number {
+    return this.lastDueCount;
   }
 
   /** Epoch ms of the last completed scheduler tick, or null if it never fired. */
@@ -118,7 +139,11 @@ export class Scheduler {
       ? this.deps.oosFastIntervalMs
       : monitor.intervalMs || this.deps.defaultIntervalMs;
     const nextDueAt = now + interval;
-    this.deps.store.monitors.setSchedule(monitor.id, nextDueAt, monitor.fastTier);
+    this.deps.store.monitors.setSchedule(
+      monitor.id,
+      nextDueAt,
+      monitor.fastTier,
+    );
   }
 
   /**
@@ -142,7 +167,10 @@ export class Scheduler {
       try {
         await this.deps.onMaintenance();
       } catch (err) {
-        log('scheduler').warn({ err: (err as Error).message }, 'db maintenance failed');
+        log("scheduler").warn(
+          { err: (err as Error).message },
+          "db maintenance failed",
+        );
       }
     }
 
@@ -157,20 +185,59 @@ export class Scheduler {
     // process every monitor individually (each owns its own chat/filters), but
     // batching keeps the iteration aligned with one-target-one-batch semantics.
     const batches = groupByDestination(due);
-    log('scheduler').debug({ due: due.length, batches: batches.size }, 'tick');
+    log("scheduler").debug({ due: due.length, batches: batches.size }, "tick");
 
-    for (const batch of batches.values()) {
-      for (const monitor of batch) {
-        try {
-          await this.runWithTimeout(monitor);
-        } catch (err) {
-          // Isolate the failure: report it and keep going so siblings still run.
-          log('scheduler').error({ monitorId: monitor.id, err: (err as Error).message }, 'monitor cycle threw');
-          this.deps.onError?.(monitor, err);
-        } finally {
-          // Always re-arm — a failed cycle must not leave the monitor stuck due.
-          this.reschedule(monitor, now);
-        }
+    // Process distinct destinations with bounded concurrency so a tick's wall
+    // time stays near the slowest destination, not the sum of every cycle —
+    // otherwise N due monitors serialize past the tick interval and the
+    // re-entrancy guard starts dropping ticks, leaving the scheduler unable to
+    // keep pace. Distinct destinations are independent (different targets), so
+    // running them in parallel is safe; the monitors WITHIN a destination batch
+    // run sequentially so the same URL is never hit concurrently.
+    const limit = this.concurrency;
+    const batchList = [...batches.values()];
+    for (let i = 0; i < batchList.length; i += limit) {
+      const wave = batchList.slice(i, i + limit);
+      await Promise.all(wave.map((batch) => this.runBatch(batch, now)));
+    }
+    // Stamp last-tick AFTER all monitors finish, so /health reflects a completed pass.
+    this.lastTickAt = now;
+  }
+
+  /** Run a destination batch's monitors sequentially (same URL, never concurrent). */
+  private async runBatch(batch: Monitor[], now: number): Promise<void> {
+    for (const monitor of batch) {
+      await this.runAndReschedule(monitor, now);
+    }
+  }
+
+  /**
+   * Run one monitor's cycle (timeout-guarded) and always re-arm its schedule.
+   * A cycle failure is routed to `onError`; a reschedule failure (disk full,
+   * lock contention) is caught and logged rather than thrown so it can neither
+   * abort the wave nor leave the loop in a rejected state. A monitor whose
+   * reschedule failed keeps its stale `next_due_at` (visible in the log) and is
+   * simply retried on a later tick.
+   */
+  private async runAndReschedule(monitor: Monitor, now: number): Promise<void> {
+    try {
+      await this.runWithTimeout(monitor);
+    } catch (err) {
+      // Isolate the failure: report it and keep going so siblings still run.
+      log("scheduler").error(
+        { monitorId: monitor.id, err: (err as Error).message },
+        "monitor cycle threw",
+      );
+      this.deps.onError?.(monitor, err);
+    } finally {
+      try {
+        // Always re-arm — a failed cycle must not leave the monitor stuck due.
+        this.reschedule(monitor, now);
+      } catch (err) {
+        log("scheduler").error(
+          { monitorId: monitor.id, err: (err as Error).message },
+          "reschedule failed; monitor next_due_at left stale (will retry next tick)",
+        );
       }
     }
     // Stamp last-tick AFTER all monitors finish, so /health reflects a completed pass.
@@ -193,8 +260,14 @@ export class Scheduler {
         ms,
       );
       this.deps.runMonitor(monitor).then(
-        () => { clearTimeout(timer); resolve(); },
-        (err) => { clearTimeout(timer); reject(err); },
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
       );
     });
   }

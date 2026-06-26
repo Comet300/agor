@@ -122,15 +122,51 @@ async function readCappedText(res: Awaited<ReturnType<typeof request>>): Promise
 }
 
 /**
- * Default {@link Fetcher} built on undici. Routes through a {@link ProxyAgent}
- * dispatcher when `proxyUrl` is supplied (else a plain {@link Agent}), composes
- * the redirect interceptor so 3xx canonicalizations are followed, and surfaces
- * the response headers plus the final (post-redirect) URL for block detection
- * and canonical persistence. The body is read with a size cap so an oversized
- * response cannot exhaust memory.
+ * Persistent undici dispatcher pool, keyed by proxy URL (`'direct'` for no
+ * proxy). An {@link Agent}/{@link ProxyAgent} owns a connection pool with live
+ * sockets; building one per request leaks file descriptors over a long-running
+ * deployment. We build one per distinct route and reuse it, closing them all on
+ * shutdown via {@link closeAgentPool}.
+ */
+const agentPool = new Map<string, Agent | ProxyAgent>();
+
+/**
+ * Return the pooled dispatcher for `proxyUrl` (or the shared direct dispatcher
+ * when absent), constructing it on first use. Exported for lifecycle tests.
+ */
+export function getOrCreateAgent(proxyUrl: string | undefined): Agent | ProxyAgent {
+  const key = proxyUrl ?? 'direct';
+  let agent = agentPool.get(key);
+  if (!agent) {
+    agent = proxyUrl ? new ProxyAgent(proxyUrl) : new Agent();
+    agentPool.set(key, agent);
+  }
+  return agent;
+}
+
+/**
+ * Close every pooled dispatcher and empty the pool — call once on shutdown so
+ * sockets are released cleanly. Best-effort per agent; a close failure is
+ * swallowed so one bad dispatcher cannot block teardown.
+ */
+export async function closeAgentPool(): Promise<void> {
+  const agents = [...agentPool.values()];
+  agentPool.clear();
+  await Promise.all(
+    agents.map((a) => Promise.resolve(a.close()).catch(() => undefined)),
+  );
+}
+
+/**
+ * Default {@link Fetcher} built on undici. Routes through a pooled
+ * {@link ProxyAgent} dispatcher when `proxyUrl` is supplied (else a shared
+ * {@link Agent}), composes the redirect interceptor so 3xx canonicalizations
+ * are followed, and surfaces the response headers plus the final (post-redirect)
+ * URL for block detection and canonical persistence. The body is read with a
+ * size cap so an oversized response cannot exhaust memory.
  */
 export const defaultFetcher: Fetcher = async (url, { headers, proxyUrl }) => {
-  const base = proxyUrl ? new ProxyAgent(proxyUrl) : new Agent();
+  const base = getOrCreateAgent(proxyUrl);
   const dispatcher = base.compose(interceptors.redirect({ maxRedirections: MAX_REDIRECTS }));
   const res = await request(url, { method: 'GET', headers, dispatcher });
   const body = await readCappedText(res);
@@ -175,14 +211,17 @@ export class ScrapingEngine {
 
   /**
    * Throttle per vendor: if the same vendor was hit within its `rate_limit_ms`
-   * window, await `sleep(rate_limit_ms)` before issuing the next request. The
-   * last-hit clock is stamped to `now` so back-to-back calls stay spaced.
+   * window, await only the time REMAINING in that window before issuing the next
+   * request (not the full window — the elapsed gap since the last hit already
+   * counts toward it). The last-hit clock is stamped to `now` so back-to-back
+   * calls stay spaced exactly one window apart.
    */
   private async respectRateLimit(plugin: IVendorPlugin, now: number): Promise<void> {
     if (this.rateLimit) {
       const last = this.lastHit.get(plugin.vendor);
-      if (last !== undefined && now - last < plugin.rate_limit_ms) {
-        await this.sleep(plugin.rate_limit_ms);
+      if (last !== undefined) {
+        const remaining = plugin.rate_limit_ms - (now - last);
+        if (remaining > 0) await this.sleep(remaining);
       }
     }
     this.lastHit.set(plugin.vendor, now);

@@ -29,8 +29,10 @@ search_mapping:
 # node is RSC-referenced (price/seller are lazy refs the extractor can't deref),
 # but the page also ships a clean schema.org Product in ld+json — far more
 # reliable — so the product surface uses the `ldjson` dialect (search stays
-# flight). id is the item slug from the offer url; no seller flag in ld+json so
-# isPrivateOwner defaults (Vinted is P2P).
+# flight). id is the item slug from the offer url. The ld+json carries no seller
+# flag, and an undeclared isPrivateOwner would default to company — so set the
+# literal `=true` to honour Vinted's P2P nature (mirrors search's `!user.business`,
+# which is true for the individual sellers that make up the catalog).
 product_mapping:
   payload_locator: "ldjson"
   json_path: "."
@@ -42,6 +44,7 @@ product_mapping:
     url: "offers.url"
     imageUrl: "image"
     description: "description"
+    isPrivateOwner: "=true"
   # Fashion specs are dedicated ld+json fields (brand/color/category).
   attributes:
     brand: "brand.name"
