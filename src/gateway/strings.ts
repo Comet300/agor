@@ -37,6 +37,8 @@ export interface Catalog {
     url: string;
     /** Comma-joined exclusion keywords; empty string when none. */
     exclusions: string;
+    /** True for a watch created by tapping Track on a browsed item. */
+    tracked: boolean;
   }) => string;
   remove_usage: string;
   remove_done: (id: number) => string;
@@ -77,6 +79,17 @@ export interface Catalog {
   btn_call: string;
   btn_price_history: string;
   btn_freq: (minutes: number) => string;
+  // Browse carousel.
+  btn_prev: string;
+  btn_next: string;
+  btn_track: string;
+  browse_in_stock: string;
+  browse_out_of_stock: string;
+  browse_position: (n: number, total: number) => string;
+  browse_empty: string;
+  browse_track_done: (title: string) => string;
+  browse_track_exists: string;
+  browse_gone: string;
 
   // ── Callback answers / prompts ────────────────────────────────────────────
   cb_seller_set: (visibility: string) => string;
@@ -171,6 +184,7 @@ const ro: Catalog = {
     '• Trimite orice link http(s) de anunț, sau folosește /track <link>, ca să pornești o urmărire.\n' +
     '• După înregistrare, reglează tipul de vânzător, frecvența și cuvintele excluse, apoi apasă „Pornește”.\n' +
     '• /list — arată toate urmăririle din acest chat.\n' +
+    '• /browse — răsfoiește anunțurile colectate; apasă „📌 Urmărește” ca să urmărești un anunț.\n' +
     '• /remove <id> — oprește o urmărire.\n' +
     '• /lang ro|en — schimbă limba.\n' +
     '• Apasă „Istoric preț” pe orice alertă pentru un grafic.',
@@ -178,8 +192,8 @@ const ro: Catalog = {
   track_error: 'Nu am putut înregistra urmărirea. Te rog încearcă din nou.',
   list_empty: 'Nicio urmărire încă. Trimite un link de anunț ca să creezi una.',
   list_intro: 'Urmăririle tale:',
-  list_item: ({ id, vendor, type, seller, url, exclusions }) =>
-    `#${id} · ${vendor} · ${type} · vânzător=${seller}` +
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked }) =>
+    `#${id} · ${tracked ? '📌 ' : ''}${vendor} · ${type} · vânzător=${seller}` +
     (exclusions ? ` · excluse: ${exclusions}` : '') +
     `\n${url}`,
   remove_usage: 'Folosire: /remove <id>',
@@ -219,6 +233,16 @@ const ro: Catalog = {
   btn_call: '📞 Sună',
   btn_price_history: '📊 Istoric preț',
   btn_freq: (m) => `⏱ ${m} min`,
+  btn_prev: '◀️ Înapoi',
+  btn_next: 'Înainte ▶️',
+  btn_track: '📌 Urmărește',
+  browse_in_stock: '🟢 disponibil',
+  browse_out_of_stock: '🔴 indisponibil',
+  browse_position: (n, total) => `articolul ${n} din ${total}`,
+  browse_empty: 'Niciun anunț colectat încă. Adaugă o urmărire cu un link, apoi revino.',
+  browse_track_done: (title) => `📌 Urmăresc acum „${title}". Te anunț la schimbări de preț și la eliminare.`,
+  browse_track_exists: 'Urmărești deja acest anunț.',
+  browse_gone: 'Acest anunț nu mai este disponibil.',
 
   cb_seller_set: (v) => `Filtru vânzător: ${v}`,
   cb_monitoring_started: 'Monitorizare pornită',
@@ -314,6 +338,7 @@ const en: Catalog = {
     '• Send any http(s) listing link, or use /track <url>, to start a watch.\n' +
     '• After registering, tune the seller type, frequency and exclusion keywords, then tap “Start”.\n' +
     '• /list — show every watch in this chat.\n' +
+    '• /browse — browse collected listings; tap “📌 Track” to watch an item.\n' +
     '• /remove <id> — stop a watch.\n' +
     '• /lang ro|en — change language.\n' +
     '• Tap “Price history” on any alert for a chart.',
@@ -321,8 +346,8 @@ const en: Catalog = {
   track_error: 'Sorry — I could not register that watch. Please try again.',
   list_empty: 'No watches yet. Send a listing link to create one.',
   list_intro: 'Your watches:',
-  list_item: ({ id, vendor, type, seller, url, exclusions }) =>
-    `#${id} · ${vendor} · ${type} · seller=${seller}` +
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked }) =>
+    `#${id} · ${tracked ? '📌 ' : ''}${vendor} · ${type} · seller=${seller}` +
     (exclusions ? ` · excluded: ${exclusions}` : '') +
     `\n${url}`,
   remove_usage: 'Usage: /remove <id>',
@@ -362,6 +387,16 @@ const en: Catalog = {
   btn_call: '📞 Call',
   btn_price_history: '📊 Price history',
   btn_freq: (m) => `⏱ ${m} min`,
+  btn_prev: '◀️ Prev',
+  btn_next: 'Next ▶️',
+  btn_track: '📌 Track',
+  browse_in_stock: '🟢 available',
+  browse_out_of_stock: '🔴 unavailable',
+  browse_position: (n, total) => `item ${n} of ${total}`,
+  browse_empty: 'No items collected yet. Add a watch with a link, then come back.',
+  browse_track_done: (title) => `📌 Now tracking "${title}". I'll alert you on price changes and de-listing.`,
+  browse_track_exists: "You're already tracking this item.",
+  browse_gone: 'This item is no longer available.',
 
   cb_seller_set: (v) => `Seller filter: ${v}`,
   cb_monitoring_started: 'Monitoring started',
@@ -457,6 +492,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'start', description: 'Pornește botul' },
     { command: 'track', description: 'Urmărește un link de anunț' },
     { command: 'list', description: 'Arată urmăririle din acest chat' },
+    { command: 'browse', description: 'Răsfoiește anunțurile colectate' },
     { command: 'check', description: 'Verifică o urmărire acum (/check <id>)' },
     { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
     { command: 'lang', description: 'Schimbă limba (/lang ro|en)' },
@@ -467,6 +503,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'start', description: 'Start the bot' },
     { command: 'track', description: 'Watch a listing link' },
     { command: 'list', description: 'Show this chat’s watches' },
+    { command: 'browse', description: 'Browse collected listings' },
     { command: 'check', description: 'Check a watch now (/check <id>)' },
     { command: 'remove', description: 'Stop a watch (/remove <id>)' },
     { command: 'lang', description: 'Change language (/lang ro|en)' },

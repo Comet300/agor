@@ -209,3 +209,124 @@ describe('renderRegistrationCard', () => {
     expect(labels).toContain(`✅ ${tr('en').btn_private}`);
   });
 });
+
+describe('renderNotification — browse/track/de-listing kinds', () => {
+  it('price_change shows old→new and a down arrow for a drop', () => {
+    const item = makeItem({ price: 4000, currency: 'EUR' });
+    const msg = renderNotification(
+      { kind: 'price_change', chatId: 1, item,
+        priceChange: { previousPrice: 5000, currentPrice: 4000, direction: 'down' } },
+      'en',
+    );
+    expect(msg.text).toContain('📉');
+    expect(msg.text).toContain(formatMoney(5000, 'EUR'));
+    expect(msg.text).toContain(formatMoney(4000, 'EUR'));
+    expect(buttons(msg).length).toBeGreaterThan(0); // keeps quick actions
+  });
+
+  it('price_change shows an up arrow for an increase', () => {
+    const item = makeItem({ price: 5500, currency: 'EUR' });
+    const msg = renderNotification(
+      { kind: 'price_change', chatId: 1, item,
+        priceChange: { previousPrice: 5000, currentPrice: 5500, direction: 'up' } },
+      'en',
+    );
+    expect(msg.text).toContain('📈');
+  });
+
+  it('item_delisted (product_gone) renders the reason + Open-only keyboard', () => {
+    const item = makeItem({ phone: '+40712345678' });
+    const msg = renderNotification(
+      { kind: 'item_delisted', chatId: 1, item, delist: { reason: 'product_gone', lastSeenPrice: 4300 } },
+      'en',
+    );
+    expect(msg.text).toContain(tr('en').delisted_title);
+    expect(msg.text).toContain(tr('en').delisted_reason_product_gone);
+    expect(msg.text).toContain(formatMoney(4300, 'RON'));
+    // Only the Open link — no Call / Price-history even though a phone exists.
+    const b = buttons(msg);
+    expect(b).toHaveLength(1);
+    expect('url' in b[0]!).toBe(true);
+  });
+
+  it('item_delisted (search_dropped) renders the search reason', () => {
+    const msg = renderNotification(
+      { kind: 'item_delisted', chatId: 1, item: makeItem(), delist: { reason: 'search_dropped' } },
+      'en',
+    );
+    expect(msg.text).toContain(tr('en').delisted_reason_search_dropped);
+  });
+
+  it('listings_dropped renders a count header and sample titles, no keyboard', () => {
+    const msg = renderNotification(
+      { kind: 'listings_dropped', chatId: 1,
+        dropped: { monitorId: 7, vendor: 'olx.ro', count: 3, titles: ['Golf', 'Passat', 'Octavia'] } },
+      'en',
+    );
+    expect(msg.text).toContain('3');
+    expect(msg.text).toContain('olx.ro');
+    expect(msg.text).toContain('Golf');
+    expect(msg.keyboard).toBeUndefined(); // button-less summary
+  });
+
+  it('re_listed renders a reappear card with quick actions', () => {
+    const item = makeItem({ title: 'Back again', location: 'Cluj' });
+    const msg = renderNotification({ kind: 're_listed', chatId: 1, item }, 'en');
+    expect(msg.text).toContain(tr('en').re_listed_title);
+    expect(msg.text).toContain('Back again');
+    expect(buttons(msg).length).toBeGreaterThan(0);
+  });
+});
+
+describe('renderBrowseCard', () => {
+  const snap = {
+    monitorId: 1, itemId: 'snap', inStock: true, lastPrice: 12500, currency: 'EUR',
+    firstSeen: 1, lastSeen: 2,
+    title: 'VW Golf 7', url: 'https://www.olx.ro/d/snap', imageUrl: 'https://img/snap.jpg',
+    location: 'Cluj-Napoca', sellerPrivate: true, postedAt: 1_700_000_000_000,
+    description: 'Stare excelenta',
+    attributes: { year: '2016', km: '145000', fuel: 'Diesel' },
+  };
+
+  it('renders a full card with photo, bullets, position and a carousel keyboard', async () => {
+    const { renderBrowseCard } = await import('../src/gateway/render');
+    const view = renderBrowseCard(snap, 2, 37, 'en');
+
+    expect(view.text).toContain('VW Golf 7');
+    expect(view.text).toContain(formatMoney(12500, 'EUR'));
+    expect(view.text).toContain('year: 2016');          // attribute bullets
+    expect(view.text).toContain('Cluj-Napoca');
+    expect(view.text).toContain('2023-11');             // posted date (from postedAt)
+    expect(view.text).toContain('item 3 of 37');        // 0-based index 2 → "3 of 37"
+    expect(view.photoUrl).toBe('https://img/snap.jpg'); // image surfaced for a photo send
+
+    // Carousel: Prev (idx>0), Track, Next (idx<total-1) on row 1; Open on row 2.
+    const flat = view.keyboard!.inline_keyboard.flat();
+    const datas = flat.map((b) => ('callback_data' in b ? b.callback_data : `url:${'url' in b ? b.url : ''}`));
+    expect(datas).toContain('br:1'); // Prev → index-1
+    expect(datas).toContain('tk:2'); // Track → this index
+    expect(datas).toContain('br:3'); // Next → index+1
+    expect(datas.some((d) => d.startsWith('url:https://www.olx.ro/d/snap'))).toBe(true);
+  });
+
+  it('omits Prev at the first item and Next at the last', async () => {
+    const { renderBrowseCard } = await import('../src/gateway/render');
+    const first = renderBrowseCard(snap, 0, 3, 'en').keyboard!.inline_keyboard.flat()
+      .map((b) => ('callback_data' in b ? b.callback_data : ''));
+    expect(first).not.toContain('br:-1');     // no Prev at index 0
+    expect(first).toContain('br:1');          // Next present
+
+    const last = renderBrowseCard(snap, 2, 3, 'en').keyboard!.inline_keyboard.flat()
+      .map((b) => ('callback_data' in b ? b.callback_data : ''));
+    expect(last).toContain('br:1');           // Prev present
+    expect(last.some((d) => d.startsWith('br:3'))).toBe(false); // no Next past the end
+  });
+
+  it('renders a legacy snapshot (no metadata) without throwing and without a photo', async () => {
+    const { renderBrowseCard } = await import('../src/gateway/render');
+    const bare = { monitorId: 1, itemId: 'x', inStock: true, lastPrice: 100, currency: 'RON', firstSeen: 1, lastSeen: 2 };
+    const view = renderBrowseCard(bare, 0, 1, 'en');
+    expect(view.text).toContain('x');         // falls back to itemId for the title
+    expect(view.photoUrl).toBeUndefined();
+  });
+});

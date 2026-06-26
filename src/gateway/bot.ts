@@ -24,10 +24,10 @@
  */
 import { Bot, InlineKeyboard, InputFile } from 'grammy';
 import type { MessageRef, Notification, SellerVisibility } from '../contracts';
-import type { Store } from '../persistence';
+import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput } from '../pipeline';
-import { renderNotification, renderRegistrationCard } from './render';
+import { renderNotification, renderRegistrationCard, renderBrowseCard } from './render';
 import { registrationKeyboard, confirmKeyboard } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
@@ -72,6 +72,18 @@ const PENDING_TTL_MS = 15 * 60_000; // 15 minutes
 
 /** Upper bound on price-history rows loaded for a chart (matches the renderer's cap). */
 const PRICE_HISTORY_RENDER_CAP = 500;
+
+/** Max items loaded into a single browse session (most-recent first). */
+const BROWSE_WINDOW = 100;
+
+/**
+ * An open /browse session for a chat: the ordered snapshot of items captured when
+ * /browse ran. Nav/Track callbacks index into THIS list, so ordering is stable
+ * across taps and the callback payload stays a tiny `br:<index>` / `tk:<index>`
+ * (well under Telegram's 64-byte limit). Re-running /browse refreshes it. Entries
+ * expire so an abandoned carousel cannot leak.
+ */
+const browseSessions = new ExpiringMap<number, ItemSnapshot[]>(PENDING_TTL_MS);
 
 /**
  * Chats awaiting an exclusion-keyword reply, keyed by chat id → monitor id.
@@ -311,9 +323,60 @@ export function buildBot(
           seller: m.filters.sellerVisibility,
           url: m.url,
           exclusions: m.filters.exclusionKeywords.join(', '),
+          tracked: m.origin === 'tracked',
         }),
       );
       await ctx.reply(`${tr(lang).list_intro}\n\n${lines.join('\n\n')}`);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  /**
+   * Send the browse card for `index` of the chat's open session: a photo with the
+   * card as caption when the item has an image, else a plain text card. Each view
+   * is its own message (a media carousel can't reliably edit photo↔text in place),
+   * so nav sends a fresh card and answers the callback to clear the spinner.
+   */
+  const sendBrowseItem = async (
+    ctx: { reply: (t: string, o?: object) => Promise<unknown>; replyWithPhoto: (p: InputFile, o?: object) => Promise<unknown> },
+    chatId: number,
+    index: number,
+  ): Promise<void> => {
+    const lang = langFor(store, chatId);
+    const items = browseSessions.get(chatId);
+    if (!items || items.length === 0) {
+      await ctx.reply(tr(lang).browse_empty);
+      return;
+    }
+    const i = Math.max(0, Math.min(index, items.length - 1));
+    const view = renderBrowseCard(items[i]!, i, items.length, lang);
+    const markup = view.keyboard ? { reply_markup: view.keyboard } : undefined;
+    if (view.photoUrl) {
+      try {
+        await ctx.replyWithPhoto(new InputFile(new URL(view.photoUrl)), { caption: view.text, ...markup });
+        return;
+      } catch (err) {
+        // A bad/unreachable image must not break browsing — fall back to text.
+        log('gateway').warn({ chatId, err: (err as Error).message }, 'browse photo send failed; text fallback');
+      }
+    }
+    await ctx.reply(view.text, markup);
+  };
+
+  bot.command('browse', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const total = store.items.countForChat(chatId);
+      if (total === 0) {
+        await ctx.reply(tr(lang).browse_empty);
+        return;
+      }
+      // Capture the most-recent window as this session's stable ordering.
+      const items = store.items.browse(chatId, BROWSE_WINDOW, 0);
+      browseSessions.set(chatId, items);
+      await sendBrowseItem(ctx, chatId, 0);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -822,6 +885,56 @@ export function buildBot(
       }
     } catch (err) {
       await ctx.reply(tr(lang).price_history_error);
+    }
+  });
+
+  // Browse navigation: br:<index> — show that item from the open session.
+  bot.callbackQuery(/^br:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      await ctx.answerCallbackQuery();
+      if (chatId === undefined) return;
+      if (!browseSessions.has(chatId)) {
+        // Session expired — prompt a fresh /browse rather than act on a stale index.
+        await ctx.reply(tr(lang).browse_empty);
+        return;
+      }
+      await sendBrowseItem(ctx, chatId, Number(ctx.match[1]));
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Browse track: tk:<index> — turn the browsed item into a tracked product watch.
+  bot.callbackQuery(/^tk:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      const items = browseSessions.get(chatId);
+      const item = items?.[Number(ctx.match[1])];
+      if (!item || !item.url) {
+        await ctx.answerCallbackQuery(tr(lang).browse_gone);
+        return;
+      }
+      // Already tracking this exact URL? Don't create a duplicate watch.
+      const dup = store.monitors
+        .listByChat(chatId)
+        .some((m) => m.origin === 'tracked' && m.url === item.url);
+      if (dup) {
+        await ctx.answerCallbackQuery(tr(lang).browse_track_exists);
+        return;
+      }
+      const result = await orchestrator.register({ chatId, rawUrl: item.url, type: 'product', origin: 'tracked' });
+      await ctx.answerCallbackQuery();
+      if (!result.ok) {
+        await ctx.reply(result.reason === 'quota' ? tr(lang).quota_reached(maxMonitorsPerChat) : tr(lang).track_error);
+        return;
+      }
+      await ctx.reply(tr(lang).browse_track_done(item.title ?? item.itemId));
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }
   });
 

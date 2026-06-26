@@ -69,8 +69,11 @@ and the type system makes a missing translation a *compile* error — so adding 
 language is mechanical and can't ship half-done. Per-chat preference is
 remembered; new chats default to English.
 
-Commands: `/track <url>` (or just paste a link), `/list`, `/check <id>`,
-`/remove <id>`, `/lang`, `/request-access`, `/help`.
+Commands: `/track <url>` (or just paste a link), `/list`, `/browse`, `/check <id>`,
+`/remove <id>`, `/lang`, `/request-access`, `/help`. `/browse` flips through every
+listing the bot has collected for you, one card at a time; tap **📌 Track** to
+watch a specific item — tracked items alert on any price change (up or down) and
+on de-listing.
 
 ## Who gets in
 

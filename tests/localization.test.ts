@@ -56,13 +56,17 @@ describe('command menu', () => {
 });
 
 describe('list_item exclusions', () => {
-  const base = { id: 3, vendor: 'OLX', type: 'search', seller: 'both', url: 'https://x' };
+  const base = { id: 3, vendor: 'OLX', type: 'search', seller: 'both', url: 'https://x', tracked: false };
   it('appends exclusion keywords when present', () => {
     expect(tr('ro').list_item({ ...base, exclusions: 'lovit, dube' })).toContain('excluse: lovit, dube');
     expect(tr('en').list_item({ ...base, exclusions: 'damaged' })).toContain('excluded: damaged');
   });
   it('omits the segment when there are no exclusions', () => {
     expect(tr('ro').list_item({ ...base, exclusions: '' })).not.toContain('excluse');
+  });
+  it('shows a 📌 badge only for a tracked watch', () => {
+    expect(tr('en').list_item({ ...base, exclusions: '', tracked: true })).toContain('📌');
+    expect(tr('en').list_item({ ...base, exclusions: '' })).not.toContain('📌');
   });
 });
 
