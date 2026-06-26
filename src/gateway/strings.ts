@@ -132,7 +132,7 @@ export interface Catalog {
 
   // ── Access control ────────────────────────────────────────────────────────
   access_denied: string; // shown to a non-allowed chat that tries to use the bot
-  access_request_intro: string; // /request-access kicks off; ask for name
+  access_request_intro: string; // /request_access kicks off; ask for name
   access_ask_name: string;
   access_ask_email: string;
   access_email_invalid: string; // re-prompt on a malformed email
@@ -290,7 +290,7 @@ const ro: Catalog = {
   back_in_stock_title: '🟢 REVENIT ÎN STOC',
 
   access_denied:
-    'Nu ai acces la acest bot. Folosește /request-access ca să ceri accesul.',
+    'Nu ai acces la acest bot. Folosește /request_access ca să ceri accesul.',
   access_request_intro: 'Hai să cerem acces. ',
   access_ask_name: 'Cum te numești? (nume și prenume)',
   access_ask_email: 'Care este adresa ta de email?',
@@ -452,7 +452,7 @@ const en: Catalog = {
     `📉 Price drop on ${title}: ${oldPrice} → ${newPrice} (save ${savings})`,
   back_in_stock_title: '🟢 BACK IN STOCK',
 
-  access_denied: 'You do not have access to this bot. Use /request-access to ask for it.',
+  access_denied: 'You do not have access to this bot. Use /request_access to ask for it.',
   access_request_intro: "Let's request access. ",
   access_ask_name: 'What is your name? (first and last)',
   access_ask_email: 'What is your email address?',
@@ -525,7 +525,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'check', description: 'Verifică o urmărire acum (/check <id>)' },
     { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
     { command: 'lang', description: 'Schimbă limba (/lang ro|en)' },
-    { command: 'request-access', description: 'Cere acces la bot' },
+    { command: 'request_access', description: 'Cere acces la bot' },
     { command: 'help', description: 'Cum se folosește botul' },
   ],
   en: [
@@ -536,7 +536,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'check', description: 'Check a watch now (/check <id>)' },
     { command: 'remove', description: 'Stop a watch (/remove <id>)' },
     { command: 'lang', description: 'Change language (/lang ro|en)' },
-    { command: 'request-access', description: 'Request access to the bot' },
+    { command: 'request_access', description: 'Request access to the bot' },
     { command: 'help', description: 'How to use the bot' },
   ],
 };
