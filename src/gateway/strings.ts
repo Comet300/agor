@@ -67,6 +67,11 @@ export interface Catalog {
   export_caption: (rows: number) => string;
   /** Reply when there's nothing to export. */
   export_empty: string;
+  cheaper_usage: string;
+  cheaper_not_found: string;
+  cheaper_none: string;
+  cheaper_intro: (title: string) => string;
+  cheaper_item: (p: { title: string; price: string; url: string }) => string;
   edit_usage: string;
   edit_not_found: string;
   rename_prompt: string;
@@ -184,6 +189,8 @@ export interface Catalog {
   /** Title + line of a target-price-hit alert. */
   target_hit_title: string;
   target_hit_line: (target: string) => string;
+  /** Market-insight footer on a product alert (time-on-market, price cuts, low). */
+  insight_line: (p: { days?: number; cuts: number; low: string }) => string;
   block_prompt: string;
   block_added_seller: (name: string) => string;
   block_added_phone: (phone: string) => string;
@@ -273,6 +280,7 @@ const ro: Catalog = {
     '• /browse — răsfoiește anunțurile colectate; apasă „📌 Urmărește” ca să urmărești un anunț.\n' +
     '• /edit <id> — modifică frecvența, vânzătorul sau cuvintele excluse ale unei urmăriri.\n' +
     '• /stats — rezumatul urmăririlor · /export — anunțurile colectate ca CSV.\n' +
+    '• /cheaper <id> — echivalente mai ieftine pentru un produs urmărit.\n' +
     '• Redirecționează (forward) un anunț ca să-l urmărești automat.\n' +
     '• /remove <id> — oprește o urmărire.\n' +
     '• /lang ro|en — schimbă limba.\n' +
@@ -302,6 +310,11 @@ const ro: Catalog = {
     (vendors ? `• Site-uri: ${vendors}` : ''),
   export_caption: (rows) => `📄 ${rows} anunț${rows === 1 ? '' : 'uri'} exportate.`,
   export_empty: 'Niciun anunț de exportat încă.',
+  cheaper_usage: 'Folosire: /cheaper <id> (id-ul unei urmăriri de produs)',
+  cheaper_not_found: 'Urmărirea nu există, nu îți aparține sau nu are încă un anunț.',
+  cheaper_none: 'Niciun echivalent mai ieftin în anunțurile tale colectate.',
+  cheaper_intro: (title) => `🔎 Mai ieftine, similare cu „${title}”:`,
+  cheaper_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
   edit_usage: 'Folosire: /edit <id>',
   edit_not_found: 'Urmărirea nu există sau nu îți aparține.',
   rename_prompt: 'Trimite o denumire pentru această urmărire (sau „-” ca să o ștergi).',
@@ -403,6 +416,13 @@ const ro: Catalog = {
   target_invalid: 'Trimite un număr valid (ex.: 12000).',
   target_hit_title: '🎯 Preț țintă atins!',
   target_hit_line: (target) => `Țintă: ${target}`,
+  insight_line: ({ days, cuts, low }) => {
+    const parts: string[] = [];
+    if (days !== undefined) parts.push(`📅 listat de ${days}z`);
+    if (cuts > 0) parts.push(`📉 ${cuts} reducer${cuts === 1 ? 'e' : 'i'}`);
+    if (low) parts.push(`min ${low}`);
+    return parts.join(' · ');
+  },
   block_prompt: 'Trimite numele vânzătorului sau un număr de telefon de blocat. „-” golește lista.',
   block_added_seller: (name) => `Vânzător blocat: ${name}`,
   block_added_phone: (phone) => `Telefon blocat: ${phone}`,
@@ -494,6 +514,7 @@ const en: Catalog = {
     '• /browse — browse collected listings; tap “📌 Track” to watch an item.\n' +
     '• /edit <id> — change a watch’s frequency, seller filter or exclusion keywords.\n' +
     '• /stats — summary of your watches · /export — collected listings as CSV.\n' +
+    '• /cheaper <id> — cheaper equivalents for a tracked product.\n' +
     '• Forward a listing message to track it automatically.\n' +
     '• /remove <id> — stop a watch.\n' +
     '• /lang ro|en — change language.\n' +
@@ -523,6 +544,11 @@ const en: Catalog = {
     (vendors ? `• Sites: ${vendors}` : ''),
   export_caption: (rows) => `📄 Exported ${rows} listing${rows === 1 ? '' : 's'}.`,
   export_empty: 'Nothing to export yet.',
+  cheaper_usage: 'Usage: /cheaper <id> (id of a product watch)',
+  cheaper_not_found: 'That watch does not exist, is not yours, or has no listing yet.',
+  cheaper_none: 'No cheaper equivalents in your collected listings.',
+  cheaper_intro: (title) => `🔎 Cheaper, similar to “${title}”:`,
+  cheaper_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
   edit_usage: 'Usage: /edit <id>',
   edit_not_found: 'That watch does not exist or is not yours.',
   rename_prompt: 'Send a name for this watch (or “-” to clear it).',
@@ -624,6 +650,13 @@ const en: Catalog = {
   target_invalid: 'Send a valid number (e.g. 12000).',
   target_hit_title: '🎯 Target price reached!',
   target_hit_line: (target) => `Target: ${target}`,
+  insight_line: ({ days, cuts, low }) => {
+    const parts: string[] = [];
+    if (days !== undefined) parts.push(`📅 listed ${days}d`);
+    if (cuts > 0) parts.push(`📉 ${cuts} cut${cuts === 1 ? '' : 's'}`);
+    if (low) parts.push(`low ${low}`);
+    return parts.join(' · ');
+  },
   block_prompt: 'Send a seller name or a phone number to block. “-” empties the list.',
   block_added_seller: (name) => `Blocked seller: ${name}`,
   block_added_phone: (phone) => `Blocked phone: ${phone}`,

@@ -23,6 +23,7 @@ import {
   applyExclusion,
   DedupBuffer,
 } from '../pipeline';
+import { marketInsight } from '../features/marketInsight';
 import { log } from '../logging/logger';
 
 /** Dependencies a cycle run needs; nothing is read globally. */
@@ -310,6 +311,17 @@ export class MonitorCycle {
       });
       this.deps.store.items.upsert(monitor.id, item, at);
     });
+
+    // Attach market insight (time-on-market, price cuts) to every item-bearing
+    // alert — computed AFTER the append so the history includes this price.
+    if (notifications.some((n) => n.item)) {
+      const insight = marketInsight(
+        item.postedAt,
+        this.deps.store.priceHistory.history(monitor.id, item.id),
+        at,
+      );
+      for (const n of notifications) if (n.item) n.insight = insight;
+    }
 
     // Reflect current stock onto the in-memory monitor so the scheduler can
     // place it on the fast (out-of-stock) tier when it re-arms the schedule.

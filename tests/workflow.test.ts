@@ -162,4 +162,17 @@ describe('workflow commands', () => {
     const monitors = h.store.monitors.listByChat(USER);
     expect(monitors.some((mo) => mo.url.includes('synth.test/forwarded'))).toBe(true);
   });
+
+  it('/cheaper lists cheaper equivalents from the collected pool', async () => {
+    const prod = h.store.monitors.create({ type: 'product', chatId: USER, vendor: 'synth', url: 'https://synth.test/p',
+      filters: { sellerVisibility: 'both', exclusionKeywords: [] }, intervalMs: 60_000, nextDueAt: 0, origin: 'tracked' });
+    h.store.items.upsert(prod.id, item({ id: 'tracked', title: 'Toyota Corolla Hybrid 2021', price: 15000, currency: 'EUR', url: 'https://synth.test/tracked' }), 1_000);
+    const search = mkSearch(h.store);
+    h.store.items.upsert(search.id, item({ id: 'cheap', title: 'Toyota Corolla Hybrid 2020', price: 13000, currency: 'EUR', url: 'https://synth.test/cheap' }), 1_000);
+
+    await cmd(h.bot, `/cheaper ${prod.id}`);
+    const out = h.sent.at(-1)!;
+    expect(out.text).toMatch(/cheaper, similar/i);
+    expect(out.text).toContain('Toyota Corolla Hybrid 2020');
+  });
 });

@@ -29,6 +29,8 @@ import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput, phoneKey } from '../pipeline';
 import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard, renderListRow } from './render';
 import { toCsv } from '../util/csv';
+import { formatMoney } from '../util/money';
+import { findCheaperEquivalents } from '../features/cheaperFinder';
 import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
@@ -458,6 +460,43 @@ export function buildBot(
       await ctx.replyWithDocument(new InputFile(Buffer.from(csv, 'utf8'), 'agor-listings.csv'), {
         caption: tr(lang).export_caption(items.length),
       });
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  bot.command('cheaper', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const id = Number((ctx.match ?? '').trim());
+      if (!Number.isInteger(id)) {
+        await ctx.reply(tr(lang).cheaper_usage);
+        return;
+      }
+      const monitor = store.monitors.get(id);
+      if (!monitor || monitor.chatId !== chatId) {
+        await ctx.reply(tr(lang).cheaper_not_found);
+        return;
+      }
+      // The watched listing (a product watch holds exactly one item).
+      const snap = store.items.browseByMonitor(id, 1, 0)[0];
+      if (!snap) {
+        await ctx.reply(tr(lang).cheaper_not_found);
+        return;
+      }
+      const matches = findCheaperEquivalents(
+        { itemId: snap.itemId, title: snap.title ?? snap.itemId, price: snap.lastPrice, currency: snap.currency, ...(snap.url ? { url: snap.url } : {}) },
+        store.items.browse(chatId, BROWSE_WINDOW, 0),
+      );
+      if (matches.length === 0) {
+        await ctx.reply(tr(lang).cheaper_none);
+        return;
+      }
+      const lines = matches.map((m) =>
+        tr(lang).cheaper_item({ title: m.title, price: formatMoney(m.price, m.currency), url: m.url ?? '' }),
+      );
+      await replyChunked((t) => ctx.reply(t), `${tr(lang).cheaper_intro(snap.title ?? snap.itemId)}\n\n${lines.join('\n\n')}`);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
