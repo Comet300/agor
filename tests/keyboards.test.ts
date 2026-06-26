@@ -94,6 +94,15 @@ describe('browseKeyboard nav affordances', () => {
     expect(d).toContain('tk:2');  // Track
     expect(d.some((x) => x.startsWith('url:https://x/2'))).toBe(true); // Open
   });
+
+  it('omits the Open button when the item has no url (legacy snapshot)', () => {
+    // Telegram rejects an empty-url button (BUTTON_URL_INVALID) and fails the whole
+    // send — a url-less row must simply drop Open, not crash the card.
+    const d = dataOf(browseKeyboard(3, 9, '', 'en', true));
+    expect(d.some((x) => x.startsWith('url:'))).toBe(false);
+    expect(d).toContain('tk:3'); // the rest of the card is intact
+    expect(d).toContain('bj');
+  });
 });
 
 describe('browseScopeKeyboard / browseScopeLabel', () => {

@@ -98,7 +98,11 @@ export function browseKeyboard(
   // Jump is only meaningful when there is more than one item to jump between.
   if (total > 1) kb.text(t.btn_jump, 'bj');
   if (canSwitch) kb.text(t.btn_switch, 'bw');
-  return kb.url(t.btn_open, url);
+  // Open is a URL button: only add it when a url exists. A legacy snapshot stored
+  // before the url column may have none, and Telegram rejects an empty-url button
+  // (BUTTON_URL_INVALID) — which would fail the whole send.
+  if (url) kb.url(t.btn_open, url);
+  return kb;
 }
 
 /** A selectable browse scope: "all listings", or one of the chat's watches. */
