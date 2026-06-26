@@ -94,6 +94,9 @@ export interface Catalog {
   btn_prev: string;
   btn_next: string;
   btn_track: string;
+  btn_jump: string;
+  btn_switch: string;
+  btn_browse_all: string;
   browse_in_stock: string;
   browse_out_of_stock: string;
   browse_position: (n: number, total: number) => string;
@@ -101,6 +104,12 @@ export interface Catalog {
   browse_track_done: (title: string) => string;
   browse_track_exists: string;
   browse_gone: string;
+  /** Header of the scope picker (browse a single watch vs all). */
+  browse_scope_prompt: string;
+  /** Prompt asking the user to type an item number to jump to. */
+  browse_jump_prompt: (total: number) => string;
+  /** Re-prompt when the typed jump target is out of range / not a number. */
+  browse_jump_invalid: (total: number) => string;
 
   // ── Callback answers / prompts ────────────────────────────────────────────
   cb_seller_set: (visibility: string) => string;
@@ -256,6 +265,9 @@ const ro: Catalog = {
   btn_prev: '◀️ Înapoi',
   btn_next: 'Înainte ▶️',
   btn_track: '📌 Urmărește',
+  btn_jump: '🔢 Sari la #',
+  btn_switch: '🔀 Schimbă',
+  btn_browse_all: '📂 Toate anunțurile',
   browse_in_stock: '🟢 disponibil',
   browse_out_of_stock: '🔴 indisponibil',
   browse_position: (n, total) => `articolul ${n} din ${total}`,
@@ -263,6 +275,9 @@ const ro: Catalog = {
   browse_track_done: (title) => `📌 Urmăresc acum „${title}". Te anunț la schimbări de preț și la eliminare.`,
   browse_track_exists: 'Urmărești deja acest anunț.',
   browse_gone: 'Acest anunț nu mai este disponibil.',
+  browse_scope_prompt: 'Ce vrei să răsfoiești?',
+  browse_jump_prompt: (total) => `Trimite un număr între 1 și ${total} ca să sari la acel anunț.`,
+  browse_jump_invalid: (total) => `Trimite un număr între 1 și ${total}.`,
 
   cb_seller_set: (v) => `Filtru vânzător: ${v}`,
   cb_monitoring_started: 'Monitorizare pornită',
@@ -419,6 +434,9 @@ const en: Catalog = {
   btn_prev: '◀️ Prev',
   btn_next: 'Next ▶️',
   btn_track: '📌 Track',
+  btn_jump: '🔢 Jump to #',
+  btn_switch: '🔀 Switch',
+  btn_browse_all: '📂 All listings',
   browse_in_stock: '🟢 available',
   browse_out_of_stock: '🔴 unavailable',
   browse_position: (n, total) => `item ${n} of ${total}`,
@@ -426,6 +444,9 @@ const en: Catalog = {
   browse_track_done: (title) => `📌 Now tracking "${title}". I'll alert you on price changes and de-listing.`,
   browse_track_exists: "You're already tracking this item.",
   browse_gone: 'This item is no longer available.',
+  browse_scope_prompt: 'What would you like to browse?',
+  browse_jump_prompt: (total) => `Send a number from 1 to ${total} to jump to that item.`,
+  browse_jump_invalid: (total) => `Please send a number from 1 to ${total}.`,
 
   cb_seller_set: (v) => `Seller filter: ${v}`,
   cb_monitoring_started: 'Monitoring started',

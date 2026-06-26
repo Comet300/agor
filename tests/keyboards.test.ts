@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { registrationKeyboard } from '../src/gateway/keyboards';
+import {
+  registrationKeyboard,
+  browseKeyboard,
+  browseScopeKeyboard,
+  browseScopeLabel,
+} from '../src/gateway/keyboards';
 import { tr } from '../src/gateway/strings';
 
 function labels(kb: ReturnType<typeof registrationKeyboard>): string[] {
@@ -65,5 +70,58 @@ describe('registrationKeyboard localization', () => {
 
     // Callback data is byte-for-byte identical.
     expect(data(en)).toEqual(data(ro));
+  });
+});
+
+describe('browseKeyboard nav affordances', () => {
+  const dataOf = (kb: ReturnType<typeof browseKeyboard>): string[] =>
+    kb.inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : `url:${'url' in b ? b.url : ''}`));
+
+  it('offers Jump when there is more than one item, omits it for a single item', () => {
+    expect(dataOf(browseKeyboard(0, 5, 'https://x/0', 'en'))).toContain('bj');
+    expect(dataOf(browseKeyboard(0, 1, 'https://x/0', 'en'))).not.toContain('bj');
+  });
+
+  it('shows Switch only when canSwitch is set', () => {
+    expect(dataOf(browseKeyboard(2, 9, 'https://x/2', 'en', true))).toContain('bw');
+    expect(dataOf(browseKeyboard(2, 9, 'https://x/2', 'en', false))).not.toContain('bw');
+  });
+
+  it('keeps Prev/Next/Track/Open intact alongside the new buttons', () => {
+    const d = dataOf(browseKeyboard(2, 9, 'https://x/2', 'en', true));
+    expect(d).toContain('br:1');  // Prev
+    expect(d).toContain('br:3');  // Next
+    expect(d).toContain('tk:2');  // Track
+    expect(d.some((x) => x.startsWith('url:https://x/2'))).toBe(true); // Open
+  });
+});
+
+describe('browseScopeKeyboard / browseScopeLabel', () => {
+  it('renders All first, then one bs: button per scope with counts in the label', () => {
+    const kb = browseScopeKeyboard(
+      [
+        { target: 'all', label: '📂 All', count: 42 },
+        { target: 7, label: 'olx · golf', count: 27 },
+      ],
+      'en',
+    );
+    const cell = (r: number): { data: string; text: string } => {
+      const b = kb.inline_keyboard[r]![0]!;
+      return { data: 'callback_data' in b ? b.callback_data : '', text: 'text' in b ? b.text : '' };
+    };
+    expect(cell(0).data).toBe('bs:all');
+    expect(cell(0).text).toContain('(42)');
+    expect(cell(1).data).toBe('bs:7');
+    expect(cell(1).text).toContain('(27)');
+  });
+
+  it('derives a vendor · query hint from a q-<slug> path or query param', () => {
+    expect(browseScopeLabel('olx', 'https://www.olx.ro/auto/q-suzuki-swace-hibrid/')).toBe('olx · suzuki swace hibrid');
+    expect(browseScopeLabel('vinted', 'https://vinted.ro/catalog?q=iphone+13')).toBe('vinted · iphone 13');
+  });
+
+  it('falls back to the vendor alone when no hint is recognisable', () => {
+    expect(browseScopeLabel('olx', 'https://www.olx.ro/auto/')).toBe('olx');
+    expect(browseScopeLabel('olx', 'not a url')).toBe('olx');
   });
 });

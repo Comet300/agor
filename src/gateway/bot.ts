@@ -27,8 +27,8 @@ import type { MessageRef, Notification, SellerVisibility } from '../contracts';
 import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput } from '../pipeline';
-import { renderNotification, renderRegistrationCard, renderBrowseCard } from './render';
-import { registrationKeyboard, confirmKeyboard } from './keyboards';
+import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope } from './render';
+import { registrationKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -91,6 +91,14 @@ const browseSessions = new ExpiringMap<number, ItemSnapshot[]>(PENDING_TTL_MS);
  * than treated as a URL. Entries expire so an abandoned prompt cannot leak.
  */
 const pendingExclusion = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
+/**
+ * Chats awaiting a browse "jump to #" reply, keyed by chat id. The stored number
+ * is the session length at prompt time (for the re-prompt message); the actual
+ * jump re-validates against the live session. The next plain text from that chat
+ * is parsed as a 1-based item number rather than treated as a URL.
+ */
+const pendingJump = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
 /**
  * Chats mid-way through the /request_access flow, keyed by chat id. `step` says
@@ -391,7 +399,10 @@ export function buildBot(
       return;
     }
     const i = Math.max(0, Math.min(index, items.length - 1));
-    const view = renderBrowseCard(items[i]!, i, items.length, lang);
+    // Offer the scope "Switch" affordance only when there's more than one watch
+    // to switch between (otherwise browse-all is the only scope).
+    const canSwitch = store.monitors.listByChat(chatId).length > 1;
+    const view = renderBrowseCard(items[i]!, i, items.length, lang, canSwitch);
     const markup = view.keyboard ? { reply_markup: view.keyboard } : undefined;
     if (view.photoUrl) {
       try {
@@ -405,19 +416,52 @@ export function buildBot(
     await ctx.reply(view.text, markup);
   };
 
+  /**
+   * Build the scope picker's options for a chat: "All listings" first, then one
+   * per watch that has browsable items (newest-watch-first, matching /list order).
+   * Returns the chat-wide total alongside, so the caller can short-circuit empties.
+   */
+  const buildBrowseScopes = (chatId: number): { total: number; scopes: BrowseScope[] } => {
+    const total = store.items.countForChat(chatId);
+    const counts = store.items.browseCountsByMonitor(chatId);
+    const scopes: BrowseScope[] = [
+      { target: 'all', label: tr(langFor(store, chatId)).btn_browse_all, count: total },
+    ];
+    for (const m of store.monitors.listByChat(chatId)) {
+      const count = counts.get(m.id) ?? 0;
+      if (count === 0) continue; // a watch with nothing browsable isn't worth a button
+      scopes.push({ target: m.id, label: browseScopeLabel(m.vendor, m.url), count });
+    }
+    return { total, scopes };
+  };
+
+  /** Capture a scope's items as the chat's browse session and show the first card. */
+  const startBrowseSession = async (
+    ctx: Parameters<typeof sendBrowseItem>[0],
+    chatId: number,
+    items: ItemSnapshot[],
+  ): Promise<void> => {
+    browseSessions.set(chatId, items);
+    await sendBrowseItem(ctx, chatId, 0);
+  };
+
   bot.command('browse', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     try {
-      const total = store.items.countForChat(chatId);
+      const { total, scopes } = buildBrowseScopes(chatId);
       if (total === 0) {
         await ctx.reply(tr(lang).browse_empty);
         return;
       }
-      // Capture the most-recent window as this session's stable ordering.
-      const items = store.items.browse(chatId, BROWSE_WINDOW, 0);
-      browseSessions.set(chatId, items);
-      await sendBrowseItem(ctx, chatId, 0);
+      // With more than one watch, let the user scope to a single watch or all.
+      // With a single watch, the picker would be a one-option no-op — browse all.
+      if (store.monitors.listByChat(chatId).length > 1) {
+        const view = renderBrowseScope(scopes, lang);
+        await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+        return;
+      }
+      await startBrowseSession(ctx, chatId, store.items.browse(chatId, BROWSE_WINDOW, 0));
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -985,6 +1029,69 @@ export function buildBot(
     }
   });
 
+  // Browse scope select: bs:all | bs:<monitorId> — load that scope and show item 0.
+  bot.callbackQuery(/^bs:(all|\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      await ctx.answerCallbackQuery();
+      if (chatId === undefined) return;
+      const target = ctx.match[1]!;
+      if (target === 'all') {
+        await startBrowseSession(ctx, chatId, store.items.browse(chatId, BROWSE_WINDOW, 0));
+        return;
+      }
+      const monitorId = Number(target);
+      // Ownership check: only scope to a watch that belongs to this chat.
+      if (!store.monitors.listByChat(chatId).some((m) => m.id === monitorId)) {
+        await ctx.reply(tr(lang).cb_watch_gone);
+        return;
+      }
+      await startBrowseSession(ctx, chatId, store.items.browseByMonitor(monitorId, BROWSE_WINDOW, 0));
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Browse switch: bw — re-open the scope picker mid-browse.
+  bot.callbackQuery(/^bw$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      await ctx.answerCallbackQuery();
+      if (chatId === undefined) return;
+      const { total, scopes } = buildBrowseScopes(chatId);
+      if (total === 0) {
+        await ctx.reply(tr(lang).browse_empty);
+        return;
+      }
+      const view = renderBrowseScope(scopes, lang);
+      await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Browse jump: bj — prompt for an item number; the reply is consumed below.
+  bot.callbackQuery(/^bj$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      const items = browseSessions.get(chatId);
+      if (!items || items.length === 0) {
+        await ctx.answerCallbackQuery();
+        await ctx.reply(tr(lang).browse_empty);
+        return;
+      }
+      pendingJump.set(chatId, items.length);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(tr(lang).browse_jump_prompt(items.length));
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
   // ── Plain text: pending exclusion reply, or a URL to watch ──────────────────
 
   bot.on('message:text', async (ctx) => {
@@ -1058,6 +1165,24 @@ export function buildBot(
           (t) => ctx.reply(t),
           kw.length > 0 ? tr(lang).exclusion_set(kw.join(', ')) : tr(lang).exclusion_cleared,
         );
+        return;
+      }
+
+      // 1b. Are we waiting for a browse "jump to #" number?
+      if (pendingJump.has(chatId)) {
+        const items = browseSessions.get(chatId);
+        if (!items || items.length === 0) {
+          pendingJump.delete(chatId);
+          await ctx.reply(tr(lang).browse_empty);
+          return;
+        }
+        const n = Number(text.trim());
+        if (!Number.isInteger(n) || n < 1 || n > items.length) {
+          await ctx.reply(tr(lang).browse_jump_invalid(items.length)); // stay armed to retry
+          return;
+        }
+        pendingJump.delete(chatId);
+        await sendBrowseItem(ctx, chatId, n - 1); // 1-based input → 0-based index
         return;
       }
 
