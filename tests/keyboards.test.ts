@@ -1,6 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { registrationKeyboard } from '../src/gateway/keyboards';
+import {
+  registrationKeyboard,
+  editKeyboard,
+  browseKeyboard,
+  browseScopeKeyboard,
+  browseScopeLabel,
+} from '../src/gateway/keyboards';
 import { tr } from '../src/gateway/strings';
+import type { Monitor } from '../src/contracts';
+
+function monitor(over: Partial<Monitor> = {}): Monitor {
+  return {
+    id: 4, type: 'search', origin: 'user', chatId: 1, vendor: 'OLX',
+    url: 'https://www.olx.ro/auto/q-golf/',
+    filters: { sellerVisibility: 'both', exclusionKeywords: [] },
+    intervalMs: 600000, fastTier: false, nextDueAt: 0, consecutiveFailures: 0, createdAt: 0,
+    ...over,
+  };
+}
 
 function labels(kb: ReturnType<typeof registrationKeyboard>): string[] {
   return kb.inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
@@ -65,5 +82,101 @@ describe('registrationKeyboard localization', () => {
 
     // Callback data is byte-for-byte identical.
     expect(data(en)).toEqual(data(ro));
+  });
+});
+
+describe('browseKeyboard nav affordances', () => {
+  const dataOf = (kb: ReturnType<typeof browseKeyboard>): string[] =>
+    kb.inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : `url:${'url' in b ? b.url : ''}`));
+
+  it('offers Jump when there is more than one item, omits it for a single item', () => {
+    expect(dataOf(browseKeyboard(0, 5, 'https://x/0', 'en'))).toContain('bj');
+    expect(dataOf(browseKeyboard(0, 1, 'https://x/0', 'en'))).not.toContain('bj');
+  });
+
+  it('shows Switch only when canSwitch is set', () => {
+    expect(dataOf(browseKeyboard(2, 9, 'https://x/2', 'en', true))).toContain('bw');
+    expect(dataOf(browseKeyboard(2, 9, 'https://x/2', 'en', false))).not.toContain('bw');
+  });
+
+  it('keeps Prev/Next/Track/Open intact alongside the new buttons', () => {
+    const d = dataOf(browseKeyboard(2, 9, 'https://x/2', 'en', true));
+    expect(d).toContain('br:1');  // Prev
+    expect(d).toContain('br:3');  // Next
+    expect(d).toContain('tk:2');  // Track
+    expect(d.some((x) => x.startsWith('url:https://x/2'))).toBe(true); // Open
+  });
+
+  it('omits the Open button when the item has no url (legacy snapshot)', () => {
+    // Telegram rejects an empty-url button (BUTTON_URL_INVALID) and fails the whole
+    // send — a url-less row must simply drop Open, not crash the card.
+    const d = dataOf(browseKeyboard(3, 9, '', 'en', true));
+    expect(d.some((x) => x.startsWith('url:'))).toBe(false);
+    expect(d).toContain('tk:3'); // the rest of the card is intact
+    expect(d).toContain('bj');
+  });
+});
+
+describe('browseScopeKeyboard / browseScopeLabel', () => {
+  it('renders All first, then one bs: button per scope with counts in the label', () => {
+    const kb = browseScopeKeyboard(
+      [
+        { target: 'all', label: '📂 All', count: 42 },
+        { target: 7, label: 'olx · golf', count: 27 },
+      ],
+      'en',
+    );
+    const cell = (r: number): { data: string; text: string } => {
+      const b = kb.inline_keyboard[r]![0]!;
+      return { data: 'callback_data' in b ? b.callback_data : '', text: 'text' in b ? b.text : '' };
+    };
+    expect(cell(0).data).toBe('bs:all');
+    expect(cell(0).text).toContain('(42)');
+    expect(cell(1).data).toBe('bs:7');
+    expect(cell(1).text).toContain('(27)');
+  });
+
+  it('derives a vendor · query hint from a q-<slug> path or query param', () => {
+    expect(browseScopeLabel('olx', 'https://www.olx.ro/auto/q-suzuki-swace-hibrid/')).toBe('olx · suzuki swace hibrid');
+    expect(browseScopeLabel('vinted', 'https://vinted.ro/catalog?q=iphone+13')).toBe('vinted · iphone 13');
+  });
+
+  it('falls back to the vendor alone when no hint is recognisable', () => {
+    expect(browseScopeLabel('olx', 'https://www.olx.ro/auto/')).toBe('olx');
+    expect(browseScopeLabel('olx', 'not a url')).toBe('olx');
+  });
+});
+
+describe('editKeyboard', () => {
+  const dataOf = (kb: ReturnType<typeof editKeyboard>): string[] =>
+    kb.inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : `url:${'url' in b ? b.url : ''}`));
+
+  it('search watch: seller + frequency + exclusion + remove + done, no Start', () => {
+    const d = dataOf(editKeyboard(monitor({ id: 4, type: 'search' }), 'en'));
+    expect(d).toContain('esv:4:both');     // seller (edit-scoped callback)
+    expect(d).toContain('efq:4:10');       // frequency presets
+    expect(d).toContain('efq:4:30');
+    expect(d).toContain('ex:4');           // exclusion (reuses registration callback)
+    expect(d).toContain('rm:4');           // remove
+    expect(d).toContain('ed');             // done
+    expect(d.some((x) => x.startsWith('go:'))).toBe(false); // no "Start" on an existing watch
+  });
+
+  it('product watch: frequency + remove + done only (no seller / no exclusion)', () => {
+    const d = dataOf(editKeyboard(monitor({ id: 9, type: 'product', origin: 'tracked' }), 'en'));
+    expect(d).toContain('efq:9:5');
+    expect(d).toContain('rm:9');
+    expect(d).toContain('ed');
+    expect(d.some((x) => x.startsWith('esv:'))).toBe(false); // seller filter N/A to one listing
+    expect(d.some((x) => x.startsWith('ex:'))).toBe(false);  // exclusions N/A
+    expect(d.some((x) => x.startsWith('go:'))).toBe(false);
+  });
+
+  it('marks the active frequency and seller with a check', () => {
+    const labels = (m: Monitor): string[] =>
+      editKeyboard(m, 'en').inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
+    const l = labels(monitor({ intervalMs: 30 * 60000, filters: { sellerVisibility: 'private', exclusionKeywords: [] } }));
+    expect(l).toContain(`✅ ${tr('en').btn_freq(30)}`);
+    expect(l).toContain(`✅ ${tr('en').btn_private}`);
   });
 });

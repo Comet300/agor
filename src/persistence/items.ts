@@ -197,6 +197,42 @@ export class ItemRepo {
   }
 
   /**
+   * One page of a single monitor's browsable items (newest `last_seen` first,
+   * de-listed excluded) — the per-watch scope for /browse. Monitor ownership is
+   * the caller's responsibility (the gateway validates the monitor belongs to the
+   * chat before scoping to it).
+   */
+  browseByMonitor(monitorId: number, limit: number, offset: number): ItemSnapshot[] {
+    const rows = this.db
+      .prepare(
+        `SELECT i.*
+           FROM items i
+          WHERE i.monitor_id = ? AND i.delisted_at IS NULL
+          ORDER BY i.last_seen DESC, i.item_id ASC
+          LIMIT ? OFFSET ?`,
+      )
+      .all(monitorId, limit, offset) as ItemSnapshotRow[];
+    return rows.map(rowToSnapshot);
+  }
+
+  /**
+   * Browsable (non-delisted) item counts per monitor for a chat, keyed by monitor
+   * id — powers the /browse scope picker's per-watch tallies. Monitors with no
+   * browsable items are absent from the map (callers default those to 0).
+   */
+  browseCountsByMonitor(chatId: number): Map<number, number> {
+    const rows = this.db
+      .prepare(
+        `SELECT i.monitor_id AS monitorId, COUNT(*) AS n
+           FROM items i JOIN monitors m ON m.id = i.monitor_id
+          WHERE m.chat_id = ? AND i.delisted_at IS NULL
+          GROUP BY i.monitor_id`,
+      )
+      .all(chatId) as Array<{ monitorId: number; n: number }>;
+    return new Map(rows.map((r) => [r.monitorId, r.n]));
+  }
+
+  /**
    * Return the subset of `currentIds` not yet stored for this monitor. Pure
    * read — it never writes, so callers can decide how to treat the newcomers.
    */

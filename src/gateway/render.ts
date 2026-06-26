@@ -14,12 +14,20 @@
  * code span). We keep formatting minimal and rely on emoji + plain text so the
  * output is robust regardless of parse mode.
  */
-import type { EnrichedItem, Notification, DealTag, SellerVisibility } from '../contracts';
+import type { EnrichedItem, Monitor, Notification, DealTag, SellerVisibility } from '../contracts';
 import type { ItemSnapshot } from '../persistence';
 import type { InlineKeyboard } from 'grammy';
 import { formatMoney } from '../util/money';
 import { draftOffer } from '../features/contactOffer';
-import { quickActionsKeyboard, registrationKeyboard, openOnlyKeyboard, browseKeyboard } from './keyboards';
+import {
+  quickActionsKeyboard,
+  registrationKeyboard,
+  editKeyboard,
+  openOnlyKeyboard,
+  browseKeyboard,
+  browseScopeKeyboard,
+  type BrowseScope,
+} from './keyboards';
 import { type Lang, tr, type Catalog } from './strings';
 
 /** A fully-rendered message: display text and an optional inline keyboard. */
@@ -309,6 +317,7 @@ export function renderBrowseCard(
   index: number,
   total: number,
   lang: Lang,
+  canSwitch = false,
 ): BrowseView {
   const t = tr(lang);
   const lines: string[] = [];
@@ -342,8 +351,37 @@ export function renderBrowseCard(
   const url = snap.url ?? '';
   const view: BrowseView = {
     text: lines.join('\n'),
-    keyboard: browseKeyboard(index, total, url, lang),
+    keyboard: browseKeyboard(index, total, url, lang, canSwitch),
   };
   if (snap.imageUrl) view.photoUrl = snap.imageUrl;
   return view;
+}
+
+/**
+ * Render the /edit tuning card for an existing watch: a one-line summary
+ * (id · vendor · type · current cadence) plus the {@link editKeyboard} controls.
+ */
+export function renderEditCard(monitor: Monitor, lang: Lang): RenderedMessage {
+  return {
+    text: tr(lang).edit_card({
+      id: monitor.id,
+      vendor: monitor.vendor,
+      type: monitor.type,
+      minutes: Math.round(monitor.intervalMs / 60000),
+    }),
+    keyboard: editKeyboard(monitor, lang),
+  };
+}
+
+/**
+ * Render the /browse scope picker — a prompt plus one button per scope
+ * ("All listings" first, then each watch with browsable items). Shown when a
+ * chat has more than one watch so the user can browse a single watch instead of
+ * the chat-wide union. The `bs:` callbacks load the chosen scope.
+ */
+export function renderBrowseScope(scopes: readonly BrowseScope[], lang: Lang): RenderedMessage {
+  return {
+    text: tr(lang).browse_scope_prompt,
+    keyboard: browseScopeKeyboard(scopes, lang),
+  };
 }

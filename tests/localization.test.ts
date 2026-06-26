@@ -68,6 +68,15 @@ describe('list_item exclusions', () => {
     expect(tr('en').list_item({ ...base, exclusions: '', tracked: true })).toContain('📌');
     expect(tr('en').list_item({ ...base, exclusions: '' })).not.toContain('📌');
   });
+  it('omits seller + exclusions for a product watch (no result set to filter)', () => {
+    const product = { ...base, type: 'product', tracked: true, exclusions: 'ignored' };
+    const en = tr('en').list_item(product);
+    expect(en).not.toContain('seller=');
+    expect(en).not.toContain('excluded:');
+    expect(en).toContain('📌');     // still badged as tracked
+    expect(en).toContain('product'); // type still shown
+    expect(tr('ro').list_item(product)).not.toContain('vânzător=');
+  });
 });
 
 describe('ChatPrefsRepo round-trip', () => {

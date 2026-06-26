@@ -113,6 +113,15 @@ function tap(bot: Bot, data: string): Promise<void> {
   } as unknown as Parameters<Bot['handleUpdate']>[0]);
 }
 
+/** Send a plain text message (no bot_command entity) — e.g. a jump-to-# reply. */
+function say(bot: Bot, text: string): Promise<void> {
+  return bot.handleUpdate({
+    update_id: updateId++,
+    message: { message_id: updateId, date: 1, chat: { id: USER, type: 'private' as const },
+      from: { id: USER, is_bot: false, first_name: 'T' }, text },
+  } as unknown as Parameters<Bot['handleUpdate']>[0]);
+}
+
 describe('/browse carousel', () => {
   let h: ReturnType<typeof harness>;
   beforeEach(() => { h = harness(); });
@@ -185,6 +194,87 @@ describe('/browse carousel', () => {
     await tap(h.bot, 'tk:0');
     expect(h.store.monitors.listByChat(USER).filter((m) => m.origin === 'tracked')).toHaveLength(1);
     expect(h.answered.some((a) => /already tracking/i.test(a))).toBe(true);
+  });
+
+  /** Seed a second search monitor (own URL) with item snapshots for USER. */
+  function seedMonitor(url: string, items: IScrapedItem[], base = 5_000): number {
+    const m = h.store.monitors.create({
+      type: 'search', chatId: USER, vendor: 'synth', url,
+      filters: { sellerVisibility: 'both', exclusionKeywords: [] }, intervalMs: 60_000, nextDueAt: 0,
+    });
+    items.forEach((it, idx) => h.store.items.upsert(m.id, it, base + idx));
+    return m.id;
+  }
+
+  it('single watch skips the scope picker and shows a Jump button, no Switch', async () => {
+    seedItems([
+      item({ id: 'a', title: 'Oldest', url: 'https://synth.test/a' }),
+      item({ id: 'b', title: 'Newest', url: 'https://synth.test/b' }),
+    ]);
+    await cmd(h.bot, '/browse');
+    const card = h.sent.at(-1)!;
+    expect(card.text).toContain('item 1 of 2');
+    expect(card.data).toContain('bj');          // Jump offered (more than one item)
+    expect(card.data).not.toContain('bw');      // no Switch with a single watch
+  });
+
+  it('with 2+ watches /browse shows a scope picker (All + one per watch)', async () => {
+    seedItems([item({ id: 'a', title: 'Golf', url: 'https://synth.test/a' })]); // watch 1
+    seedMonitor('https://synth.test/s2?q=passat', [item({ id: 'b', title: 'Passat', url: 'https://synth.test/b' })]);
+    await cmd(h.bot, '/browse');
+    const picker = h.sent.at(-1)!;
+    expect(picker.kind).toBe('text');
+    expect(picker.text).toMatch(/what would you like to browse/i);
+    expect(picker.data).toContain('bs:all');
+    expect(picker.data.filter((d) => /^bs:\d+$/.test(d))).toHaveLength(2); // one button per watch
+  });
+
+  it('bs:all loads the chat-wide union and the card offers Switch', async () => {
+    seedItems([item({ id: 'a', title: 'Golf', url: 'https://synth.test/a' })]);
+    seedMonitor('https://synth.test/s2?q=passat', [item({ id: 'b', title: 'Passat', url: 'https://synth.test/b' })]);
+    await cmd(h.bot, '/browse');
+    await tap(h.bot, 'bs:all');
+    const card = h.sent.at(-1)!;
+    expect(card.text).toContain('item 1 of 2');  // both watches' items unioned
+    expect(card.data).toContain('bw');           // Switch present with 2+ watches
+  });
+
+  it('bs:<monitorId> scopes browsing to a single watch', async () => {
+    seedItems([item({ id: 'a', title: 'Golf', url: 'https://synth.test/a' })]);
+    const m2 = seedMonitor('https://synth.test/s2?q=passat', [item({ id: 'b', title: 'Passat', url: 'https://synth.test/b' })]);
+    await cmd(h.bot, '/browse');
+    await tap(h.bot, `bs:${m2}`);
+    const card = h.sent.at(-1)!;
+    expect(card.text).toContain('Passat');
+    expect(card.text).toContain('item 1 of 1'); // only that watch's single item
+  });
+
+  it('jump-to-#: bj prompts, then a number lands on that item', async () => {
+    seedItems([
+      item({ id: 'a', title: 'Oldest', url: 'https://synth.test/a' }),
+      item({ id: 'b', title: 'Middle', url: 'https://synth.test/b' }),
+      item({ id: 'c', title: 'Newest', url: 'https://synth.test/c' }),
+    ]);
+    await cmd(h.bot, '/browse');          // newest-first session: [Newest, Middle, Oldest]
+    await tap(h.bot, 'bj');
+    expect(h.sent.at(-1)!.text).toMatch(/1 to 3/);
+    await say(h.bot, '3');                // 1-based → index 2 → the oldest
+    const card = h.sent.at(-1)!;
+    expect(card.text).toContain('Oldest');
+    expect(card.text).toContain('item 3 of 3');
+  });
+
+  it('jump-to-#: an out-of-range number re-prompts and stays armed', async () => {
+    seedItems([
+      item({ id: 'a', title: 'Oldest', url: 'https://synth.test/a' }),
+      item({ id: 'b', title: 'Newest', url: 'https://synth.test/b' }),
+    ]);
+    await cmd(h.bot, '/browse');
+    await tap(h.bot, 'bj');
+    await say(h.bot, '9');                // out of range
+    expect(h.sent.at(-1)!.text).toMatch(/1 to 2/);
+    await say(h.bot, '1');               // still armed → lands item 1
+    expect(h.sent.at(-1)!.text).toContain('item 1 of 2');
   });
 
   it('br: with no open session prompts a fresh browse', async () => {

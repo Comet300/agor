@@ -9,7 +9,7 @@
  * wire format is fixed (colon-delimited ASCII, numeric ids, < 64 bytes) and does
  * NOT vary by language.
  */
-import type { EnrichedItem, SellerVisibility } from '../contracts';
+import type { EnrichedItem, Monitor, SellerVisibility } from '../contracts';
 import { InlineKeyboard } from 'grammy';
 import { buildCallLink } from '../features/contactOffer';
 import { type Lang, tr } from './strings';
@@ -75,18 +75,88 @@ export function openOnlyKeyboard(item: EnrichedItem, lang: Lang): InlineKeyboard
 /**
  * Browse carousel keyboard for the item at `index` of `total`:
  *   row 1: [◀ Prev] [📌 Track] [Next ▶]  — Prev/Next omitted at the ends,
- *   row 2: [🔗 Open]  (URL to the listing).
- * Nav callbacks are `br:<index>` (the bot edits the message to that item); track
- * is `tk:<index>`. The index resolves against the chat's browse session, so the
- * payload stays tiny and well under Telegram's 64-byte callback limit.
+ *   row 2: [🔢 Jump to #] [🔀 Switch]? [🔗 Open].
+ * Nav callbacks are `br:<index>` (the bot sends that item); track is `tk:<index>`;
+ * `bj` opens the jump-to-number prompt; `bw` re-opens the scope picker (only when
+ * `canSwitch`, i.e. the chat has more than one watch). The index resolves against
+ * the chat's browse session, so the payload stays tiny and well under Telegram's
+ * 64-byte callback limit.
  */
-export function browseKeyboard(index: number, total: number, url: string, lang: Lang): InlineKeyboard {
+export function browseKeyboard(
+  index: number,
+  total: number,
+  url: string,
+  lang: Lang,
+  canSwitch = false,
+): InlineKeyboard {
   const t = tr(lang);
   const kb = new InlineKeyboard();
   if (index > 0) kb.text(t.btn_prev, `br:${index - 1}`);
   kb.text(t.btn_track, `tk:${index}`);
   if (index < total - 1) kb.text(t.btn_next, `br:${index + 1}`);
-  return kb.row().url(t.btn_open, url);
+  kb.row();
+  // Jump is only meaningful when there is more than one item to jump between.
+  if (total > 1) kb.text(t.btn_jump, 'bj');
+  if (canSwitch) kb.text(t.btn_switch, 'bw');
+  // Open is a URL button: only add it when a url exists. A legacy snapshot stored
+  // before the url column may have none, and Telegram rejects an empty-url button
+  // (BUTTON_URL_INVALID) — which would fail the whole send.
+  if (url) kb.url(t.btn_open, url);
+  return kb;
+}
+
+/** A selectable browse scope: "all listings", or one of the chat's watches. */
+export interface BrowseScope {
+  /** Callback target: `all` for the chat-wide union, else the monitor id. */
+  target: 'all' | number;
+  /** Display label (already localized / vendor-derived). */
+  label: string;
+  /** Browsable item count shown in parentheses. */
+  count: number;
+}
+
+/**
+ * The /browse scope picker: one button per row, "All listings (N)" first, then a
+ * button per watch that has browsable items. Selecting emits `bs:all` or
+ * `bs:<monitorId>`, which loads that scope into the chat's browse session.
+ */
+export function browseScopeKeyboard(scopes: readonly BrowseScope[], lang: Lang): InlineKeyboard {
+  void lang; // labels are pre-localized by the caller
+  const kb = new InlineKeyboard();
+  for (const s of scopes) {
+    kb.text(`${s.label} (${s.count})`, `bs:${s.target}`).row();
+  }
+  return kb;
+}
+
+/**
+ * A short, human label for a watch in the scope picker: the vendor plus a query
+ * hint pulled from the watch URL when one is recognisable (the `q-<slug>` path
+ * segment OLX-style URLs use, or a `q`/`query`/`search`/`text` query param),
+ * de-hyphenated and length-capped. Falls back to the vendor alone.
+ */
+export function browseScopeLabel(vendor: string, url: string): string {
+  const HINT_CAP = 28;
+  let hint = '';
+  try {
+    const u = new URL(url);
+    const param =
+      u.searchParams.get('q') ??
+      u.searchParams.get('query') ??
+      u.searchParams.get('search') ??
+      u.searchParams.get('text');
+    if (param) {
+      hint = param;
+    } else {
+      const seg = u.pathname.split('/').find((p) => p.startsWith('q-'));
+      if (seg) hint = seg.slice(2);
+    }
+  } catch {
+    // Unparseable URL → vendor only.
+  }
+  hint = hint.replace(/[-_+]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (hint.length > HINT_CAP) hint = hint.slice(0, HINT_CAP).trimEnd() + '…';
+  return hint ? `${vendor} · ${hint}` : vendor;
 }
 
 /**
@@ -134,4 +204,42 @@ export function registrationKeyboard(
     .row()
     // Go live.
     .text(t.btn_start, `go:${monitorId}`);
+}
+
+/**
+ * Build the /edit tuning keyboard for an EXISTING watch. Mirrors the registration
+ * card's controls minus the "Start" button (the watch is already live), and
+ * tailored to the watch type:
+ *   - search  -> seller-visibility row, frequency row, [exclusions][remove], [done]
+ *   - product -> frequency row, [remove], [done]  (seller & exclusions don't apply
+ *                to a single tracked listing)
+ *
+ * Reuses the `ex:`/`rm:` callbacks (identical behaviour to registration) and adds
+ * edit-specific `esv:`/`efq:` so a change re-renders THIS keyboard (not the
+ * registration card); `ed` closes the editor.
+ */
+export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  const id = monitor.id;
+  const isSearch = monitor.type === 'search';
+  const activeMinutes = Math.round(monitor.intervalMs / 60000);
+  const markSeller = (label: string, value: SellerVisibility): string =>
+    value === monitor.filters.sellerVisibility ? `✅ ${label}` : label;
+  const markFreq = (label: string, minutes: number): string =>
+    minutes === activeMinutes ? `✅ ${label}` : label;
+
+  const kb = new InlineKeyboard();
+  if (isSearch) {
+    kb.text(markSeller(t.btn_private, 'private'), `esv:${id}:private`)
+      .text(markSeller(t.btn_company, 'company'), `esv:${id}:company`)
+      .text(markSeller(t.btn_both, 'both'), `esv:${id}:both`)
+      .row();
+  }
+  for (const minutes of FREQUENCY_PRESETS) {
+    kb.text(markFreq(t.btn_freq(minutes), minutes), `efq:${id}:${minutes}`);
+  }
+  kb.row();
+  if (isSearch) kb.text(t.btn_exclusion, `ex:${id}`);
+  kb.text(t.btn_remove, `rm:${id}`);
+  return kb.row().text(t.btn_done, 'ed');
 }

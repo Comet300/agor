@@ -267,6 +267,38 @@ describe('ItemRepo.browse', () => {
     expect(store.items.countForChat(123)).toBe(0);
     expect(store.items.browse(123, 10, 0)).toEqual([]);
   });
+
+  it('browseByMonitor scopes to one watch, newest first, de-listed excluded', () => {
+    const store = freshStore();
+    const m1 = store.monitors.create(newMonitorInput({ chatId: 7 }));
+    const m2 = store.monitors.create(newMonitorInput({ chatId: 7, url: 'https://www.olx.ro/auto/q-passat/' }));
+    store.items.upsert(m1.id, scrapedItem({ id: 'a', title: 'A', url: 'https://x/a' }), 1_000);
+    store.items.upsert(m1.id, scrapedItem({ id: 'b', title: 'B', url: 'https://x/b' }), 3_000);
+    store.items.upsert(m2.id, scrapedItem({ id: 'c', title: 'C', url: 'https://x/c' }), 2_000);
+    store.items.upsert(m1.id, scrapedItem({ id: 'd', title: 'D', url: 'https://x/d' }), 4_000);
+    store.items.markAbsent(m1.id, ['d'], 5_000, 1); // delist d on m1
+
+    expect(store.items.browseByMonitor(m1.id, 10, 0).map((s) => s.itemId)).toEqual(['b', 'a']); // m1 only, DESC, no d
+    expect(store.items.browseByMonitor(m2.id, 10, 0).map((s) => s.itemId)).toEqual(['c']);     // m2 isolation
+  });
+
+  it('browseCountsByMonitor tallies browsable items per monitor', () => {
+    const store = freshStore();
+    const m1 = store.monitors.create(newMonitorInput({ chatId: 7 }));
+    const m2 = store.monitors.create(newMonitorInput({ chatId: 7, url: 'https://www.olx.ro/auto/q-passat/' }));
+    const other = store.monitors.create(newMonitorInput({ chatId: 99 }));
+    store.items.upsert(m1.id, scrapedItem({ id: 'a', url: 'https://x/a' }), 1_000);
+    store.items.upsert(m1.id, scrapedItem({ id: 'b', url: 'https://x/b' }), 1_000);
+    store.items.upsert(m2.id, scrapedItem({ id: 'c', url: 'https://x/c' }), 1_000);
+    store.items.upsert(m2.id, scrapedItem({ id: 'gone', url: 'https://x/g' }), 1_000);
+    store.items.markAbsent(m2.id, ['gone'], 2_000, 1); // delisted → excluded from the tally
+    store.items.upsert(other.id, scrapedItem({ id: 'z', url: 'https://x/z' }), 1_000); // chat 99
+
+    const counts = store.items.browseCountsByMonitor(7);
+    expect(counts.get(m1.id)).toBe(2);
+    expect(counts.get(m2.id)).toBe(1);
+    expect(counts.has(other.id)).toBe(false); // other chat not included
+  });
 });
 
 describe('PriceHistoryRepo', () => {
