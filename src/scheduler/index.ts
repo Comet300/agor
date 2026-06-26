@@ -12,9 +12,9 @@
  * whole engine is deterministic under test.
  */
 
-import type { Monitor } from '../contracts';
-import type { Store } from '../persistence';
-import { log } from '../logging/logger';
+import type { Monitor } from "../contracts";
+import type { Store } from "../persistence";
+import { log } from "../logging/logger";
 
 /** Everything the scheduler needs handed to it; nothing is imported globally. */
 export interface SchedulerDeps {
@@ -69,7 +69,9 @@ function destinationKey(monitor: Monitor): string {
  * the exact same target land in the same bucket, preserving input order within
  * each bucket. Exported so the batching behavior can be unit-tested directly.
  */
-export function groupByDestination(monitors: Monitor[]): Map<string, Monitor[]> {
+export function groupByDestination(
+  monitors: Monitor[],
+): Map<string, Monitor[]> {
   const groups = new Map<string, Monitor[]>();
   for (const monitor of monitors) {
     const key = destinationKey(monitor);
@@ -116,6 +118,16 @@ export class Scheduler {
     return this.lastDueCount;
   }
 
+  /** Epoch ms of the last completed scheduler tick, or null if it never fired. */
+  getLastTickAt(): number | null {
+    return this.lastTickAt;
+  }
+
+  /** Number of monitors processed in the last tick (diagnostic). */
+  getLastDueCount(): number {
+    return this.lastDueCount;
+  }
+
   /**
    * Re-arm a monitor's schedule. The next poll lands at `now` plus the cadence
    * appropriate to its tier: the fast (out-of-stock) interval when `fastTier`
@@ -127,7 +139,11 @@ export class Scheduler {
       ? this.deps.oosFastIntervalMs
       : monitor.intervalMs || this.deps.defaultIntervalMs;
     const nextDueAt = now + interval;
-    this.deps.store.monitors.setSchedule(monitor.id, nextDueAt, monitor.fastTier);
+    this.deps.store.monitors.setSchedule(
+      monitor.id,
+      nextDueAt,
+      monitor.fastTier,
+    );
   }
 
   /**
@@ -151,7 +167,10 @@ export class Scheduler {
       try {
         await this.deps.onMaintenance();
       } catch (err) {
-        log('scheduler').warn({ err: (err as Error).message }, 'db maintenance failed');
+        log("scheduler").warn(
+          { err: (err as Error).message },
+          "db maintenance failed",
+        );
       }
     }
 
@@ -166,7 +185,7 @@ export class Scheduler {
     // process every monitor individually (each owns its own chat/filters), but
     // batching keeps the iteration aligned with one-target-one-batch semantics.
     const batches = groupByDestination(due);
-    log('scheduler').debug({ due: due.length, batches: batches.size }, 'tick');
+    log("scheduler").debug({ due: due.length, batches: batches.size }, "tick");
 
     // Process distinct destinations with bounded concurrency so a tick's wall
     // time stays near the slowest destination, not the sum of every cycle —
@@ -205,19 +224,24 @@ export class Scheduler {
       await this.runWithTimeout(monitor);
     } catch (err) {
       // Isolate the failure: report it and keep going so siblings still run.
-      log('scheduler').error({ monitorId: monitor.id, err: (err as Error).message }, 'monitor cycle threw');
+      log("scheduler").error(
+        { monitorId: monitor.id, err: (err as Error).message },
+        "monitor cycle threw",
+      );
       this.deps.onError?.(monitor, err);
     } finally {
       try {
         // Always re-arm — a failed cycle must not leave the monitor stuck due.
         this.reschedule(monitor, now);
       } catch (err) {
-        log('scheduler').error(
+        log("scheduler").error(
           { monitorId: monitor.id, err: (err as Error).message },
-          'reschedule failed; monitor next_due_at left stale (will retry next tick)',
+          "reschedule failed; monitor next_due_at left stale (will retry next tick)",
         );
       }
     }
+    // Stamp last-tick AFTER all monitors finish, so /health reflects a completed pass.
+    this.lastTickAt = now;
   }
 
   /**
@@ -236,8 +260,14 @@ export class Scheduler {
         ms,
       );
       this.deps.runMonitor(monitor).then(
-        () => { clearTimeout(timer); resolve(); },
-        (err) => { clearTimeout(timer); reject(err); },
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
       );
     });
   }

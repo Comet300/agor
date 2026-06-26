@@ -68,6 +68,17 @@ export function maintainDb(db: DB, opts: MaintainOptions = {}): void {
 }
 
 /**
+ * Periodic DB housekeeping for a long-running, churn-heavy deployment (e.g. a
+ * Pi). Checkpoints the WAL back into the main file (TRUNCATE resets the WAL so
+ * it cannot grow without bound) and refreshes planner stats. Best-effort: the
+ * caller swallows failures so it never crashes a polling cycle.
+ */
+export function maintainDb(db: DB): void {
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  db.pragma('optimize');
+}
+
+/**
  * Create every table and index if they do not already exist. Safe to call on
  * each boot — `CREATE … IF NOT EXISTS` is a no-op on an up-to-date schema.
  */

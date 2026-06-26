@@ -2,11 +2,11 @@
  * Environment-driven runtime configuration, validated with zod.
  * Missing BOT_TOKEN / PROXY_URLS is tolerated (fixture / test mode).
  */
-import { z } from 'zod';
+import { z } from "zod";
 
 const csv = (raw: string | undefined): string[] =>
-  (raw ?? '')
-    .split(',')
+  (raw ?? "")
+    .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 
@@ -18,12 +18,16 @@ const numericCsv = (raw: string | undefined): number[] =>
 
 const EnvSchema = z.object({
   BOT_TOKEN: z.string().optional(),
-  DATABASE_PATH: z.string().default('./agor.db'),
+  DATABASE_PATH: z.string().default("./agor.db"),
   PROXY_URLS: z.string().optional(),
   // Comma-separated Telegram chat ids that bootstrap as admins (always allowed,
   // can grant/revoke others). Unset ⇒ no admins ⇒ access control is fail-open.
   ADMIN_CHAT_IDS: z.string().optional(),
-  DEFAULT_CHECK_INTERVAL_MS: z.coerce.number().int().positive().default(600_000),
+  DEFAULT_CHECK_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(600_000),
   OOS_FAST_INTERVAL_MS: z.coerce.number().int().positive().default(120_000),
   DEDUP_WINDOW_MS: z.coerce.number().int().positive().default(86_400_000),
   BENCHMARK_MIN_SAMPLE: z.coerce.number().int().positive().default(4),
@@ -37,9 +41,9 @@ const EnvSchema = z.object({
   // Requires the optional Playwright deps; off by default so the base install
   // (e.g. Raspberry Pi) never needs Chromium.
   ENABLE_BROWSER_FALLBACK: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((v) => v === 'true'),
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   // Consecutive blocked/failed cycles before a vendor is circuit-broken (polling
   // paused until manual re-enable). Deliberately higher than
   // FAILURE_ALERT_THRESHOLD: telling the user a watch is failing is cheap and
@@ -47,7 +51,11 @@ const EnvSchema = z.object({
   CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().int().positive().default(10),
   // Scheduler ticks between periodic DB maintenance (wal_checkpoint). Default
   // 360 ≈ 6h at the typical ~1-min tick cadence.
-  DB_MAINTENANCE_INTERVAL_TICKS: z.coerce.number().int().positive().default(360),
+  DB_MAINTENANCE_INTERVAL_TICKS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(360),
   // Days of access-decision audit history to retain; older rows are pruned
   // during DB maintenance so the audit_log stays bounded on a long-running Pi.
   AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
@@ -64,14 +72,14 @@ const EnvSchema = z.object({
   // listener for long-polling deployments that want a probe.
   HEALTH_CHECK_PORT: z.coerce.number().int().min(0).max(65535).default(0),
   LOG_LEVEL: z
-    .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'])
-    .default('info'),
+    .enum(["trace", "debug", "info", "warn", "error", "fatal", "silent"])
+    .default("info"),
   // Grafana Cloud Loki log shipping (all three required to ship; else stdout-only).
   LOKI_URL: z.string().optional(),
   LOKI_USER: z.string().optional(),
   LOKI_TOKEN: z.string().optional(),
-  LOG_SERVICE: z.string().default('agor'),
-  LOG_ENV: z.string().default('prod'),
+  LOG_SERVICE: z.string().default("agor"),
+  LOG_ENV: z.string().default("prod"),
   // Webhook mode (production): when WEBHOOK_URL is set the bot serves updates
   // from an HTTP listener instead of long-polling.
   WEBHOOK_URL: z.string().optional(),
@@ -110,7 +118,7 @@ export interface AppConfig {
   urlRegisterCooldownMs: number;
   /** Port for the GET /health endpoint (0 = disabled in long-poll mode). */
   healthCheckPort: number;
-  logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent';
+  logLevel: "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "silent";
   /** Grafana Cloud Loki: push host (e.g. https://logs-prod-039.grafana.net). */
   lokiUrl?: string;
   /** Loki tenant/instance id (Basic-auth username). */
@@ -152,7 +160,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     urlRegisterCooldownMs: parsed.URL_REGISTER_COOLDOWN_MS,
     // In webhook mode the health route rides the existing webhook listener;
     // otherwise it only runs when an explicit HEALTH_CHECK_PORT is set.
-    healthCheckPort: parsed.WEBHOOK_URL ? parsed.WEBHOOK_PORT : parsed.HEALTH_CHECK_PORT,
+    healthCheckPort: parsed.WEBHOOK_URL
+      ? parsed.WEBHOOK_PORT
+      : parsed.HEALTH_CHECK_PORT,
     logLevel: parsed.LOG_LEVEL,
     lokiUrl: parsed.LOKI_URL || undefined,
     lokiUser: parsed.LOKI_USER || undefined,

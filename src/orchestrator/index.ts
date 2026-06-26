@@ -13,22 +13,26 @@
  * injectable clock (`now`) through every component so the whole engine stays
  * deterministic under test.
  */
-import type { AppConfig } from '../config';
-import type { MessageRef, Monitor, Notification } from '../contracts';
-import type { Store } from '../persistence';
-import { maintainDb } from '../persistence';
-import type { PluginRegistry } from '../registry';
-import type { ScrapingEngine } from '../scraping/engine';
-import { CircuitBreaker } from '../scraping/circuitBreaker';
-import { DedupBuffer } from '../pipeline';
-import { Scheduler } from '../scheduler';
-import { RegistrationService, type RegisterInput, type RegisterResult } from './registration';
-import { MonitorCycle, type CycleResult } from './cycle';
-import { log } from '../logging/logger';
+import type { AppConfig } from "../config";
+import type { MessageRef, Monitor, Notification } from "../contracts";
+import type { Store } from "../persistence";
+import { maintainDb } from "../persistence";
+import type { PluginRegistry } from "../registry";
+import type { ScrapingEngine } from "../scraping/engine";
+import { CircuitBreaker } from "../scraping/circuitBreaker";
+import { DedupBuffer } from "../pipeline";
+import { Scheduler } from "../scheduler";
+import {
+  RegistrationService,
+  type RegisterInput,
+  type RegisterResult,
+} from "./registration";
+import { MonitorCycle, type CycleResult } from "./cycle";
+import { log } from "../logging/logger";
 
-export { RegistrationService } from './registration';
-export type { RegisterInput, RegisterResult } from './registration';
-export { MonitorCycle, type CycleResult } from './cycle';
+export { RegistrationService } from "./registration";
+export type { RegisterInput, RegisterResult } from "./registration";
+export { MonitorCycle, type CycleResult } from "./cycle";
 
 /** Everything the orchestrator needs handed to it; nothing is read globally. */
 export interface OrchestratorDeps {
@@ -125,7 +129,10 @@ export class Orchestrator {
    */
   private ownerAllowed(chatId: number): boolean {
     if (!this.deps.store.access.hasAnyAdmin()) return true; // pre-bootstrap: nothing enforced
-    return this.deps.store.access.isAllowed(chatId) || this.deps.store.access.isAdmin(chatId);
+    return (
+      this.deps.store.access.isAllowed(chatId) ||
+      this.deps.store.access.isAdmin(chatId)
+    );
   }
 
   /**
@@ -150,22 +157,42 @@ export class Orchestrator {
     // Access gate: a revoked / non-allowed owner's monitors are paused (stateless
     // — re-allowing resumes instantly). The watch row stays; it just isn't polled.
     if (!this.ownerAllowed(monitor.chatId)) {
-      log('orchestrator').debug(
-        { monitorId: monitor.id, chatId: monitor.chatId, event: 'OWNER-NOT-ALLOWED' },
-        'skipping poll — monitor owner is not allowed',
+      log("orchestrator").debug(
+        {
+          monitorId: monitor.id,
+          chatId: monitor.chatId,
+          event: "OWNER-NOT-ALLOWED",
+        },
+        "skipping poll — monitor owner is not allowed",
       );
-      return { notifications: [], ok: false, status: 0, itemsActive: 0, newItems: 0 };
+      return {
+        notifications: [],
+        ok: false,
+        status: 0,
+        itemsActive: 0,
+        newItems: 0,
+      };
     }
 
     // Circuit breaker: a vendor tripped open is not polled at all (it is blocked
     // or persistently failing — polling it is pure cost and ban risk). The watch
     // stays registered and resumes when the breaker is reset.
     if (this.breaker.isOpen(monitor.vendor)) {
-      log('orchestrator').debug(
-        { monitorId: monitor.id, vendor: monitor.vendor, event: 'CIRCUIT-OPEN' },
-        'skipping poll — vendor circuit breaker is open',
+      log("orchestrator").debug(
+        {
+          monitorId: monitor.id,
+          vendor: monitor.vendor,
+          event: "CIRCUIT-OPEN",
+        },
+        "skipping poll — vendor circuit breaker is open",
       );
-      return { notifications: [], ok: false, status: 0, itemsActive: 0, newItems: 0 };
+      return {
+        notifications: [],
+        ok: false,
+        status: 0,
+        itemsActive: 0,
+        newItems: 0,
+      };
     }
 
     const result = await this.cycle.run(monitor);
@@ -179,9 +206,13 @@ export class Orchestrator {
     const healthy = result.ok && !result.blocked;
     const tripped = this.breaker.record(monitor.vendor, { healthy });
     if (tripped) {
-      log('orchestrator').warn(
-        { monitorId: monitor.id, vendor: monitor.vendor, event: 'CIRCUIT-TRIPPED' },
-        'vendor circuit breaker tripped — pausing polls until re-enabled',
+      log("orchestrator").warn(
+        {
+          monitorId: monitor.id,
+          vendor: monitor.vendor,
+          event: "CIRCUIT-TRIPPED",
+        },
+        "vendor circuit breaker tripped — pausing polls until re-enabled",
       );
     }
     return result;
@@ -201,13 +232,13 @@ export class Orchestrator {
       try {
         ref = await this.deps.notify(n);
       } catch (err) {
-        log('orchestrator').warn(
+        log("orchestrator").warn(
           { chatId: n.chatId, kind: n.kind, err: (err as Error).message },
-          'notification delivery failed',
+          "notification delivery failed",
         );
         continue;
       }
-      if (n.kind === 'new_listing' && ref && n.item) {
+      if (n.kind === "new_listing" && ref && n.item) {
         // Record the message ref on the OWNING chat's buffer (per-chat isolation).
         const dedup = this.dedupFor(n.chatId);
         const sig = dedup.signatureOf(n.item);
@@ -224,11 +255,16 @@ export class Orchestrator {
    * failed, or (for a search that previously had listings) it returned zero
    * items — covering blocks and manifest drift. Healthy cycles reset the count.
    */
-  private async trackHealth(monitor: Monitor, result: CycleResult): Promise<void> {
+  private async trackHealth(
+    monitor: Monitor,
+    result: CycleResult,
+  ): Promise<void> {
     const priorListings = this.deps.store.items.knownIds(monitor.id).size;
     const unhealthy =
       !result.ok ||
-      (monitor.type === 'search' && result.itemsActive === 0 && priorListings > 0);
+      (monitor.type === "search" &&
+        result.itemsActive === 0 &&
+        priorListings > 0);
     const threshold = this.deps.config.failureAlertThreshold;
 
     // Health notices are best-effort: a delivery failure (blocked chat, Telegram
@@ -238,35 +274,38 @@ export class Orchestrator {
     if (unhealthy) {
       monitor.consecutiveFailures += 1;
       if (monitor.consecutiveFailures === threshold) {
-        await this.notifyHealth('watch_failing', monitor);
+        await this.notifyHealth("watch_failing", monitor);
       }
     } else {
       if (monitor.consecutiveFailures >= threshold) {
-        await this.notifyHealth('watch_recovered', monitor);
+        await this.notifyHealth("watch_recovered", monitor);
       }
       monitor.consecutiveFailures = 0;
     }
-    this.deps.store.monitors.setFailures(monitor.id, monitor.consecutiveFailures);
+    this.deps.store.monitors.setFailures(
+      monitor.id,
+      monitor.consecutiveFailures,
+    );
   }
 
   /** Deliver a health notice, swallowing+logging a delivery failure so the
    *  caller can still persist the failure counter (see {@link trackHealth}). */
   private async notifyHealth(
-    kind: 'watch_failing' | 'watch_recovered',
+    kind: "watch_failing" | "watch_recovered",
     monitor: Monitor,
   ): Promise<void> {
     try {
       await this.deps.notify(this.healthNotice(kind, monitor));
     } catch (err) {
-      log('orchestrator').warn(
+      log("orchestrator").warn(
         { monitorId: monitor.id, kind, err: (err as Error).message },
-        'health notice delivery failed',
+        "health notice delivery failed",
       );
     }
   }
 
   private healthNotice(
-    kind: 'watch_failing' | 'watch_recovered',
+    kind: "watch_failing" | "watch_recovered",
     monitor: Monitor,
   ): Notification {
     return {
@@ -293,7 +332,14 @@ export class Orchestrator {
    */
   async runMonitorOnce(monitorId: number): Promise<CycleResult> {
     const monitor = this.deps.store.monitors.get(monitorId);
-    if (!monitor) return { notifications: [], ok: false, status: 0, itemsActive: 0, newItems: 0 };
+    if (!monitor)
+      return {
+        notifications: [],
+        ok: false,
+        status: 0,
+        itemsActive: 0,
+        newItems: 0,
+      };
     return this.runAndDispatch(monitor);
   }
 
@@ -307,12 +353,21 @@ export class Orchestrator {
     // chat's monitors poll, so idle/removed monitors would otherwise leave rows
     // to be reloaded forever. This is the durable backstop (maintenance repeats it).
     try {
-      this.deps.store.dedup.pruneExpired(this.now(), this.deps.config.dedupWindowMs);
+      this.deps.store.dedup.pruneExpired(
+        this.now(),
+        this.deps.config.dedupWindowMs,
+      );
     } catch (err) {
-      log('orchestrator').warn({ err: (err as Error).message }, 'boot dedup prune failed');
+      log("orchestrator").warn(
+        { err: (err as Error).message },
+        "boot dedup prune failed",
+      );
     }
     this.scheduler.start(
-      Math.min(this.deps.config.oosFastIntervalMs, this.deps.config.defaultCheckIntervalMs),
+      Math.min(
+        this.deps.config.oosFastIntervalMs,
+        this.deps.config.defaultCheckIntervalMs,
+      ),
     );
   }
 
@@ -329,6 +384,9 @@ export class Orchestrator {
   /** Manually re-enable a circuit-broken vendor so its watches poll again. */
   resetCircuit(vendor: string): void {
     this.breaker.reset(vendor);
-    log('orchestrator').info({ vendor, event: 'CIRCUIT-RESET' }, 'vendor circuit breaker reset');
+    log("orchestrator").info(
+      { vendor, event: "CIRCUIT-RESET" },
+      "vendor circuit breaker reset",
+    );
   }
 }
