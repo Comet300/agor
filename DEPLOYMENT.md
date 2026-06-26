@@ -1,5 +1,11 @@
 # agor — Deployment & Connection Runbook
 
+> **Planned migration → containerized Dokku deploys.** The PM2 path below is the
+> current production setup. The agreed next step is to run agor (and sibling apps)
+> as Docker containers on Dokku, with on-push deploys via Cloudflare. The full
+> architecture + runbook is specified in **[docs/deployment-dokku.md](./docs/deployment-dokku.md)**;
+> it supersedes the PM2 sections here once implemented.
+
 This walks you from nothing to a running, connected bot on a **Raspberry Pi**,
 kept alive with **PM2**. Two delivery modes are supported:
 
