@@ -280,6 +280,23 @@ export class MonitorCycle {
       });
     }
 
+    // Target price reached: fire once when the price first crosses to at-or-below
+    // the user's target (prevPrice unknown or above target). Re-arms only if the
+    // price later climbs back above target, so a flat sub-target price won't spam.
+    const target = monitor.filters.targetPrice;
+    if (
+      target !== undefined &&
+      item.price <= target &&
+      (prevPrice === undefined || prevPrice > target)
+    ) {
+      notifications.push({
+        kind: 'target_hit',
+        chatId: monitor.chatId,
+        item,
+        target: { targetPrice: target, currentPrice: item.price },
+      });
+    }
+
     // Always record the new price point and refresh stored state — atomically,
     // so a crash between the two writes can't desynchronize price vs. state.
     this.deps.store.transaction(() => {

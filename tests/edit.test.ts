@@ -181,6 +181,17 @@ describe('/edit', () => {
     expect(h.store.monitors.get(m.id)!.filters.requiredKeywords).toEqual([]);
   });
 
+  it('et sets and clears a target price on a product watch', async () => {
+    const m = mkMonitor(h.store, 'product');
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `et:${m.id}`);
+    await say(h.bot, '12.000');
+    expect(h.store.monitors.get(m.id)!.filters.targetPrice).toBe(12000);
+    await tap(h.bot, `et:${m.id}`);
+    await say(h.bot, '-');
+    expect(h.store.monitors.get(m.id)!.filters.targetPrice).toBeUndefined();
+  });
+
   it('eb blocks a seller name or a phone, classifying by digit count', async () => {
     const m = mkMonitor(h.store, 'search');
     await cmd(h.bot, `/edit ${m.id}`);

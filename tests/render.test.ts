@@ -276,6 +276,18 @@ describe('renderNotification — browse/track/de-listing kinds', () => {
     expect(msg.text).toContain('Back again');
     expect(buttons(msg).length).toBeGreaterThan(0);
   });
+
+  it('target_hit renders the target reached + price with quick actions', () => {
+    const item = makeItem({ title: 'Bargain', price: 11500, currency: 'EUR' });
+    const msg = renderNotification(
+      { kind: 'target_hit', chatId: 1, item, target: { targetPrice: 12000, currentPrice: 11500 } },
+      'en',
+    );
+    expect(msg.text).toContain(tr('en').target_hit_title);
+    expect(msg.text).toContain(formatMoney(11500, 'EUR'));
+    expect(msg.text).toContain(formatMoney(12000, 'EUR')); // the target
+    expect(buttons(msg).length).toBeGreaterThan(0);
+  });
 });
 
 describe('renderBrowseCard', () => {

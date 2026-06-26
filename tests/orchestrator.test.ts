@@ -491,6 +491,48 @@ describe("10.2 product registration + price-drop detection", () => {
     expect(drop2).toHaveLength(1);
     expect(drop2[0]!.priceDrop?.savings).toBe(200);
   });
+
+  it("fires target_hit once when the price crosses to at/below target, re-arms after a climb", async () => {
+    const base: RawNode = { id: 'T1', title: 'Target widget', price: 1000, currency: 'RON', url: PRODUCT_URL, available: true };
+    h.setBody(productDoc(base));
+    const res = await h.orchestrator.register({ chatId: 7, rawUrl: PRODUCT_URL, type: 'product' });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('register failed');
+
+    // Set a target of 800.
+    const m = h.store.monitors.get(res.monitor.id)!;
+    m.filters = { ...m.filters, targetPrice: 800 };
+    h.store.monitors.update(m);
+
+    // Still above target -> no target_hit.
+    h.setNow(2_000);
+    h.setBody(productDoc({ ...base, price: 900 }));
+    let notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.some((n) => n.kind === 'target_hit')).toBe(false);
+
+    // Crosses to 780 (<= 800) -> exactly one target_hit.
+    h.setNow(3_000);
+    h.setBody(productDoc({ ...base, price: 780 }));
+    notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    const hit = notes.filter((n) => n.kind === 'target_hit');
+    expect(hit).toHaveLength(1);
+    expect(hit[0]!.target).toEqual({ targetPrice: 800, currentPrice: 780 });
+
+    // Still below (760) but already armed -> NO repeat target_hit.
+    h.setNow(4_000);
+    h.setBody(productDoc({ ...base, price: 760 }));
+    notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.some((n) => n.kind === 'target_hit')).toBe(false);
+
+    // Climb back above target (850), then cross again -> re-armed, fires once more.
+    h.setNow(5_000);
+    h.setBody(productDoc({ ...base, price: 850 }));
+    await h.orchestrator.runMonitorOnce(res.monitor.id);
+    h.setNow(6_000);
+    h.setBody(productDoc({ ...base, price: 790 }));
+    notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.filter((n) => n.kind === 'target_hit')).toHaveLength(1);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────

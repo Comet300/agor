@@ -132,6 +132,7 @@ export interface Catalog {
   btn_pause: string;
   btn_resume: string;
   btn_edit: string;
+  btn_target: string;
   btn_open: string;
   btn_call: string;
   btn_price_history: string;
@@ -176,6 +177,13 @@ export interface Catalog {
   required_prompt: string;
   required_set: (keywords: string) => string;
   required_cleared: string;
+  target_prompt: string;
+  target_set: (price: number) => string;
+  target_cleared: string;
+  target_invalid: string;
+  /** Title + line of a target-price-hit alert. */
+  target_hit_title: string;
+  target_hit_line: (target: string) => string;
   block_prompt: string;
   block_added_seller: (name: string) => string;
   block_added_phone: (phone: string) => string;
@@ -349,6 +357,7 @@ const ro: Catalog = {
   btn_pause: '⏸ Pauză',
   btn_resume: '▶️ Reia',
   btn_edit: '✏️ Editează',
+  btn_target: '🎯 Preț țintă',
   btn_open: '🔗 Deschide',
   btn_call: '📞 Sună',
   btn_price_history: '📊 Istoric preț',
@@ -388,6 +397,12 @@ const ro: Catalog = {
   required_prompt: 'Trimite cuvintele necesare, separate prin virgulă (anunțul trebuie să conțină cel puțin unul). „-” le șterge.',
   required_set: (kw) => `Necesită: ${kw}`,
   required_cleared: 'Toate cuvintele necesare au fost șterse.',
+  target_prompt: 'Trimite prețul țintă (doar numărul, în moneda anunțului). Te anunț când scade până la el. „-” îl șterge.',
+  target_set: (price) => `Preț țintă setat: ${price}`,
+  target_cleared: 'Prețul țintă a fost șters.',
+  target_invalid: 'Trimite un număr valid (ex.: 12000).',
+  target_hit_title: '🎯 Preț țintă atins!',
+  target_hit_line: (target) => `Țintă: ${target}`,
   block_prompt: 'Trimite numele vânzătorului sau un număr de telefon de blocat. „-” golește lista.',
   block_added_seller: (name) => `Vânzător blocat: ${name}`,
   block_added_phone: (phone) => `Telefon blocat: ${phone}`,
@@ -563,6 +578,7 @@ const en: Catalog = {
   btn_pause: '⏸ Pause',
   btn_resume: '▶️ Resume',
   btn_edit: '✏️ Edit',
+  btn_target: '🎯 Target price',
   btn_open: '🔗 Open',
   btn_call: '📞 Call',
   btn_price_history: '📊 Price history',
@@ -602,6 +618,12 @@ const en: Catalog = {
   required_prompt: 'Send comma-separated required keywords (a listing must contain at least one). “-” clears them.',
   required_set: (kw) => `Requiring: ${kw}`,
   required_cleared: 'Cleared all required keywords.',
+  target_prompt: 'Send the target price (number only, in the listing’s currency). I’ll alert when it drops to it. “-” clears it.',
+  target_set: (price) => `Target price set: ${price}`,
+  target_cleared: 'Target price cleared.',
+  target_invalid: 'Send a valid number (e.g. 12000).',
+  target_hit_title: '🎯 Target price reached!',
+  target_hit_line: (target) => `Target: ${target}`,
   block_prompt: 'Send a seller name or a phone number to block. “-” empties the list.',
   block_added_seller: (name) => `Blocked seller: ${name}`,
   block_added_phone: (phone) => `Blocked phone: ${phone}`,

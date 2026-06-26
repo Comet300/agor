@@ -193,7 +193,26 @@ export function renderNotification(n: Notification, lang: Lang): RenderedMessage
       return renderListingsDropped(n.dropped, lang);
     case 're_listed':
       return renderReListed(n.item!, lang);
+    case 'target_hit':
+      return renderTargetHit(n.item!, n.target, lang);
   }
+}
+
+/** Render a target-price hit: the item plus the target it reached. */
+function renderTargetHit(
+  item: EnrichedItem,
+  target: Notification['target'],
+  lang: Lang,
+): RenderedMessage {
+  const t = tr(lang);
+  const lines: string[] = [
+    t.target_hit_title,
+    item.title,
+    `💰 ${formatMoney(item.price, item.currency)}`,
+  ];
+  if (target) lines.push(t.target_hit_line(formatMoney(target.targetPrice, item.currency)));
+  if (item.location) lines.push(`📍 ${item.location}`);
+  return { text: lines.join('\n'), keyboard: quickActionsKeyboard(item, lang) };
 }
 
 /** Render a bidirectional price change for a tracked item. */

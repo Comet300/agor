@@ -121,6 +121,9 @@ const pendingRequired = new ExpiringMap<number, number>(PENDING_TTL_MS);
 /** Chats awaiting a block-seller reply (chat id → monitor id). */
 const pendingBlock = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
+/** Chats awaiting a target-price reply (chat id → monitor id). */
+const pendingTarget = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
 /**
  * Chats mid-way through the /request_access flow, keyed by chat id. `step` says
  * which field the next plain-text reply fills; `name` holds the captured name
@@ -1156,6 +1159,24 @@ export function buildBot(
     }
   });
 
+  // Target price (product watch): et:<monitorId> → prompt + remember pending.
+  bot.callbackQuery(/^et:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      pendingTarget.set(ctx.chat?.id ?? monitor.chatId, monitorId);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(tr(lang).target_prompt);
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
   // Remove monitor button: rm:<monitorId> — prompts a confirmation (the cf:rm
   // callback performs the delete), only for a watch owned by this chat.
   bot.callbackQuery(/^rm:(\d+)$/, async (ctx) => {
@@ -1548,6 +1569,36 @@ export function buildBot(
           store.monitors.update(monitor);
           await ctx.reply(tr(lang).block_added_seller(entry));
         }
+        return;
+      }
+
+      // 1f-pre. Are we waiting for a target price?
+      const targetMonitorId = pendingTarget.get(chatId);
+      if (targetMonitorId !== undefined) {
+        pendingTarget.delete(chatId);
+        const monitor = store.monitors.get(targetMonitorId);
+        if (!monitor || monitor.chatId !== chatId) {
+          await ctx.reply(tr(lang).cb_watch_gone);
+          return;
+        }
+        const raw = text.trim();
+        if (raw === '-') {
+          delete monitor.filters.targetPrice;
+          store.monitors.update(monitor);
+          await ctx.reply(tr(lang).target_cleared);
+          return;
+        }
+        // Prices here are whole numbers; accept any format and keep the digits
+        // ("12 000", "12.000", "12,000 lei" → 12000).
+        const n = Number(raw.replace(/\D/g, ''));
+        if (!Number.isFinite(n) || n <= 0) {
+          await ctx.reply(tr(lang).target_invalid); // stay armed to retry
+          pendingTarget.set(chatId, targetMonitorId);
+          return;
+        }
+        monitor.filters.targetPrice = n;
+        store.monitors.update(monitor);
+        await ctx.reply(tr(lang).target_set(n));
         return;
       }
 

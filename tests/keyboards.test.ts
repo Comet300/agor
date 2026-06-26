@@ -164,12 +164,14 @@ describe('editKeyboard', () => {
     expect(d).toContain('ep:4');           // pause/resume
     expect(d).toContain('rm:4');           // remove
     expect(d).toContain('ed');             // done
+    expect(d.some((x) => x.startsWith('et:'))).toBe(false); // target price is product-only
     expect(d.some((x) => x.startsWith('go:'))).toBe(false); // no "Start" on an existing watch
   });
 
-  it('product watch: frequency + rename + pause + remove + done (no seller / exclusion / deals-only)', () => {
+  it('product watch: frequency + target + rename + pause + remove + done (no seller / exclusion / deals-only)', () => {
     const d = dataOf(editKeyboard(monitor({ id: 9, type: 'product', origin: 'tracked' }), 'en'));
     expect(d).toContain('efq:9:5');
+    expect(d).toContain('et:9');           // target price (product only)
     expect(d).toContain('er:9');           // rename works for any watch
     expect(d).toContain('ep:9');           // pause works for any watch
     expect(d).toContain('rm:9');

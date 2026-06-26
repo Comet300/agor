@@ -159,6 +159,12 @@ export interface FilterConfig {
   blockedSellers?: string[];
   /** Normalized (digits-only) seller phone numbers to block. */
   blockedPhones?: string[];
+  /**
+   * Target price (in the listing's own currency) for a product/tracked watch.
+   * When the item's price first reaches at-or-below this, a `target_hit` alert
+   * fires once (re-armed only if the price climbs back above the target).
+   */
+  targetPrice?: number;
 }
 
 export interface Monitor {
@@ -238,7 +244,9 @@ export type NotificationKind =
   /** A search monitor's roll-up of listings that dropped off this cycle. */
   | 'listings_dropped'
   /** A delisted item reappeared within the memory window. */
-  | 're_listed';
+  | 're_listed'
+  /** A tracked item's price reached the user's target (threshold crossing). */
+  | 'target_hit';
 
 export interface PriceDropInfo {
   previousPrice: number;
@@ -253,6 +261,12 @@ export interface PriceChangeInfo {
   currentPrice: number;
   /** 'down' when the price fell, 'up' when it rose. */
   direction: 'up' | 'down';
+}
+
+/** Payload for a target-price hit (price reached the user's threshold). */
+export interface TargetHitInfo {
+  targetPrice: number;
+  currentPrice: number;
 }
 
 /** Why an item is considered gone. */
@@ -303,6 +317,8 @@ export interface Notification {
   priceDrop?: PriceDropInfo;
   /** Present only for price_change notifications (tracked items, any direction). */
   priceChange?: PriceChangeInfo;
+  /** Present only for target_hit notifications. */
+  target?: TargetHitInfo;
   /** Present only for item_delisted notifications. */
   delist?: DelistInfo;
   /** Present only for listings_dropped (search de-listing roll-up). */
