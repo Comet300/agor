@@ -155,10 +155,31 @@ export function migrate(db: DB): void {
       ON audit_log (at DESC);
   `);
 
-  // Idempotent column add for databases created before this column existed
-  // (CREATE TABLE IF NOT EXISTS does not alter an existing table).
-  const cols = db.prepare('PRAGMA table_info(monitors)').all() as Array<{ name: string }>;
-  if (!cols.some((c) => c.name === 'consecutive_failures')) {
+  // Idempotent column additions for databases created before these columns existed.
+  const monitorCols = db.prepare('PRAGMA table_info(monitors)').all() as Array<{ name: string }>;
+  if (!monitorCols.some((c) => c.name === 'consecutive_failures')) {
     db.exec('ALTER TABLE monitors ADD COLUMN consecutive_failures INTEGER DEFAULT 0');
+  }
+  if (!monitorCols.some((c) => c.name === 'origin')) {
+    db.exec("ALTER TABLE monitors ADD COLUMN origin TEXT DEFAULT 'user'");
+  }
+
+  const itemCols = db.prepare('PRAGMA table_info(items)').all() as Array<{ name: string }>;
+  const itemAlters: Array<[string, string]> = [
+    ['title',           'TEXT'],
+    ['url',             'TEXT'],
+    ['image_url',       'TEXT'],
+    ['location',        'TEXT'],
+    ['seller_private',  'INTEGER'],
+    ['posted_at',       'INTEGER'],
+    ['description',     'TEXT'],
+    ['attributes_json', 'TEXT'],
+    ['gone_count',      'INTEGER DEFAULT 0'],
+    ['delisted_at',     'INTEGER'],
+  ];
+  for (const [col, type] of itemAlters) {
+    if (!itemCols.some((c) => c.name === col)) {
+      db.exec(`ALTER TABLE items ADD COLUMN ${col} ${type}`);
+    }
   }
 }
