@@ -124,6 +124,15 @@ export interface IScrapedItem {
 
 export type MonitorType = 'search' | 'product';
 
+/**
+ * How a monitor came to exist:
+ *   - 'user'    — the user explicitly added a search/product watch,
+ *   - 'tracked' — auto-created by tapping "Track" on a browsed item.
+ * Tracked monitors notify on ANY price change (not just drops) and are badged
+ * in the watch list.
+ */
+export type MonitorOrigin = 'user' | 'tracked';
+
 /** Seller-type visibility selection (Feature 7). */
 export type SellerVisibility = 'private' | 'company' | 'both';
 
@@ -137,6 +146,8 @@ export interface FilterConfig {
 export interface Monitor {
   id: number;
   type: MonitorType;
+  /** How the watch was created ('user' default, 'tracked' from browse). */
+  origin: MonitorOrigin;
   /** Owning Telegram chat id. */
   chatId: number;
   /** Vendor that the target URL resolved to. */
@@ -197,13 +208,53 @@ export type NotificationKind =
   /** A watch is repeatedly failing (blocked / empty). */
   | 'watch_failing'
   /** A previously-failing watch is working again. */
-  | 'watch_recovered';
+  | 'watch_recovered'
+  /** A tracked item's price moved in EITHER direction (tracked items only). */
+  | 'price_change'
+  /** A product/tracked item is gone (page 404'd or crossed the absent threshold). */
+  | 'item_delisted'
+  /** A search monitor's roll-up of listings that dropped off this cycle. */
+  | 'listings_dropped'
+  /** A delisted item reappeared within the memory window. */
+  | 're_listed';
 
 export interface PriceDropInfo {
   previousPrice: number;
   currentPrice: number;
   /** previousPrice - currentPrice. */
   savings: number;
+}
+
+/** Payload for a tracked item's bidirectional price move. */
+export interface PriceChangeInfo {
+  previousPrice: number;
+  currentPrice: number;
+  /** 'down' when the price fell, 'up' when it rose. */
+  direction: 'up' | 'down';
+}
+
+/** Why an item is considered gone. */
+export type DelistReason =
+  /** A product page returned a client error (404/410). */
+  | 'product_gone'
+  /** A search-derived item was absent for the grace threshold of cycles. */
+  | 'search_dropped';
+
+/** Payload for an item_delisted notification (the gone item + why). */
+export interface DelistInfo {
+  reason: DelistReason;
+  /** The last price observed before it went, when known. */
+  lastSeenPrice?: number;
+}
+
+/** Payload for a search monitor's per-cycle de-listing roll-up. */
+export interface DroppedSummary {
+  monitorId: number;
+  vendor: string;
+  /** Total listings that dropped off this cycle. */
+  count: number;
+  /** A few representative titles (capped) for the message body. */
+  titles: string[];
 }
 
 /** Identifies an already-sent Telegram message so it can be edited in place. */
@@ -223,10 +274,17 @@ export interface WatchHealth {
 export interface Notification {
   kind: NotificationKind;
   chatId: number;
-  /** Present for listing kinds (new_listing/price_drop/back_in_stock/cross_post). */
+  /** Present for listing kinds (new_listing/price_drop/back_in_stock/cross_post/
+   *  price_change/item_delisted/re_listed). */
   item?: EnrichedItem;
   /** Present only for price_drop notifications. */
   priceDrop?: PriceDropInfo;
+  /** Present only for price_change notifications (tracked items, any direction). */
+  priceChange?: PriceChangeInfo;
+  /** Present only for item_delisted notifications. */
+  delist?: DelistInfo;
+  /** Present only for listings_dropped (search de-listing roll-up). */
+  dropped?: DroppedSummary;
   /** Present only for cross_post notifications: the original alert to edit. */
   messageRef?: MessageRef;
   /** Present only for watch_failing / watch_recovered notices. */

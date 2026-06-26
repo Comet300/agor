@@ -13,11 +13,67 @@ export interface ItemState {
   currency: string;
 }
 
+/**
+ * The full stored item, reconstructed for browsing. Metadata fields are optional
+ * because a row first stored before the snapshot columns existed (or by a vendor
+ * that omits a field) carries only the legacy state — it heals on the next poll.
+ */
+export interface ItemSnapshot {
+  monitorId: number;
+  itemId: string;
+  inStock: boolean;
+  lastPrice: number;
+  currency: string;
+  firstSeen: number;
+  lastSeen: number;
+  title?: string;
+  url?: string;
+  imageUrl?: string;
+  location?: string;
+  sellerPrivate?: boolean;
+  postedAt?: number;
+  description?: string;
+  attributes?: Record<string, string>;
+}
+
 /** Raw shape of an `items` table row (snake_case, integer boolean). */
 interface ItemRow {
   in_stock: number;
   last_price: number;
   currency: string;
+}
+
+/** Full raw row including the snapshot columns (any may be NULL). */
+interface ItemSnapshotRow {
+  monitor_id: number;
+  item_id: string;
+  in_stock: number;
+  last_price: number;
+  currency: string;
+  first_seen: number;
+  last_seen: number;
+  title: string | null;
+  url: string | null;
+  image_url: string | null;
+  location: string | null;
+  seller_private: number | null;
+  posted_at: number | null;
+  description: string | null;
+  attributes_json: string | null;
+}
+
+/** Parse a stored attributes_json blob back to a string map, tolerating corruption. */
+function parseAttributes(json: string | null): Record<string, string> | undefined {
+  if (!json) return undefined;
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, string>;
+    }
+  } catch {
+    // corrupt blob treated as absent
+  }
+  return undefined;
 }
 
 export class ItemRepo {
@@ -49,20 +105,35 @@ export class ItemRepo {
 
   /**
    * Insert or refresh an item snapshot. On first sight `first_seen` is stamped;
-   * subsequent sights update stock, price, currency and bump `last_seen`.
+   * subsequent sights update stock, price, currency, the full browsable snapshot
+   * (title/url/image/location/seller/posted/description/attributes), and bump
+   * `last_seen`. Clears `gone_count` and `delisted_at` so a reappearing item
+   * is treated as live again.
    */
   upsert(monitorId: number, item: IScrapedItem, now: number): void {
     this.db
       .prepare(
         `INSERT INTO items
-           (monitor_id, item_id, in_stock, last_price, currency, first_seen, last_seen)
+           (monitor_id, item_id, in_stock, last_price, currency, first_seen, last_seen,
+            title, url, image_url, location, seller_private, posted_at, description, attributes_json)
          VALUES
-           (@monitorId, @itemId, @inStock, @price, @currency, @now, @now)
+           (@monitorId, @itemId, @inStock, @price, @currency, @now, @now,
+            @title, @url, @imageUrl, @location, @sellerPrivate, @postedAt, @description, @attributesJson)
          ON CONFLICT(monitor_id, item_id) DO UPDATE SET
-           in_stock   = excluded.in_stock,
-           last_price = excluded.last_price,
-           currency   = excluded.currency,
-           last_seen  = excluded.last_seen`,
+           in_stock        = excluded.in_stock,
+           last_price      = excluded.last_price,
+           currency        = excluded.currency,
+           last_seen       = excluded.last_seen,
+           title           = excluded.title,
+           url             = excluded.url,
+           image_url       = excluded.image_url,
+           location        = excluded.location,
+           seller_private  = excluded.seller_private,
+           posted_at       = excluded.posted_at,
+           description     = excluded.description,
+           attributes_json = excluded.attributes_json,
+           gone_count      = 0,
+           delisted_at     = NULL`,
       )
       .run({
         monitorId,
@@ -71,7 +142,26 @@ export class ItemRepo {
         price: item.price,
         currency: item.currency,
         now,
+        title: item.title ?? null,
+        url: item.url ?? null,
+        imageUrl: item.imageUrl ?? null,
+        location: item.location ?? null,
+        sellerPrivate: item.isPrivateOwner ? 1 : 0,
+        postedAt: item.postedAt ?? null,
+        description: item.description ?? null,
+        attributesJson:
+          item.attributes && Object.keys(item.attributes).length > 0
+            ? JSON.stringify(item.attributes)
+            : null,
       });
+  }
+
+  /** The full stored snapshot for one item, or `undefined` if never seen. */
+  getSnapshot(monitorId: number, itemId: string): ItemSnapshot | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM items WHERE monitor_id = ? AND item_id = ?`)
+      .get(monitorId, itemId) as ItemSnapshotRow | undefined;
+    return row ? rowToSnapshot(row) : undefined;
   }
 
   /**
@@ -115,4 +205,63 @@ export class ItemRepo {
     const known = this.knownIds(monitorId);
     return currentIds.filter((id) => !known.has(id));
   }
+
+  /** The de-listing bookkeeping for one item (absent-cycle counter + delist stamp). */
+  delistState(monitorId: number, itemId: string): { goneCount: number; delistedAt?: number } | undefined {
+    const row = this.db
+      .prepare(`SELECT gone_count, delisted_at FROM items WHERE monitor_id = ? AND item_id = ?`)
+      .get(monitorId, itemId) as { gone_count: number; delisted_at: number | null } | undefined;
+    if (!row) return undefined;
+    return { goneCount: row.gone_count ?? 0, ...(row.delisted_at != null ? { delistedAt: row.delisted_at } : {}) };
+  }
+
+  /**
+   * Record that `absentIds` were NOT seen this cycle: increment each one's
+   * `gone_count`. An item whose count reaches `threshold` for the FIRST time is
+   * stamped `delisted_at = now` and returned, so the caller alerts exactly once.
+   * Ids not stored for the monitor, or already delisted, are skipped. Wrapped in
+   * a single transaction.
+   */
+  markAbsent(monitorId: number, absentIds: string[], now: number, threshold: number): string[] {
+    if (absentIds.length === 0) return [];
+    const bump = this.db.prepare(
+      `UPDATE items SET gone_count = gone_count + 1
+        WHERE monitor_id = ? AND item_id = ? AND delisted_at IS NULL`,
+    );
+    const stamp = this.db.prepare(
+      `UPDATE items SET delisted_at = ?
+        WHERE monitor_id = ? AND item_id = ? AND delisted_at IS NULL AND gone_count >= ?`,
+    );
+    const crossed: string[] = [];
+    this.db.transaction(() => {
+      for (const id of absentIds) {
+        if (bump.run(monitorId, id).changes === 0) continue; // not stored / already delisted
+        if (stamp.run(now, monitorId, id, threshold).changes > 0) crossed.push(id);
+      }
+    })();
+    return crossed;
+  }
+}
+
+/** Reconstruct an {@link ItemSnapshot} from a raw row (NULL metadata → undefined). */
+function rowToSnapshot(r: ItemSnapshotRow): ItemSnapshot {
+  const snap: ItemSnapshot = {
+    monitorId: r.monitor_id,
+    itemId: r.item_id,
+    inStock: r.in_stock === 1,
+    lastPrice: r.last_price,
+    currency: r.currency,
+    firstSeen: r.first_seen,
+    lastSeen: r.last_seen,
+  };
+  if (r.title != null) snap.title = r.title;
+  if (r.url != null) snap.url = r.url;
+  if (r.image_url != null) snap.imageUrl = r.image_url;
+  if (r.location != null) snap.location = r.location;
+  if (r.seller_private != null) snap.sellerPrivate = r.seller_private === 1;
+  if (r.posted_at != null) snap.postedAt = r.posted_at;
+  if (r.description != null) snap.description = r.description;
+  const attrs = parseAttributes(r.attributes_json);
+  if (attrs) snap.attributes = attrs;
+  return snap;
 }

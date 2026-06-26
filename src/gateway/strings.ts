@@ -62,6 +62,17 @@ export interface Catalog {
   url_rate_limited: string;
   watch_failing: (h: WatchHealth) => string;
   watch_recovered: (h: WatchHealth) => string;
+  /** Tracked-item bidirectional price change. */
+  price_change: (p: { title: string; oldPrice: string; newPrice: string; direction: 'up' | 'down' }) => string;
+  /** De-listing alert. */
+  delisted_title: string;
+  delisted_reason_product_gone: string;
+  delisted_reason_search_dropped: string;
+  delisted_last_price: (price: string) => string;
+  /** Search monitor's per-cycle drop-off roll-up header. */
+  listings_dropped_title: (count: number, vendor: string) => string;
+  /** A delisted item reappeared. */
+  re_listed_title: string;
 
   // ── Registration tuning card ──────────────────────────────────────────────
   reg_watching: (vendor: string) => string;
@@ -218,6 +229,15 @@ const ro: Catalog = {
   watch_failing: (h) =>
     `⚠️ Urmărirea #${h.monitorId} (${h.vendor}) pare blocată sau nu mai găsește nimic (${h.consecutiveFailures} verificări eșuate la rând). Voi anunța când revine.`,
   watch_recovered: (h) => `✅ Urmărirea #${h.monitorId} (${h.vendor}) funcționează din nou.`,
+  price_change: ({ title, oldPrice, newPrice, direction }) =>
+    `${direction === 'down' ? '📉' : '📈'} Preț modificat la ${title}: ${oldPrice} → ${newPrice}`,
+  delisted_title: '🗑️ Anunț eliminat',
+  delisted_reason_product_gone: 'Pagina anunțului nu mai există (a fost ștearsă).',
+  delisted_reason_search_dropped: 'Anunțul a dispărut din rezultatele urmărite.',
+  delisted_last_price: (price) => `Ultimul preț văzut: ${price}`,
+  listings_dropped_title: (count, vendor) =>
+    `🗑️ ${count} ${count === 1 ? 'anunț a dispărut' : 'anunțuri au dispărut'} de pe ${vendor}`,
+  re_listed_title: '♻️ Anunț reapărut',
 
   reg_watching: (v) => `✅ Urmăresc ${v}`,
   reg_baseline: (c) => `📦 Bază: ${c} anunț${c === 1 ? '' : 'uri'} înregistrat${c === 1 ? '' : 'e'}.`,
@@ -372,6 +392,15 @@ const en: Catalog = {
   watch_failing: (h) =>
     `⚠️ Watch #${h.monitorId} (${h.vendor}) looks blocked or is finding nothing (${h.consecutiveFailures} failed checks in a row). I'll tell you when it recovers.`,
   watch_recovered: (h) => `✅ Watch #${h.monitorId} (${h.vendor}) is working again.`,
+  price_change: ({ title, oldPrice, newPrice, direction }) =>
+    `${direction === 'down' ? '📉' : '📈'} Price changed on ${title}: ${oldPrice} → ${newPrice}`,
+  delisted_title: '🗑️ Listing removed',
+  delisted_reason_product_gone: 'The listing page no longer exists (it was deleted).',
+  delisted_reason_search_dropped: 'The listing dropped out of the tracked results.',
+  delisted_last_price: (price) => `Last seen price: ${price}`,
+  listings_dropped_title: (count, vendor) =>
+    `🗑️ ${count} ${count === 1 ? 'listing dropped' : 'listings dropped'} off ${vendor}`,
+  re_listed_title: '♻️ Listing reappeared',
 
   reg_watching: (v) => `✅ Watching ${v}`,
   reg_baseline: (c) => `📦 Baseline: ${c} listing${c === 1 ? '' : 's'} recorded.`,

@@ -29,7 +29,7 @@ export {
   type MaintainOptions,
 } from "./db";
 export type { NewMonitor } from "./monitors";
-export type { ItemState } from "./items";
+export type { ItemState, ItemSnapshot } from "./items";
 export type { AccessStatus, AccessRecord, RequestOutcome } from "./access";
 export { REAPPLY_COOLDOWN_DAYS } from "./access";
 
