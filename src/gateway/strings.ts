@@ -213,8 +213,11 @@ const ro: Catalog = {
   list_empty: 'Nicio urmărire încă. Trimite un link de anunț ca să creezi una.',
   list_intro: 'Urmăririle tale:',
   list_item: ({ id, vendor, type, seller, url, exclusions, tracked }) =>
-    `#${id} · ${tracked ? '📌 ' : ''}${vendor} · ${type} · vânzător=${seller}` +
-    (exclusions ? ` · excluse: ${exclusions}` : '') +
+    `#${id} · ${tracked ? '📌 ' : ''}${vendor} · ${type}` +
+    // Seller filter & exclusions only apply to search watches; a product watch
+    // tracks one listing, so they'd be meaningless noise.
+    (type === 'search' ? ` · vânzător=${seller}` : '') +
+    (type === 'search' && exclusions ? ` · excluse: ${exclusions}` : '') +
     `\n${url}`,
   remove_usage: 'Folosire: /remove <id>',
   remove_done: (id) => `Urmărirea #${id} a fost oprită.`,
@@ -382,8 +385,11 @@ const en: Catalog = {
   list_empty: 'No watches yet. Send a listing link to create one.',
   list_intro: 'Your watches:',
   list_item: ({ id, vendor, type, seller, url, exclusions, tracked }) =>
-    `#${id} · ${tracked ? '📌 ' : ''}${vendor} · ${type} · seller=${seller}` +
-    (exclusions ? ` · excluded: ${exclusions}` : '') +
+    `#${id} · ${tracked ? '📌 ' : ''}${vendor} · ${type}` +
+    // Seller filter & exclusions only apply to search watches; a product watch
+    // tracks one listing, so they'd be meaningless noise.
+    (type === 'search' ? ` · seller=${seller}` : '') +
+    (type === 'search' && exclusions ? ` · excluded: ${exclusions}` : '') +
     `\n${url}`,
   remove_usage: 'Usage: /remove <id>',
   remove_done: (id) => `Watch #${id} stopped.`,
