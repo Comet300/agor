@@ -14,7 +14,7 @@
  * code span). We keep formatting minimal and rely on emoji + plain text so the
  * output is robust regardless of parse mode.
  */
-import type { EnrichedItem, Notification, DealTag, SellerVisibility } from '../contracts';
+import type { EnrichedItem, Monitor, Notification, DealTag, SellerVisibility } from '../contracts';
 import type { ItemSnapshot } from '../persistence';
 import type { InlineKeyboard } from 'grammy';
 import { formatMoney } from '../util/money';
@@ -22,6 +22,7 @@ import { draftOffer } from '../features/contactOffer';
 import {
   quickActionsKeyboard,
   registrationKeyboard,
+  editKeyboard,
   openOnlyKeyboard,
   browseKeyboard,
   browseScopeKeyboard,
@@ -354,6 +355,22 @@ export function renderBrowseCard(
   };
   if (snap.imageUrl) view.photoUrl = snap.imageUrl;
   return view;
+}
+
+/**
+ * Render the /edit tuning card for an existing watch: a one-line summary
+ * (id · vendor · type · current cadence) plus the {@link editKeyboard} controls.
+ */
+export function renderEditCard(monitor: Monitor, lang: Lang): RenderedMessage {
+  return {
+    text: tr(lang).edit_card({
+      id: monitor.id,
+      vendor: monitor.vendor,
+      type: monitor.type,
+      minutes: Math.round(monitor.intervalMs / 60000),
+    }),
+    keyboard: editKeyboard(monitor, lang),
+  };
 }
 
 /**

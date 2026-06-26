@@ -43,6 +43,10 @@ export interface Catalog {
   remove_usage: string;
   remove_done: (id: number) => string;
   remove_not_found: string;
+  edit_usage: string;
+  edit_not_found: string;
+  /** Header of the /edit tuning card for an existing watch. */
+  edit_card: (p: { id: number; vendor: string; type: string; minutes: number }) => string;
   lang_current: (langName: string) => string;
   lang_set: (langName: string) => string;
   lang_usage: string;
@@ -85,6 +89,7 @@ export interface Catalog {
   btn_both: string;
   btn_exclusion: string;
   btn_start: string;
+  btn_done: string;
   btn_remove: string;
   btn_open: string;
   btn_call: string;
@@ -119,6 +124,7 @@ export interface Catalog {
   cb_setting_error: string;
   cb_removed: string;
   cb_freq_set: (minutes: number) => string;
+  cb_edit_done: string;
   exclusion_prompt: string;
   exclusion_set: (keywords: string) => string;
   exclusion_cleared: string;
@@ -205,6 +211,7 @@ const ro: Catalog = {
     '• După înregistrare, reglează tipul de vânzător, frecvența și cuvintele excluse, apoi apasă „Pornește”.\n' +
     '• /list — arată toate urmăririle din acest chat.\n' +
     '• /browse — răsfoiește anunțurile colectate; apasă „📌 Urmărește” ca să urmărești un anunț.\n' +
+    '• /edit <id> — modifică frecvența, vânzătorul sau cuvintele excluse ale unei urmăriri.\n' +
     '• /remove <id> — oprește o urmărire.\n' +
     '• /lang ro|en — schimbă limba.\n' +
     '• Apasă „Istoric preț” pe orice alertă pentru un grafic.',
@@ -222,6 +229,10 @@ const ro: Catalog = {
   remove_usage: 'Folosire: /remove <id>',
   remove_done: (id) => `Urmărirea #${id} a fost oprită.`,
   remove_not_found: 'Urmărirea nu există sau nu îți aparține.',
+  edit_usage: 'Folosire: /edit <id>',
+  edit_not_found: 'Urmărirea nu există sau nu îți aparține.',
+  edit_card: ({ id, vendor, type, minutes }) =>
+    `✏️ Editezi urmărirea #${id} · ${vendor} · ${type}\nVerificare la fiecare ${minutes} min. Ajustează mai jos:`,
   lang_current: (n) => `Limba curentă: ${n}. Schimbă cu /lang ro|en.`,
   lang_set: (n) => `Limba a fost setată: ${n}.`,
   lang_usage: 'Folosire: /lang ro|en',
@@ -260,6 +271,7 @@ const ro: Catalog = {
   btn_both: '👥 Ambele',
   btn_exclusion: '🚫 Cuvinte excluse',
   btn_start: '▶️ Pornește',
+  btn_done: '✅ Gata',
   btn_remove: '🗑 Șterge',
   btn_open: '🔗 Deschide',
   btn_call: '📞 Sună',
@@ -289,6 +301,7 @@ const ro: Catalog = {
   cb_setting_error: 'Nu am putut actualiza setarea.',
   cb_removed: 'Urmărire ștearsă.',
   cb_freq_set: (m) => `Frecvență: ${m} min`,
+  cb_edit_done: 'Modificări salvate.',
   exclusion_prompt: 'Trimite cuvintele de exclus, separate prin virgulă (ex.: lovit, piese, dube).',
   exclusion_set: (kw) => `Exclud: ${kw}`,
   exclusion_cleared: 'Toate cuvintele excluse au fost șterse.',
@@ -377,6 +390,7 @@ const en: Catalog = {
     '• After registering, tune the seller type, frequency and exclusion keywords, then tap “Start”.\n' +
     '• /list — show every watch in this chat.\n' +
     '• /browse — browse collected listings; tap “📌 Track” to watch an item.\n' +
+    '• /edit <id> — change a watch’s frequency, seller filter or exclusion keywords.\n' +
     '• /remove <id> — stop a watch.\n' +
     '• /lang ro|en — change language.\n' +
     '• Tap “Price history” on any alert for a chart.',
@@ -394,6 +408,10 @@ const en: Catalog = {
   remove_usage: 'Usage: /remove <id>',
   remove_done: (id) => `Watch #${id} stopped.`,
   remove_not_found: 'That watch does not exist or is not yours.',
+  edit_usage: 'Usage: /edit <id>',
+  edit_not_found: 'That watch does not exist or is not yours.',
+  edit_card: ({ id, vendor, type, minutes }) =>
+    `✏️ Editing watch #${id} · ${vendor} · ${type}\nChecks every ${minutes} min. Adjust below:`,
   lang_current: (n) => `Current language: ${n}. Change with /lang ro|en.`,
   lang_set: (n) => `Language set to ${n}.`,
   lang_usage: 'Usage: /lang ro|en',
@@ -432,6 +450,7 @@ const en: Catalog = {
   btn_both: '👥 Both',
   btn_exclusion: '🚫 Exclusion keywords',
   btn_start: '▶️ Start',
+  btn_done: '✅ Done',
   btn_remove: '🗑 Remove',
   btn_open: '🔗 Open',
   btn_call: '📞 Call',
@@ -461,6 +480,7 @@ const en: Catalog = {
   cb_setting_error: 'Could not update that setting.',
   cb_removed: 'Watch removed.',
   cb_freq_set: (m) => `Frequency: ${m} min`,
+  cb_edit_done: 'Changes saved.',
   exclusion_prompt: 'Send a comma-separated list of keywords to exclude (e.g. damaged, parts, salvage).',
   exclusion_set: (kw) => `Excluding: ${kw}`,
   exclusion_cleared: 'Cleared all exclusion keywords.',
@@ -550,6 +570,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'list', description: 'Arată urmăririle din acest chat' },
     { command: 'browse', description: 'Răsfoiește anunțurile colectate' },
     { command: 'check', description: 'Verifică o urmărire acum (/check <id>)' },
+    { command: 'edit', description: 'Modifică o urmărire (/edit <id>)' },
     { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
     { command: 'lang', description: 'Schimbă limba (/lang ro|en)' },
     { command: 'request_access', description: 'Cere acces la bot' },
@@ -561,6 +582,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'list', description: 'Show this chat’s watches' },
     { command: 'browse', description: 'Browse collected listings' },
     { command: 'check', description: 'Check a watch now (/check <id>)' },
+    { command: 'edit', description: 'Edit a watch (/edit <id>)' },
     { command: 'remove', description: 'Stop a watch (/remove <id>)' },
     { command: 'lang', description: 'Change language (/lang ro|en)' },
     { command: 'request_access', description: 'Request access to the bot' },

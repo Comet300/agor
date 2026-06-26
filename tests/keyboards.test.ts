@@ -1,11 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import {
   registrationKeyboard,
+  editKeyboard,
   browseKeyboard,
   browseScopeKeyboard,
   browseScopeLabel,
 } from '../src/gateway/keyboards';
 import { tr } from '../src/gateway/strings';
+import type { Monitor } from '../src/contracts';
+
+function monitor(over: Partial<Monitor> = {}): Monitor {
+  return {
+    id: 4, type: 'search', origin: 'user', chatId: 1, vendor: 'OLX',
+    url: 'https://www.olx.ro/auto/q-golf/',
+    filters: { sellerVisibility: 'both', exclusionKeywords: [] },
+    intervalMs: 600000, fastTier: false, nextDueAt: 0, consecutiveFailures: 0, createdAt: 0,
+    ...over,
+  };
+}
 
 function labels(kb: ReturnType<typeof registrationKeyboard>): string[] {
   return kb.inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
@@ -132,5 +144,39 @@ describe('browseScopeKeyboard / browseScopeLabel', () => {
   it('falls back to the vendor alone when no hint is recognisable', () => {
     expect(browseScopeLabel('olx', 'https://www.olx.ro/auto/')).toBe('olx');
     expect(browseScopeLabel('olx', 'not a url')).toBe('olx');
+  });
+});
+
+describe('editKeyboard', () => {
+  const dataOf = (kb: ReturnType<typeof editKeyboard>): string[] =>
+    kb.inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : `url:${'url' in b ? b.url : ''}`));
+
+  it('search watch: seller + frequency + exclusion + remove + done, no Start', () => {
+    const d = dataOf(editKeyboard(monitor({ id: 4, type: 'search' }), 'en'));
+    expect(d).toContain('esv:4:both');     // seller (edit-scoped callback)
+    expect(d).toContain('efq:4:10');       // frequency presets
+    expect(d).toContain('efq:4:30');
+    expect(d).toContain('ex:4');           // exclusion (reuses registration callback)
+    expect(d).toContain('rm:4');           // remove
+    expect(d).toContain('ed');             // done
+    expect(d.some((x) => x.startsWith('go:'))).toBe(false); // no "Start" on an existing watch
+  });
+
+  it('product watch: frequency + remove + done only (no seller / no exclusion)', () => {
+    const d = dataOf(editKeyboard(monitor({ id: 9, type: 'product', origin: 'tracked' }), 'en'));
+    expect(d).toContain('efq:9:5');
+    expect(d).toContain('rm:9');
+    expect(d).toContain('ed');
+    expect(d.some((x) => x.startsWith('esv:'))).toBe(false); // seller filter N/A to one listing
+    expect(d.some((x) => x.startsWith('ex:'))).toBe(false);  // exclusions N/A
+    expect(d.some((x) => x.startsWith('go:'))).toBe(false);
+  });
+
+  it('marks the active frequency and seller with a check', () => {
+    const labels = (m: Monitor): string[] =>
+      editKeyboard(m, 'en').inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
+    const l = labels(monitor({ intervalMs: 30 * 60000, filters: { sellerVisibility: 'private', exclusionKeywords: [] } }));
+    expect(l).toContain(`✅ ${tr('en').btn_freq(30)}`);
+    expect(l).toContain(`✅ ${tr('en').btn_private}`);
   });
 });

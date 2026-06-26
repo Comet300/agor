@@ -27,8 +27,8 @@ import type { MessageRef, Notification, SellerVisibility } from '../contracts';
 import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput } from '../pipeline';
-import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope } from './render';
-import { registrationKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope } from './keyboards';
+import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard } from './render';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -489,6 +489,28 @@ export function buildBot(
     }
   });
 
+  bot.command('edit', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const arg = (ctx.match ?? '').trim();
+      const id = Number(arg);
+      if (!arg || !Number.isInteger(id)) {
+        await ctx.reply(tr(lang).edit_usage);
+        return;
+      }
+      const monitor = store.monitors.get(id);
+      if (!monitor || monitor.chatId !== chatId) {
+        await ctx.reply(tr(lang).edit_not_found);
+        return;
+      }
+      const view = renderEditCard(monitor, lang);
+      await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
   bot.command('check', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
@@ -842,6 +864,63 @@ export function buildBot(
     } catch (err) {
       await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
     }
+  });
+
+  // Edit-card seller visibility: esv:<monitorId>:<vis> — same mutation as sv: but
+  // re-renders the EDIT keyboard (no "Start", type-tailored) instead of the
+  // registration card.
+  bot.callbackQuery(/^esv:(\d+):(private|company|both)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const visibility = ctx.match[2] ?? '';
+      if (!isSellerVisibility(visibility)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_unknown_option);
+        return;
+      }
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      monitor.filters.sellerVisibility = visibility;
+      store.monitors.update(monitor);
+      await ctx.answerCallbackQuery(tr(lang).cb_seller_set(visibility));
+      await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) });
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
+  // Edit-card check frequency: efq:<monitorId>:<minutes> — mutate + reschedule,
+  // then re-render the EDIT keyboard.
+  bot.callbackQuery(/^efq:(\d+):(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const minutes = Number(ctx.match[2]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      monitor.intervalMs = minutes * 60000;
+      store.monitors.update(monitor);
+      store.monitors.setSchedule(monitor.id, Date.now() + monitor.intervalMs, monitor.fastTier);
+      await ctx.answerCallbackQuery(tr(lang).cb_freq_set(minutes));
+      await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) });
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
+  // Edit done: ed — acknowledge and collapse the editor (clear its keyboard).
+  bot.callbackQuery(/^ed$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      await ctx.answerCallbackQuery(tr(lang).cb_edit_done);
+      try { await ctx.editMessageReplyMarkup(); } catch { /* already cleared / expired */ }
+    } catch { /* expired */ }
   });
 
   // Exclusion keywords: ex:<monitorId> → prompt + remember the pending state.

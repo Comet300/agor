@@ -9,7 +9,7 @@
  * wire format is fixed (colon-delimited ASCII, numeric ids, < 64 bytes) and does
  * NOT vary by language.
  */
-import type { EnrichedItem, SellerVisibility } from '../contracts';
+import type { EnrichedItem, Monitor, SellerVisibility } from '../contracts';
 import { InlineKeyboard } from 'grammy';
 import { buildCallLink } from '../features/contactOffer';
 import { type Lang, tr } from './strings';
@@ -204,4 +204,42 @@ export function registrationKeyboard(
     .row()
     // Go live.
     .text(t.btn_start, `go:${monitorId}`);
+}
+
+/**
+ * Build the /edit tuning keyboard for an EXISTING watch. Mirrors the registration
+ * card's controls minus the "Start" button (the watch is already live), and
+ * tailored to the watch type:
+ *   - search  -> seller-visibility row, frequency row, [exclusions][remove], [done]
+ *   - product -> frequency row, [remove], [done]  (seller & exclusions don't apply
+ *                to a single tracked listing)
+ *
+ * Reuses the `ex:`/`rm:` callbacks (identical behaviour to registration) and adds
+ * edit-specific `esv:`/`efq:` so a change re-renders THIS keyboard (not the
+ * registration card); `ed` closes the editor.
+ */
+export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  const id = monitor.id;
+  const isSearch = monitor.type === 'search';
+  const activeMinutes = Math.round(monitor.intervalMs / 60000);
+  const markSeller = (label: string, value: SellerVisibility): string =>
+    value === monitor.filters.sellerVisibility ? `✅ ${label}` : label;
+  const markFreq = (label: string, minutes: number): string =>
+    minutes === activeMinutes ? `✅ ${label}` : label;
+
+  const kb = new InlineKeyboard();
+  if (isSearch) {
+    kb.text(markSeller(t.btn_private, 'private'), `esv:${id}:private`)
+      .text(markSeller(t.btn_company, 'company'), `esv:${id}:company`)
+      .text(markSeller(t.btn_both, 'both'), `esv:${id}:both`)
+      .row();
+  }
+  for (const minutes of FREQUENCY_PRESETS) {
+    kb.text(markFreq(t.btn_freq(minutes), minutes), `efq:${id}:${minutes}`);
+  }
+  kb.row();
+  if (isSearch) kb.text(t.btn_exclusion, `ex:${id}`);
+  kb.text(t.btn_remove, `rm:${id}`);
+  return kb.row().text(t.btn_done, 'ed');
 }
