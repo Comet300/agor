@@ -23,6 +23,7 @@ import {
   quickActionsKeyboard,
   registrationKeyboard,
   editKeyboard,
+  listRowKeyboard,
   openOnlyKeyboard,
   browseKeyboard,
   browseScopeKeyboard,
@@ -355,6 +356,35 @@ export function renderBrowseCard(
   };
   if (snap.imageUrl) view.photoUrl = snap.imageUrl;
   return view;
+}
+
+/** Map a monitor to the {@link Catalog.list_item} parameters (shared by /list rows). */
+export function listItemParams(monitor: Monitor): Parameters<Catalog['list_item']>[0] {
+  return {
+    id: monitor.id,
+    vendor: monitor.vendor,
+    type: monitor.type,
+    seller: monitor.filters.sellerVisibility,
+    url: monitor.url,
+    exclusions: monitor.filters.exclusionKeywords.join(', '),
+    tracked: monitor.origin === 'tracked',
+    paused: monitor.paused,
+    dealsOnly: monitor.filters.dealsOnly === true,
+    required: (monitor.filters.requiredKeywords ?? []).join(', '),
+    blocked: (monitor.filters.blockedSellers ?? []).length + (monitor.filters.blockedPhones ?? []).length,
+    ...(monitor.label ? { label: monitor.label } : {}),
+  };
+}
+
+/**
+ * Render one /list watch as its own message: the watch line plus an inline action
+ * row (Edit / Pause-Resume / Remove) so the user can manage it without typing ids.
+ */
+export function renderListRow(monitor: Monitor, lang: Lang): RenderedMessage {
+  return {
+    text: tr(lang).list_item(listItemParams(monitor)),
+    keyboard: listRowKeyboard(monitor, lang),
+  };
 }
 
 /**

@@ -27,7 +27,8 @@ import type { MessageRef, Notification, SellerVisibility } from '../contracts';
 import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput, phoneKey } from '../pipeline';
-import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard } from './render';
+import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard, renderListRow } from './render';
+import { toCsv } from '../util/csv';
 import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
@@ -75,6 +76,13 @@ const PRICE_HISTORY_RENDER_CAP = 500;
 
 /** Max items loaded into a single browse session (most-recent first). */
 const BROWSE_WINDOW = 100;
+
+/** Columns + cap for the /export CSV (most-recent listings first). */
+const EXPORT_HEADERS = [
+  'itemId', 'title', 'price', 'currency', 'inStock', 'location',
+  'seller', 'postedAt', 'url', 'firstSeen', 'lastSeen',
+] as const;
+const EXPORT_ROW_CAP = 5000;
 
 /**
  * An open /browse session for a chat: the ordered snapshot of items captured when
@@ -136,6 +144,17 @@ function looksLikeUrl(text: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Extract the first http(s) URL embedded anywhere in `text` (trailing sentence
+ * punctuation stripped), or null. Used by forward-to-track, where a forwarded
+ * listing message carries the link amid other text.
+ */
+export function extractUrl(text: string): string | null {
+  const m = text.match(/https?:\/\/[^\s]+/);
+  if (!m) return null;
+  return m[0].replace(/[)\].,;!?]+$/, '');
 }
 
 /**
@@ -377,23 +396,65 @@ export function buildBot(
         await ctx.reply(tr(lang).list_empty);
         return;
       }
-      const lines = monitors.map((m) =>
-        tr(lang).list_item({
-          id: m.id,
-          vendor: m.vendor,
-          type: m.type,
-          seller: m.filters.sellerVisibility,
-          url: m.url,
-          exclusions: m.filters.exclusionKeywords.join(', '),
-          tracked: m.origin === 'tracked',
-          paused: m.paused,
-          dealsOnly: m.filters.dealsOnly === true,
-          required: (m.filters.requiredKeywords ?? []).join(', '),
-          blocked: (m.filters.blockedSellers ?? []).length + (m.filters.blockedPhones ?? []).length,
-          ...(m.label ? { label: m.label } : {}),
+      // Intro, then one message per watch carrying its inline action row
+      // (Edit / Pause / Remove) so the user can manage it without typing ids.
+      await ctx.reply(tr(lang).list_intro);
+      for (const m of monitors) {
+        const row = renderListRow(m, lang);
+        await ctx.reply(row.text, row.keyboard ? { reply_markup: row.keyboard } : undefined);
+      }
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  bot.command('stats', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const monitors = store.monitors.listByChat(chatId);
+      const vendors = [...new Set(monitors.map((m) => m.vendor))].sort().join(', ');
+      await ctx.reply(
+        tr(lang).stats_summary({
+          watches: monitors.length,
+          search: monitors.filter((m) => m.type === 'search').length,
+          product: monitors.filter((m) => m.type === 'product').length,
+          paused: monitors.filter((m) => m.paused).length,
+          tracked: monitors.filter((m) => m.origin === 'tracked').length,
+          items: store.items.countForChat(chatId),
+          vendors,
         }),
       );
-      await replyChunked((t) => ctx.reply(t), `${tr(lang).list_intro}\n\n${lines.join('\n\n')}`);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  bot.command('export', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const items = store.items.browse(chatId, EXPORT_ROW_CAP, 0);
+      if (items.length === 0) {
+        await ctx.reply(tr(lang).export_empty);
+        return;
+      }
+      const csv = toCsv(EXPORT_HEADERS, items.map((s) => ({
+        itemId: s.itemId,
+        title: s.title ?? '',
+        price: s.lastPrice,
+        currency: s.currency,
+        inStock: s.inStock ? 'yes' : 'no',
+        location: s.location ?? '',
+        seller: s.sellerPrivate === undefined ? '' : s.sellerPrivate ? 'private' : 'company',
+        postedAt: s.postedAt ? new Date(s.postedAt).toISOString() : '',
+        url: s.url ?? '',
+        firstSeen: new Date(s.firstSeen).toISOString(),
+        lastSeen: new Date(s.lastSeen).toISOString(),
+      })));
+      await ctx.replyWithDocument(new InputFile(Buffer.from(csv, 'utf8'), 'agor-listings.csv'), {
+        caption: tr(lang).export_caption(items.length),
+      });
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -1001,6 +1062,46 @@ export function buildBot(
     } catch { /* expired */ }
   });
 
+  // /list row → open the edit card: le:<monitorId>.
+  bot.callbackQuery(/^le:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      await ctx.answerCallbackQuery();
+      const view = renderEditCard(monitor, lang);
+      await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // /list row → toggle pause in place: lp:<monitorId> (re-renders the same row).
+  bot.callbackQuery(/^lp:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      const nowPaused = !monitor.paused;
+      store.monitors.setPaused(monitorId, nowPaused);
+      if (!nowPaused) store.monitors.setSchedule(monitorId, Date.now(), monitor.fastTier);
+      monitor.paused = nowPaused;
+      await ctx.answerCallbackQuery(nowPaused ? tr(lang).cb_paused : tr(lang).cb_resumed);
+      const row = renderListRow(monitor, lang);
+      await ctx.editMessageText(row.text, row.keyboard ? { reply_markup: row.keyboard } : undefined);
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
   // Exclusion keywords: ex:<monitorId> → prompt + remember the pending state.
   bot.callbackQuery(/^ex:(\d+)$/, async (ctx) => {
     const lang = langFor(store, ctx.chat?.id ?? 0);
@@ -1448,6 +1549,26 @@ export function buildBot(
           await ctx.reply(tr(lang).block_added_seller(entry));
         }
         return;
+      }
+
+      // 1f. A FORWARDED message carrying a listing link → track it (the link is
+      // usually surrounded by the original post's text, so extract it).
+      const fwd = ctx.message as unknown as { forward_origin?: unknown; forward_date?: number };
+      if (fwd.forward_origin !== undefined || fwd.forward_date !== undefined) {
+        const url = extractUrl(text);
+        if (url) {
+          if (urlRegisterCooldownMs > 0 && urlCooldown.has(chatId)) {
+            await ctx.reply(tr(lang).url_rate_limited);
+            return;
+          }
+          if (urlRegisterCooldownMs > 0) urlCooldown.set(chatId, true);
+          await handleTrack(
+            orchestrator, chatId, url, lang,
+            (t, keyboard) => ctx.reply(t, keyboard ? { reply_markup: keyboard } : undefined),
+            maxMonitorsPerChat,
+          );
+          return;
+        }
       }
 
       // 2. Route by message kind.

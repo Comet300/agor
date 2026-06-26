@@ -105,6 +105,19 @@ export function browseKeyboard(
   return kb;
 }
 
+/**
+ * The action row under a /list watch line: [✏️ Edit] [⏸/▶️ Pause-Resume] [🗑 Remove].
+ * Edit opens the edit card (`le:`), pause toggles in place (`lp:`), remove reuses
+ * the confirm flow (`rm:`).
+ */
+export function listRowKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  return new InlineKeyboard()
+    .text(t.btn_edit, `le:${monitor.id}`)
+    .text(monitor.paused ? t.btn_resume : t.btn_pause, `lp:${monitor.id}`)
+    .text(t.btn_remove, `rm:${monitor.id}`);
+}
+
 /** A selectable browse scope: "all listings", or one of the chat's watches. */
 export interface BrowseScope {
   /** Callback target: `all` for the chat-wide union, else the monitor id. */
