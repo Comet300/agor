@@ -118,16 +118,6 @@ export class Scheduler {
     return this.lastDueCount;
   }
 
-  /** Epoch ms of the last completed scheduler tick, or null if it never fired. */
-  getLastTickAt(): number | null {
-    return this.lastTickAt;
-  }
-
-  /** Number of monitors processed in the last tick (diagnostic). */
-  getLastDueCount(): number {
-    return this.lastDueCount;
-  }
-
   /**
    * Re-arm a monitor's schedule. The next poll lands at `now` plus the cadence
    * appropriate to its tier: the fast (out-of-stock) interval when `fastTier`

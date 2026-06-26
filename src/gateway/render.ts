@@ -176,7 +176,70 @@ export function renderNotification(n: Notification, lang: Lang): RenderedMessage
       return { text: tr(lang).watch_failing(n.health!) };
     case 'watch_recovered':
       return { text: tr(lang).watch_recovered(n.health!) };
+    case 'price_change':
+      return renderPriceChange(n.item!, n.priceChange, lang);
+    case 'item_delisted':
+      return renderDelisted(n.item!, n.delist, lang);
+    case 'listings_dropped':
+      return renderListingsDropped(n.dropped, lang);
+    case 're_listed':
+      return renderReListed(n.item!, lang);
   }
+}
+
+/** Render a bidirectional price change for a tracked item. */
+function renderPriceChange(
+  item: EnrichedItem,
+  change: Notification['priceChange'],
+  lang: Lang,
+): RenderedMessage {
+  const t = tr(lang);
+  const prev = change ? change.previousPrice : item.price;
+  const cur = change ? change.currentPrice : item.price;
+  const dir = change?.direction ?? (cur < prev ? 'down' : 'up');
+  const text = t.price_change({
+    title: item.title,
+    oldPrice: formatMoney(prev, item.currency),
+    newPrice: formatMoney(cur, item.currency),
+    direction: dir,
+  });
+  return { text, keyboard: quickActionsKeyboard(item, lang) };
+}
+
+/** Render a per-item de-listing alert (product page gone / item dropped). */
+function renderDelisted(
+  item: EnrichedItem,
+  delist: Notification['delist'],
+  lang: Lang,
+): RenderedMessage {
+  const t = tr(lang);
+  const lines: string[] = [
+    t.delisted_title,
+    item.title,
+    delist?.reason === 'product_gone' ? t.delisted_reason_product_gone : t.delisted_reason_search_dropped,
+  ];
+  const last = delist?.lastSeenPrice;
+  if (last !== undefined) lines.push(t.delisted_last_price(formatMoney(last, item.currency)));
+  return { text: lines.join('\n'), keyboard: openOnlyKeyboard(item, lang) };
+}
+
+/** Render a search monitor's roll-up of listings that dropped off this cycle. */
+function renderListingsDropped(dropped: Notification['dropped'], lang: Lang): RenderedMessage {
+  const t = tr(lang);
+  if (!dropped) return { text: t.listings_dropped_title(0, '') };
+  const sample = dropped.titles.slice(0, 5).map((x) => `• ${x}`).join('\n');
+  return { text: t.listings_dropped_title(dropped.count, dropped.vendor) + (sample ? `\n${sample}` : '') };
+}
+
+/** Render a re-listing alert (a delisted item reappeared). */
+function renderReListed(item: EnrichedItem, lang: Lang): RenderedMessage {
+  const lines: string[] = [
+    tr(lang).re_listed_title,
+    item.title,
+    `💰 ${formatMoney(item.price, item.currency)}`,
+  ];
+  if (item.location) lines.push(`📍 ${item.location}`);
+  return { text: lines.join('\n'), keyboard: quickActionsKeyboard(item, lang) };
 }
 
 /**

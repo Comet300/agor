@@ -65,6 +65,7 @@ function makeMonitor(over: Partial<Monitor> = {}): Monitor {
   return {
     id: 1,
     type: "search",
+    origin: "user",
     chatId: 42,
     vendor: "olx",
     url: "https://www.olx.ro/auto/q-golf/",
