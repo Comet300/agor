@@ -12,29 +12,21 @@
  * `dotenv/config` loads a local `.env` (if present) into `process.env` before
  * config is read; it silently no-ops when there is no file (CI / inline env).
  */
-import "dotenv/config";
-import type { MessageRef, Notification } from "./contracts";
-import { loadConfig } from "./config";
-import { openStore } from "./persistence";
-import { PluginRegistry } from "./registry";
-import { ProxyPool } from "./scraping/proxyPool";
-import {
-  ScrapingEngine,
-  closeAgentPool,
-  type Fetcher,
-} from "./scraping/engine";
-import { Orchestrator } from "./orchestrator";
-import { buildBot, makeNotifier } from "./gateway/bot";
-import { commandMenu } from "./gateway/strings";
-import { selectMode, startWebhook } from "./gateway/webhook";
-import {
-  healthHandler,
-  startHealthServer,
-  type HealthDeps,
-} from "./gateway/health";
-import { configureLogging, hasLoki, log } from "./logging/logger";
-import type { Server } from "node:http";
-import type { Store } from "./persistence";
+import 'dotenv/config';
+import type { MessageRef, Notification } from './contracts';
+import { loadConfig, droppedAdminIds, incompleteLokiKeys } from './config';
+import { openStore } from './persistence';
+import { PluginRegistry } from './registry';
+import { ProxyPool } from './scraping/proxyPool';
+import { ScrapingEngine, closeAgentPool, type Fetcher } from './scraping/engine';
+import { Orchestrator } from './orchestrator';
+import { buildBot, makeNotifier } from './gateway/bot';
+import { commandMenu } from './gateway/strings';
+import { selectMode, startWebhook } from './gateway/webhook';
+import { healthHandler, startHealthServer, type HealthDeps } from './gateway/health';
+import { configureLogging, hasLoki, log } from './logging/logger';
+import type { Server } from 'node:http';
+import type { Store } from './persistence';
 
 /**
  * Trap SIGINT/SIGTERM and tear down cleanly: stop the scheduler, close the
@@ -113,7 +105,24 @@ async function main(): Promise<void> {
   //    this point is structured and shipped to Loki when configured).
   const config = loadConfig();
   configureLogging(config);
-  log("boot").info(
+
+  // Surface silent misconfigurations the parser would otherwise drop quietly.
+  const droppedAdmins = droppedAdminIds();
+  if (droppedAdmins.length > 0) {
+    log('config').warn(
+      { dropped: droppedAdmins },
+      'ADMIN_CHAT_IDS contained non-numeric entries; they were ignored (check for typos)',
+    );
+  }
+  const missingLoki = incompleteLokiKeys();
+  if (missingLoki.length > 0) {
+    log('config').warn(
+      { missing: missingLoki },
+      'Loki is partially configured; logs ship to stdout only (all three of LOKI_URL/LOKI_USER/LOKI_TOKEN are required)',
+    );
+  }
+
+  log('boot').info(
     {
       mode: selectMode(config),
       dbPath: config.databasePath,

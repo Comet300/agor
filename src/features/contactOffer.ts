@@ -59,7 +59,12 @@ const TEMPLATES = {
  */
 export function draftOffer(item: IScrapedItem, lang: 'ro' | 'en' = 'ro'): string {
   const anchor = offerAnchor(item.price);
-  const body = TEMPLATES[lang](item.title, anchor, item.currency);
+  // Sanitize the title for the single-line code span: a code span cannot span
+  // lines (newlines break it) and a bare backtick would close it early. Collapse
+  // any whitespace run (incl. newlines) to a space and drop backticks. Some
+  // vendors (e.g. publi24) ship literal newlines in titles.
+  const safeTitle = item.title.replace(/`/g, '').replace(/\s+/g, ' ').trim();
+  const body = TEMPLATES[lang](safeTitle, anchor, item.currency);
   // Single-backtick code span -> renders as a copyable inline block.
   return `\`${body}\``;
 }

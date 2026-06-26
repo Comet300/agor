@@ -32,7 +32,18 @@ export class PluginRegistry {
    * originating filename so the operator can fix the exact manifest.
    */
   static load(dir: string): PluginRegistry {
-    const files = readdirSync(dir)
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(
+          `Manifest directory not found: '${dir}'. Ensure the vendor manifests are present (it should hold the *.yaml plugin files).`,
+        );
+      }
+      throw err; // permission denied / I/O error — surface its own detail
+    }
+    const files = entries
       .filter((name) => MANIFEST_EXTENSIONS.some((ext) => name.endsWith(ext)))
       .sort();
 

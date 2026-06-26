@@ -33,8 +33,15 @@ export class PriceHistoryRepo {
     price: number;
     currency: string;
     observedAt: number;
+    /**
+     * The caller's already-known last price for this item, if it has one. When
+     * the key is present the internal `lastPrice` lookup is skipped (avoids a
+     * redundant SELECT per product poll — the cycle already fetched it). Pass
+     * `undefined` to mean "no prior price known"; omit the key to re-query.
+     */
+    lastPrice?: number;
   }): void {
-    const last = this.lastPrice(p.monitorId, p.itemId);
+    const last = 'lastPrice' in p ? p.lastPrice : this.lastPrice(p.monitorId, p.itemId);
     if (last === p.price) return; // unchanged → assume flat, store nothing
     this.db
       .prepare(

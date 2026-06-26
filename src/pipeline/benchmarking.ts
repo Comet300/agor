@@ -40,8 +40,14 @@ export function benchmarkFor(prices: number[], minSample: number): Benchmark {
  *   <= median * 0.85 -> 'great_deal'
  *   <= median * 1.05 -> 'fair_price'
  *   else             -> 'overpriced'
+ *
+ * Returns `undefined` when the median is zero/near-zero: there is no meaningful
+ * price scale (e.g. an all-"price on request" / free-listing category), so the
+ * thresholds collapse to a point and every priced item would falsely read
+ * "overpriced". Callers omit the tag in that case.
  */
-export function dealTag(price: number, med: number): DealTag {
+export function dealTag(price: number, med: number): DealTag | undefined {
+  if (med <= 0.01) return undefined;
   if (price <= med * 0.85) return 'great_deal';
   if (price <= med * 1.05) return 'fair_price';
   return 'overpriced';
@@ -105,7 +111,10 @@ export function enrichWithBenchmark(
     const benchmark = benchmarkFor(allActivePrices as number[], minSample);
     return items.map((item) => {
       const enriched: EnrichedItem = { ...item, benchmark };
-      if (benchmark.confident) enriched.dealTag = dealTag(item.price, benchmark.median);
+      if (benchmark.confident) {
+        const tag = dealTag(item.price, benchmark.median);
+        if (tag) enriched.dealTag = tag;
+      }
       return enriched;
     });
   }
@@ -125,7 +134,10 @@ export function enrichWithBenchmark(
     const benchmark =
       benchmarkByCurrency.get(bucketKey) ?? benchmarkFor([item.price], minSample);
     const enriched: EnrichedItem = { ...item, benchmark };
-    if (benchmark.confident) enriched.dealTag = dealTag(item.price, benchmark.median);
+    if (benchmark.confident) {
+      const tag = dealTag(item.price, benchmark.median);
+      if (tag) enriched.dealTag = tag;
+    }
     return enriched;
   });
 }

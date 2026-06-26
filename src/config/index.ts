@@ -16,6 +16,27 @@ const numericCsv = (raw: string | undefined): number[] =>
     .map((s) => Number(s))
     .filter((n) => Number.isInteger(n));
 
+/**
+ * The raw ADMIN_CHAT_IDS entries that were dropped as non-integer (e.g. a typo
+ * like "9x"). Pure — the boot sequence uses it to WARN, since silently dropping
+ * an admin id is a security-relevant misconfiguration. Empty when all parse.
+ */
+export function droppedAdminIds(env: NodeJS.ProcessEnv = process.env): string[] {
+  return csv(env.ADMIN_CHAT_IDS).filter((s) => !Number.isInteger(Number(s)));
+}
+
+/**
+ * Names of the Loki vars that are MISSING when Loki is partially configured
+ * (some set, not all three). Empty when none or all are set — i.e. only returns
+ * keys in the silent-degradation case worth warning about.
+ */
+export function incompleteLokiKeys(env: NodeJS.ProcessEnv = process.env): string[] {
+  const keys = ['LOKI_URL', 'LOKI_USER', 'LOKI_TOKEN'] as const;
+  const set = keys.filter((k) => Boolean(env[k]));
+  if (set.length === 0 || set.length === keys.length) return [];
+  return keys.filter((k) => !env[k]);
+}
+
 const EnvSchema = z.object({
   BOT_TOKEN: z.string().optional(),
   DATABASE_PATH: z.string().default("./agor.db"),
