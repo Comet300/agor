@@ -37,6 +37,12 @@ export interface PriceRating {
   /** Number of comparables the verdict rests on. */
   n: number;
   confidence: RatingConfidence;
+  /**
+   * "Too good to be true": a great_deal priced FAR below the comp median
+   * (< `suspiciousRatio` × median) — often a scam/typo/wrong-item. Surface a
+   * caution, don't celebrate.
+   */
+  suspicious?: boolean;
 }
 
 export interface RateOptions {
@@ -44,6 +50,8 @@ export interface RateOptions {
   minComps?: number;
   /** Comparables for a high-confidence verdict. Default 15. */
   strongComps?: number;
+  /** Below this fraction of the median, a great_deal is flagged suspicious. Default 0.5. */
+  suspiciousRatio?: number;
 }
 
 /** Count tokens shared between two sets. */
@@ -112,5 +120,10 @@ export function ratePrice(
     : comps.length >= strongComps || usedThreshold >= 2 ? 'medium'
     : 'low';
 
-  return { tag, percentile, median: med, n: comps.length, confidence };
+  // Too-good flag: a great deal priced far below the median is more likely a
+  // scam / typo / wrong item than a real bargain.
+  const suspiciousRatio = opts.suspiciousRatio ?? 0.5;
+  const suspicious = tag === 'great_deal' && target.price < med * suspiciousRatio;
+
+  return { tag, percentile, median: med, n: comps.length, confidence, suspicious };
 }

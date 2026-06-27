@@ -99,6 +99,18 @@ describe('ratePrice (category-agnostic comparable percentile)', () => {
     expect(ratePrice(target(14000, 'EUR'), mixed).tag).toBe('unknown'); // only 2 EUR comps
   });
 
+  it('flags suspicious when a great deal is far below the median', () => {
+    const r = ratePrice(target(3000), corollas([12000, 13000, 14000, 15000, 16000]));
+    expect(r.tag).toBe('great_deal');
+    expect(r.suspicious).toBe(true); // 3000 << median*0.5
+  });
+
+  it('does not flag a normal great deal as suspicious', () => {
+    const r = ratePrice(target(11000), corollas([12000, 13000, 14000, 15000, 16000]));
+    expect(r.tag).toBe('great_deal');
+    expect(r.suspicious).toBe(false);
+  });
+
   it('works for a NON-car category (phones) via title similarity + widening', () => {
     const phones = [11, 12, 13, 14, 15].map((g, i) =>
       snap({ itemId: `p${i}`, title: `iPhone 13 Pro ${256}GB unit ${g}`, lastPrice: 3000 + i * 100, currency: 'RON', url: `https://x/p${i}` }));

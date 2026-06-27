@@ -242,6 +242,21 @@ export class ItemRepo {
     return currentIds.filter((id) => !known.has(id));
   }
 
+  /** The last price-rating tag recorded for an item (for became-a-deal crossing). */
+  getRating(monitorId: number, itemId: string): string | undefined {
+    const row = this.db
+      .prepare(`SELECT last_rating FROM items WHERE monitor_id = ? AND item_id = ?`)
+      .get(monitorId, itemId) as { last_rating: string | null } | undefined;
+    return row?.last_rating ?? undefined;
+  }
+
+  /** Persist an item's latest price-rating tag. */
+  setRating(monitorId: number, itemId: string, tag: string): void {
+    this.db
+      .prepare(`UPDATE items SET last_rating = ? WHERE monitor_id = ? AND item_id = ?`)
+      .run(tag, monitorId, itemId);
+  }
+
   /** The de-listing bookkeeping for one item (absent-cycle counter + delist stamp). */
   delistState(monitorId: number, itemId: string): { goneCount: number; delistedAt?: number } | undefined {
     const row = this.db

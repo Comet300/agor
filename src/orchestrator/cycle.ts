@@ -24,7 +24,11 @@ import {
   DedupBuffer,
 } from '../pipeline';
 import { marketInsight } from '../features/marketInsight';
+import { ratePrice } from '../features/priceRating';
 import { log } from '../logging/logger';
+
+/** Cap on the comparable pool loaded when rating a tracked item for became-a-deal. */
+const RATING_POOL_CAP = 200;
 
 /** Dependencies a cycle run needs; nothing is read globally. */
 interface CycleDeps {
@@ -308,6 +312,26 @@ export class MonitorCycle {
       });
       this.deps.store.items.upsert(monitor.id, item, at);
     });
+
+    // Became-a-deal: rate the item against the chat's collected pool and alert
+    // once when it crosses INTO a great deal (wasn't great last cycle). Runs after
+    // the upsert so the pool is current; ratePrice excludes the item itself.
+    const rating = ratePrice(
+      { itemId: item.id, title: item.title, price: item.price, currency: item.currency, ...(item.url ? { url: item.url } : {}) },
+      this.deps.store.items.browse(monitor.chatId, RATING_POOL_CAP, 0),
+    );
+    if (rating.tag !== 'unknown') {
+      const priorTag = this.deps.store.items.getRating(monitor.id, item.id);
+      if (rating.tag === 'great_deal' && priorTag !== 'great_deal' && rating.percentile !== undefined) {
+        notifications.push({
+          kind: 'became_deal',
+          chatId: monitor.chatId,
+          item,
+          becameDeal: { percentile: rating.percentile, n: rating.n },
+        });
+      }
+      this.deps.store.items.setRating(monitor.id, item.id, rating.tag);
+    }
 
     // Attach market insight (time-on-market, price cuts) to every item-bearing
     // alert — computed AFTER the append so the history includes this price.

@@ -246,7 +246,9 @@ export type NotificationKind =
   /** A delisted item reappeared within the memory window. */
   | 're_listed'
   /** A tracked item's price reached the user's target (threshold crossing). */
-  | 'target_hit';
+  | 'target_hit'
+  /** A tracked item just crossed INTO a great deal vs comparable listings. */
+  | 'became_deal';
 
 export interface PriceDropInfo {
   previousPrice: number;
@@ -267,6 +269,14 @@ export interface PriceChangeInfo {
 export interface TargetHitInfo {
   targetPrice: number;
   currentPrice: number;
+}
+
+/** Payload for a became_deal alert (item just crossed into a great deal). */
+export interface BecameDealInfo {
+  /** Share of comparables priced below it (0..1). */
+  percentile: number;
+  /** Number of comparables. */
+  n: number;
 }
 
 /** Negotiation-relevant signals derived from a listing's age + price history. */
@@ -329,6 +339,8 @@ export interface Notification {
   priceChange?: PriceChangeInfo;
   /** Present only for target_hit notifications. */
   target?: TargetHitInfo;
+  /** Present only for became_deal notifications. */
+  becameDeal?: BecameDealInfo;
   /** Optional market insight (time-on-market, price cuts) for a product alert. */
   insight?: MarketInsight;
   /** Present only for item_delisted notifications. */

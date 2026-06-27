@@ -161,7 +161,7 @@ export interface Catalog {
   browse_in_stock: string;
   browse_out_of_stock: string;
   /** One-line price rating vs comparable listings; '' for an unknown verdict. */
-  price_rating: (p: { tag: 'great_deal' | 'fair_price' | 'overpriced' | 'unknown'; percentile: number; n: number }) => string;
+  price_rating: (p: { tag: 'great_deal' | 'fair_price' | 'overpriced' | 'unknown'; percentile: number; n: number; suspicious?: boolean }) => string;
   browse_position: (n: number, total: number) => string;
   browse_empty: string;
   browse_track_done: (title: string) => string;
@@ -200,6 +200,8 @@ export interface Catalog {
   /** Title + line of a target-price-hit alert. */
   target_hit_title: string;
   target_hit_line: (target: string) => string;
+  /** Title of a "became a great deal" alert. */
+  became_deal_title: string;
   /** Market-insight footer on a product alert (time-on-market, price cuts, low). */
   insight_line: (p: { days?: number; cuts: number; low: string }) => string;
   block_prompt: string;
@@ -405,7 +407,8 @@ const ro: Catalog = {
   btn_browse_all: '📂 Toate anunțurile',
   browse_in_stock: '🟢 disponibil',
   browse_out_of_stock: '🔴 indisponibil',
-  price_rating: ({ tag, percentile, n }) => {
+  price_rating: ({ tag, percentile, n, suspicious }) => {
+    if (suspicious) return `⚠️ Prea ieftin — verifică (mult sub ${n} similare)`;
     if (tag === 'great_deal') return `🟢 Ofertă bună — mai ieftin ca ${Math.round((1 - percentile) * 100)}% din ${n} similare`;
     if (tag === 'overpriced') return `🔴 Peste piață — mai scump ca ${Math.round(percentile * 100)}% din ${n} similare`;
     if (tag === 'fair_price') return `🟡 Preț corect — în jurul mediei (${n} similare)`;
@@ -444,6 +447,7 @@ const ro: Catalog = {
   target_invalid: 'Trimite un număr valid (ex.: 12000).',
   target_hit_title: '🎯 Preț țintă atins!',
   target_hit_line: (target) => `Țintă: ${target}`,
+  became_deal_title: '🔥 A devenit o ofertă bună!',
   insight_line: ({ days, cuts, low }) => {
     const parts: string[] = [];
     if (days !== undefined) parts.push(`📅 listat de ${days}z`);
@@ -656,7 +660,8 @@ const en: Catalog = {
   btn_browse_all: '📂 All listings',
   browse_in_stock: '🟢 available',
   browse_out_of_stock: '🔴 unavailable',
-  price_rating: ({ tag, percentile, n }) => {
+  price_rating: ({ tag, percentile, n, suspicious }) => {
+    if (suspicious) return `⚠️ Too cheap — verify (far below ${n} similar)`;
     if (tag === 'great_deal') return `🟢 Great deal — cheaper than ${Math.round((1 - percentile) * 100)}% of ${n} similar`;
     if (tag === 'overpriced') return `🔴 Above market — pricier than ${Math.round(percentile * 100)}% of ${n} similar`;
     if (tag === 'fair_price') return `🟡 Fair price — around the going rate (${n} similar)`;
@@ -695,6 +700,7 @@ const en: Catalog = {
   target_invalid: 'Send a valid number (e.g. 12000).',
   target_hit_title: '🎯 Target price reached!',
   target_hit_line: (target) => `Target: ${target}`,
+  became_deal_title: '🔥 Just became a great deal!',
   insight_line: ({ days, cuts, low }) => {
     const parts: string[] = [];
     if (days !== undefined) parts.push(`📅 listed ${days}d`);

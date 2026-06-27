@@ -213,7 +213,28 @@ function renderByKind(n: Notification, lang: Lang): RenderedMessage {
       return renderReListed(n.item!, lang);
     case 'target_hit':
       return renderTargetHit(n.item!, n.target, lang);
+    case 'became_deal':
+      return renderBecameDeal(n.item!, n.becameDeal, lang);
   }
+}
+
+/** Render a "just became a great deal" alert for a tracked item. */
+function renderBecameDeal(
+  item: EnrichedItem,
+  info: Notification['becameDeal'],
+  lang: Lang,
+): RenderedMessage {
+  const t = tr(lang);
+  const lines: string[] = [
+    t.became_deal_title,
+    item.title,
+    `💰 ${formatMoney(item.price, item.currency)}`,
+  ];
+  if (info) {
+    const line = t.price_rating({ tag: 'great_deal', percentile: info.percentile, n: info.n });
+    if (line) lines.push(line);
+  }
+  return { text: lines.join('\n'), keyboard: quickActionsKeyboard(item, lang) };
 }
 
 /** Render a target-price hit: the item plus the target it reached. */
@@ -366,7 +387,7 @@ export function renderBrowseCard(
 
   // Price rating vs comparable collected listings (omitted when unknown).
   if (rating && rating.tag !== 'unknown' && rating.percentile !== undefined) {
-    const line = t.price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n });
+    const line = t.price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n, suspicious: rating.suspicious });
     if (line) lines.push(line);
   }
 

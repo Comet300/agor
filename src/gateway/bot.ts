@@ -540,7 +540,7 @@ export function buildBot(
         store.items.browse(chatId, BROWSE_WINDOW, 0),
       );
       const line = rating.tag !== 'unknown' && rating.percentile !== undefined
-        ? tr(lang).price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n })
+        ? tr(lang).price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n, suspicious: rating.suspicious })
         : tr(lang).rate_no_comps;
       await ctx.reply(`${tr(lang).rate_result({ title: it.title, price: formatMoney(it.price, it.currency) })}\n${line}`);
     } catch (err) {
@@ -572,7 +572,7 @@ export function buildBot(
       const target = { itemId: snap.itemId, title: snap.title ?? snap.itemId, price: snap.lastPrice, currency: snap.currency, ...(snap.url ? { url: snap.url } : {}) };
       const rating = ratePrice(target, pool);
       const ratingLine = rating.tag !== 'unknown' && rating.percentile !== undefined
-        ? tr(lang).price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n }) + '\n'
+        ? tr(lang).price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n, suspicious: rating.suspicious }) + '\n'
         : '';
       const matches = findCheaperEquivalents(target, pool);
       if (matches.length === 0) {
