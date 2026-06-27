@@ -26,7 +26,7 @@ import {
 import { marketInsight } from '../features/marketInsight';
 import { ratePrice } from '../features/priceRating';
 import {
-  parseNumericAttrs, inferCategory, featureVector, targetValue, estimateFairValue,
+  parseNumericAttrs, inferCategory, featureVector, targetValue, hedonicFairValue,
   emptyState, addObservation, FEATURE_K, type RidgeState,
 } from '../features/fairValue';
 import { log } from '../logging/logger';
@@ -191,13 +191,16 @@ export class MonitorCycle {
     }));
 
     // Attach a model-predicted fair value to each new listing (when a trained
-    // model for its category+currency can value it). Uses the model state BEFORE
-    // this batch's update, so a listing isn't valued against itself.
+    // model can value it). v2.1 hedonic: the SERP batch are the comparables
+    // (same search market), adjusted to each listing's spec via the model slopes.
+    // Uses the model state BEFORE this batch's update, so it isn't valued against
+    // itself; comps exclude the listing's own active row by price/attrs identity.
+    const comps = out.active.map((i) => ({ lastPrice: i.price, currency: i.currency, attributes: i.attributes }));
     for (const n of notifications) {
       if (!n.item) continue;
       const category = inferCategory(parseNumericAttrs(n.item.attributes));
       if (!category) continue;
-      const fv = estimateFairValue(n.item.attributes, n.item.price, at, this.deps.store.valuation.get(category, n.item.currency));
+      const fv = hedonicFairValue(n.item.attributes, n.item.price, n.item.currency, comps, this.deps.store.valuation.get(category, n.item.currency), at);
       if (fv) n.fairValue = fv;
     }
 

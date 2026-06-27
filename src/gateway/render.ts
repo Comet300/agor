@@ -106,9 +106,10 @@ function renderNewListing(item: EnrichedItem, lang: Lang, fairValue?: FairValue)
   // Deal-tag badge (only when the pipeline tagged it).
   if (item.dealTag) lines.push(t[DEAL_BADGE_KEY[item.dealTag]] as string);
 
-  // Model-predicted fair value: a strong flag when clearly under, else the estimate.
+  // Model-predicted fair value: a strong flag when clearly under (and the estimate
+  // is confident enough to trust), else the plain estimate line.
   if (fairValue) {
-    if (fairValue.deltaPct <= UNDER_PRICED_PCT) {
+    if (fairValue.deltaPct <= UNDER_PRICED_PCT && fairValue.confidence !== 'low') {
       lines.push(t.fair_value_under({ fair: formatMoney(fairValue.fair, item.currency), pct: Math.round(-fairValue.deltaPct * 100) }));
     } else {
       lines.push(t.fair_value_line({

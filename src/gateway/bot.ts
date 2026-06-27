@@ -33,7 +33,7 @@ import { formatMoney } from '../util/money';
 import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
-import { parseNumericAttrs, inferCategory, estimateFairValue } from '../features/fairValue';
+import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
 import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
@@ -615,16 +615,17 @@ export function buildBot(
     // Offer the scope "Switch" affordance only when there's more than one watch
     // to switch between (otherwise browse-all is the only scope).
     const canSwitch = store.monitors.listByChat(chatId).length > 1;
-    // Rate this item's price against the chat's collected pool (category-agnostic).
     const snap = items[i]!;
+    const pool = store.items.browse(chatId, BROWSE_WINDOW, 0);
+    // Rate this item's price against the chat's collected pool (category-agnostic).
     const rating = ratePrice(
       { itemId: snap.itemId, title: snap.title ?? snap.itemId, price: snap.lastPrice, currency: snap.currency, ...(snap.url ? { url: snap.url } : {}) },
-      store.items.browse(chatId, BROWSE_WINDOW, 0),
+      pool,
     );
-    // Model-predicted fair value (v2): load the (category, currency) model.
+    // Fair value (v2.1): hedonic comp-adjustment against the same pool.
     const cat = inferCategory(parseNumericAttrs(snap.attributes));
     const fairValue = cat
-      ? estimateFairValue(snap.attributes, snap.lastPrice, Date.now(), store.valuation.get(cat, snap.currency))
+      ? hedonicFairValue(snap.attributes, snap.lastPrice, snap.currency, pool, store.valuation.get(cat, snap.currency), Date.now())
       : null;
     const saved = store.itemFlags.has(chatId, snap.itemId, 'saved');
     const view = renderBrowseCard(snap, i, items.length, lang, canSwitch, rating, fairValue, saved);

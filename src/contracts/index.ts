@@ -300,6 +300,12 @@ export interface FairValue {
   delta: number;
   /** delta / fair (negative = under fair). */
   deltaPct: number;
+  /**
+   * How the estimate was reached: 'high'/'medium' = hedonic median of enough
+   * adjusted comparables (level from comps, slopes from the model); 'low' = the
+   * raw model prediction, with a level that may skew from tracking bias.
+   */
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 /** Negotiation-relevant signals derived from a listing's age + price history. */

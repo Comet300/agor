@@ -13,6 +13,7 @@ import { parseNumericAttrs, type NumericAttrs } from './attributes';
 import { solveRidge, predict, type RidgeState } from './ridge';
 
 export { parseNumber, parseNumericAttrs, type NumericAttrs } from './attributes';
+export { hedonicFairValue } from './hedonic';
 export {
   emptyState, addObservation, decay, solveRidge, predict, type RidgeState,
 } from './ridge';

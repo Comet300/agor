@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseNumber, parseNumericAttrs, inferCategory, featureVector, targetValue,
-  emptyState, addObservation, solveRidge, predict, estimateFairValue, FEATURE_K,
+  emptyState, addObservation, solveRidge, predict, estimateFairValue, hedonicFairValue, FEATURE_K,
 } from '../src/features/fairValue';
 import { openStore } from '../src/persistence';
 
@@ -85,6 +85,49 @@ describe('estimateFairValue', () => {
     expect(fv.fair).toBeGreaterThan(expected * 0.8);
     expect(fv.fair).toBeLessThan(expected * 1.2);
     expect(fv.delta).toBe(99999 - fv.fair); // priced way over
+  });
+});
+
+describe('hedonicFairValue (v2.1)', () => {
+  // Train the generating model: ln(price) = 9 − 0.3·ln(age+1) − 0.05·(km/10k).
+  function trained() {
+    const s = emptyState(3);
+    for (let year = 2016; year <= 2025; year++) {
+      for (const km of [50000, 100000, 150000]) {
+        const x = featureVector('car', { year, km }, NOW)!;
+        addObservation(s, x, 9 - 0.3 * x[1]! - 0.05 * x[2]!);
+      }
+    }
+    return s;
+  }
+  const modelPrice = (year: number, km: number): number => {
+    const x = featureVector('car', { year, km }, NOW)!;
+    return Math.exp(9 - 0.3 * x[1]! - 0.05 * x[2]!);
+  };
+
+  it('recovers the comps\' market level via slope adjustment', () => {
+    const LEVEL = 1.5; // the real market sits 1.5× above the (bias-skewed) model
+    const comps = [2017, 2018, 2019, 2020, 2021, 2022].map((year) => ({
+      lastPrice: Math.round(modelPrice(year, 100000) * LEVEL),
+      currency: 'EUR',
+      attributes: { year: String(year), km: '100000' },
+    }));
+    const fv = hedonicFairValue({ year: '2020', km: '100000' }, 99999, 'EUR', comps, trained(), NOW)!;
+    const expected = modelPrice(2020, 100000) * LEVEL;
+    expect(fv.confidence).toBe('medium'); // 6 comps (5..15)
+    expect(fv.fair).toBeGreaterThan(expected * 0.9);
+    expect(fv.fair).toBeLessThan(expected * 1.1);
+  });
+
+  it('falls back to the raw prediction (low confidence) with too few comps', () => {
+    const fv = hedonicFairValue({ year: '2020', km: '100000' }, 99999, 'EUR', [], trained(), NOW)!;
+    expect(fv.confidence).toBe('low');
+    expect(fv.fair).toBeGreaterThan(modelPrice(2020, 100000) * 0.8);
+    expect(fv.fair).toBeLessThan(modelPrice(2020, 100000) * 1.2);
+  });
+
+  it('returns null when the model is untrained', () => {
+    expect(hedonicFairValue({ year: '2020', km: '100000' }, 99999, 'EUR', [], undefined, NOW)).toBeNull();
   });
 });
 
