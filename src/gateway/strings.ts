@@ -53,6 +53,20 @@ export interface Catalog {
   remove_usage: string;
   remove_done: (id: number) => string;
   remove_not_found: string;
+  /** Portfolio summary for /stats. */
+  stats_summary: (p: {
+    watches: number;
+    search: number;
+    product: number;
+    paused: number;
+    tracked: number;
+    items: number;
+    vendors: string;
+  }) => string;
+  /** Caption on the exported CSV document. */
+  export_caption: (rows: number) => string;
+  /** Reply when there's nothing to export. */
+  export_empty: string;
   edit_usage: string;
   edit_not_found: string;
   rename_prompt: string;
@@ -117,6 +131,7 @@ export interface Catalog {
   btn_rename: string;
   btn_pause: string;
   btn_resume: string;
+  btn_edit: string;
   btn_open: string;
   btn_call: string;
   btn_price_history: string;
@@ -249,6 +264,8 @@ const ro: Catalog = {
     '• /list — arată toate urmăririle din acest chat.\n' +
     '• /browse — răsfoiește anunțurile colectate; apasă „📌 Urmărește” ca să urmărești un anunț.\n' +
     '• /edit <id> — modifică frecvența, vânzătorul sau cuvintele excluse ale unei urmăriri.\n' +
+    '• /stats — rezumatul urmăririlor · /export — anunțurile colectate ca CSV.\n' +
+    '• Redirecționează (forward) un anunț ca să-l urmărești automat.\n' +
     '• /remove <id> — oprește o urmărire.\n' +
     '• /lang ro|en — schimbă limba.\n' +
     '• Apasă „Istoric preț” pe orice alertă pentru un grafic.',
@@ -269,6 +286,14 @@ const ro: Catalog = {
   remove_usage: 'Folosire: /remove <id>',
   remove_done: (id) => `Urmărirea #${id} a fost oprită.`,
   remove_not_found: 'Urmărirea nu există sau nu îți aparține.',
+  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+    `📊 Rezumat\n` +
+    `• Urmăriri: ${watches} (${search} căutări, ${product} produse)\n` +
+    `• Urmărite (📌): ${tracked} · pe pauză (⏸): ${paused}\n` +
+    `• Anunțuri colectate: ${items}\n` +
+    (vendors ? `• Site-uri: ${vendors}` : ''),
+  export_caption: (rows) => `📄 ${rows} anunț${rows === 1 ? '' : 'uri'} exportate.`,
+  export_empty: 'Niciun anunț de exportat încă.',
   edit_usage: 'Folosire: /edit <id>',
   edit_not_found: 'Urmărirea nu există sau nu îți aparține.',
   rename_prompt: 'Trimite o denumire pentru această urmărire (sau „-” ca să o ștergi).',
@@ -323,6 +348,7 @@ const ro: Catalog = {
   btn_rename: '✏️ Redenumește',
   btn_pause: '⏸ Pauză',
   btn_resume: '▶️ Reia',
+  btn_edit: '✏️ Editează',
   btn_open: '🔗 Deschide',
   btn_call: '📞 Sună',
   btn_price_history: '📊 Istoric preț',
@@ -452,6 +478,8 @@ const en: Catalog = {
     '• /list — show every watch in this chat.\n' +
     '• /browse — browse collected listings; tap “📌 Track” to watch an item.\n' +
     '• /edit <id> — change a watch’s frequency, seller filter or exclusion keywords.\n' +
+    '• /stats — summary of your watches · /export — collected listings as CSV.\n' +
+    '• Forward a listing message to track it automatically.\n' +
     '• /remove <id> — stop a watch.\n' +
     '• /lang ro|en — change language.\n' +
     '• Tap “Price history” on any alert for a chart.',
@@ -472,6 +500,14 @@ const en: Catalog = {
   remove_usage: 'Usage: /remove <id>',
   remove_done: (id) => `Watch #${id} stopped.`,
   remove_not_found: 'That watch does not exist or is not yours.',
+  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+    `📊 Summary\n` +
+    `• Watches: ${watches} (${search} searches, ${product} products)\n` +
+    `• Tracked (📌): ${tracked} · paused (⏸): ${paused}\n` +
+    `• Listings collected: ${items}\n` +
+    (vendors ? `• Sites: ${vendors}` : ''),
+  export_caption: (rows) => `📄 Exported ${rows} listing${rows === 1 ? '' : 's'}.`,
+  export_empty: 'Nothing to export yet.',
   edit_usage: 'Usage: /edit <id>',
   edit_not_found: 'That watch does not exist or is not yours.',
   rename_prompt: 'Send a name for this watch (or “-” to clear it).',
@@ -526,6 +562,7 @@ const en: Catalog = {
   btn_rename: '✏️ Rename',
   btn_pause: '⏸ Pause',
   btn_resume: '▶️ Resume',
+  btn_edit: '✏️ Edit',
   btn_open: '🔗 Open',
   btn_call: '📞 Call',
   btn_price_history: '📊 Price history',
@@ -656,6 +693,8 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'browse', description: 'Răsfoiește anunțurile colectate' },
     { command: 'check', description: 'Verifică o urmărire acum (/check <id>)' },
     { command: 'edit', description: 'Modifică o urmărire (/edit <id>)' },
+    { command: 'stats', description: 'Rezumatul urmăririlor tale' },
+    { command: 'export', description: 'Exportă anunțurile colectate (CSV)' },
     { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
     { command: 'lang', description: 'Schimbă limba (/lang ro|en)' },
     { command: 'request_access', description: 'Cere acces la bot' },
@@ -668,6 +707,8 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'browse', description: 'Browse collected listings' },
     { command: 'check', description: 'Check a watch now (/check <id>)' },
     { command: 'edit', description: 'Edit a watch (/edit <id>)' },
+    { command: 'stats', description: 'Summary of your watches' },
+    { command: 'export', description: 'Export collected listings (CSV)' },
     { command: 'remove', description: 'Stop a watch (/remove <id>)' },
     { command: 'lang', description: 'Change language (/lang ro|en)' },
     { command: 'request_access', description: 'Request access to the bot' },
