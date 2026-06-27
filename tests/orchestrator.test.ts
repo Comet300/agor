@@ -435,6 +435,29 @@ describe("10.1 search registration + new-listing detection", () => {
     await h.orchestrator.runMonitorOnce(res.monitor.id);
     expect(h.store.priceHistory.history(res.monitor.id, "A")).toHaveLength(2);
   });
+
+  it("rolls up dropped listings after the absent threshold, then re-lists on return", async () => {
+    const A = { id: "A", title: "Alpha", price: 1000, currency: "RON", url: "https://www.synth.test/A", city: "Cluj" };
+    const B = { id: "B", title: "Beta", price: 1100, currency: "RON", url: "https://www.synth.test/B", city: "Cluj" };
+    h.setBody(searchDoc([A, B]));
+    const res = await h.orchestrator.register({ chatId: 5, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("register failed");
+
+    h.setNow(2_000); h.setBody(searchDoc([A])); // B absent: 1 miss < threshold 2
+    let notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.some((n) => n.kind === "listings_dropped")).toBe(false);
+
+    h.setNow(3_000); h.setBody(searchDoc([A])); // B absent again → crossed
+    notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    const dropped = notes.find((n) => n.kind === "listings_dropped");
+    expect(dropped?.dropped?.count).toBe(1);
+    expect(dropped?.dropped?.titles).toContain("Beta");
+
+    h.setNow(4_000); h.setBody(searchDoc([A, B])); // B returns
+    notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.some((n) => n.kind === "re_listed" && n.item!.id === "B")).toBe(true);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -538,6 +561,40 @@ describe("10.2 product registration + price-drop detection", () => {
     h.setNow(3_000); h.setBody(productDoc({ ...base, price: 800 }));
     notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     expect(notes.some((n) => n.kind === "became_deal")).toBe(false);
+  });
+
+  it("emits item_delisted when the product page 404s, then re_listed on return", async () => {
+    const base: RawNode = { id: "P", title: "Gone widget", price: 900, currency: "RON", url: PRODUCT_URL, available: true };
+    h.setBody(productDoc(base));
+    const res = await h.orchestrator.register({ chatId: 7, rawUrl: PRODUCT_URL, type: "product" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("register failed");
+
+    h.setNow(2_000); h.setStatus(404); h.setBody("");
+    let notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    const del = notes.find((n) => n.kind === "item_delisted");
+    expect(del?.delist?.reason).toBe("product_gone");
+
+    h.setNow(3_000); h.setStatus(200); h.setBody(productDoc(base));
+    notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.some((n) => n.kind === "re_listed")).toBe(true);
+  });
+
+  it("emits bidirectional price_change for a TRACKED watch (up and down)", async () => {
+    const base: RawNode = { id: "T", title: "Tracked", price: 1000, currency: "RON", url: PRODUCT_URL, available: true };
+    h.setBody(productDoc(base));
+    const res = await h.orchestrator.register({ chatId: 7, rawUrl: PRODUCT_URL, type: "product", origin: "tracked" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("register failed");
+
+    h.setNow(2_000); h.setBody(productDoc({ ...base, price: 1200 })); // up
+    let notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.find((n) => n.kind === "price_change")?.priceChange?.direction).toBe("up");
+    expect(notes.some((n) => n.kind === "price_drop")).toBe(false); // tracked uses price_change
+
+    h.setNow(3_000); h.setBody(productDoc({ ...base, price: 1100 })); // down
+    notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.find((n) => n.kind === "price_change")?.priceChange?.direction).toBe("down");
   });
 
   it("fires target_hit once when the price crosses to at/below target, re-arms after a climb", async () => {
