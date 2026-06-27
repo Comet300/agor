@@ -159,6 +159,15 @@ export interface FilterConfig {
   blockedSellers?: string[];
   /** Normalized (digits-only) seller phone numbers to block. */
   blockedPhones?: string[];
+  /** Minimum price (listing currency) — listings below are dropped. */
+  priceMin?: number;
+  /** Maximum price (listing currency) — listings above are dropped. */
+  priceMax?: number;
+  /**
+   * Numeric attribute range filters, e.g. `{ year: { min: 2019 }, km: { max: 120000 } }`.
+   * A listing missing the attribute is NOT filtered out (sparse data is lenient).
+   */
+  attrRanges?: Record<string, { min?: number; max?: number }>;
   /**
    * Target price (in the listing's own currency) for a product/tracked watch.
    * When the item's price first reaches at-or-below this, a `target_hit` alert

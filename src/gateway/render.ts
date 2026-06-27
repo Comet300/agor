@@ -451,8 +451,24 @@ export function listItemParams(monitor: Monitor): Parameters<Catalog['list_item'
     dealsOnly: monitor.filters.dealsOnly === true,
     required: (monitor.filters.requiredKeywords ?? []).join(', '),
     blocked: (monitor.filters.blockedSellers ?? []).length + (monitor.filters.blockedPhones ?? []).length,
+    priceRange: priceRangeSummary(monitor.filters.priceMin, monitor.filters.priceMax),
+    specs: attrRangeSummary(monitor.filters.attrRanges),
     ...(monitor.label ? { label: monitor.label } : {}),
   };
+}
+
+/** "min–max" (∞/0 for an open bound), or '' when no price range is set. */
+function priceRangeSummary(min?: number, max?: number): string {
+  if (min === undefined && max === undefined) return '';
+  return `${min ?? 0}–${max ?? '∞'}`;
+}
+
+/** "year≥2019 · km≤120000" from attribute ranges, or '' when none. */
+function attrRangeSummary(ranges?: Record<string, { min?: number; max?: number }>): string {
+  if (!ranges) return '';
+  return Object.entries(ranges)
+    .map(([k, r]) => `${k}${r.min !== undefined ? `≥${r.min}` : ''}${r.max !== undefined ? `≤${r.max}` : ''}`)
+    .join(' · ');
 }
 
 /**
