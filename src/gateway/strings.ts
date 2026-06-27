@@ -171,6 +171,15 @@ export interface Catalog {
   btn_jump: string;
   btn_switch: string;
   btn_browse_all: string;
+  btn_save: string;
+  btn_saved: string;
+  btn_dismiss: string;
+  cb_saved: string;
+  cb_unsaved: string;
+  cb_dismissed: string;
+  saved_empty: string;
+  saved_intro: string;
+  saved_item: (p: { title: string; price: string; url: string }) => string;
   browse_in_stock: string;
   browse_out_of_stock: string;
   /** One-line price rating vs comparable listings; '' for an unknown verdict. */
@@ -436,6 +445,15 @@ const ro: Catalog = {
   btn_prev: '◀️ Înapoi',
   btn_next: 'Înainte ▶️',
   btn_track: '📌 Urmărește',
+  btn_save: '⭐ Salvează',
+  btn_saved: '⭐ Salvat',
+  btn_dismiss: '🚫 Ascunde',
+  cb_saved: 'Salvat în listă.',
+  cb_unsaved: 'Scos din listă.',
+  cb_dismissed: 'Anunț ascuns.',
+  saved_empty: 'Niciun anunț salvat. Apasă ⭐ Salvează în /browse.',
+  saved_intro: '⭐ Anunțuri salvate:',
+  saved_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
   btn_jump: '🔢 Sari la #',
   btn_switch: '🔀 Schimbă',
   btn_browse_all: '📂 Toate anunțurile',
@@ -709,6 +727,15 @@ const en: Catalog = {
   btn_prev: '◀️ Prev',
   btn_next: 'Next ▶️',
   btn_track: '📌 Track',
+  btn_save: '⭐ Save',
+  btn_saved: '⭐ Saved',
+  btn_dismiss: '🚫 Dismiss',
+  cb_saved: 'Saved to your shortlist.',
+  cb_unsaved: 'Removed from your shortlist.',
+  cb_dismissed: 'Listing hidden.',
+  saved_empty: 'Nothing saved yet. Tap ⭐ Save in /browse.',
+  saved_intro: '⭐ Saved listings:',
+  saved_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
   btn_jump: '🔢 Jump to #',
   btn_switch: '🔀 Switch',
   btn_browse_all: '📂 All listings',
@@ -861,6 +888,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'track', description: 'Urmărește un link de anunț' },
     { command: 'list', description: 'Arată urmăririle din acest chat' },
     { command: 'browse', description: 'Răsfoiește anunțurile colectate' },
+    { command: 'saved', description: 'Anunțurile salvate (⭐)' },
     { command: 'check', description: 'Verifică o urmărire acum (/check <id>)' },
     { command: 'edit', description: 'Modifică o urmărire (/edit <id>)' },
     { command: 'stats', description: 'Rezumatul urmăririlor tale' },
@@ -877,6 +905,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'track', description: 'Watch a listing link' },
     { command: 'list', description: 'Show this chat’s watches' },
     { command: 'browse', description: 'Browse collected listings' },
+    { command: 'saved', description: 'Your saved listings (⭐)' },
     { command: 'check', description: 'Check a watch now (/check <id>)' },
     { command: 'edit', description: 'Edit a watch (/edit <id>)' },
     { command: 'stats', description: 'Summary of your watches' },
