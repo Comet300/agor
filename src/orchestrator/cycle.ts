@@ -175,24 +175,21 @@ export class MonitorCycle {
       }
     }
 
-    // Persist every active item; the NEW ones also get a first price point.
-    // (Determine "new" via the pre-cycle known set so already-stored ids that
-    // re-appear this cycle don't double-log a price.) Wrapped in one transaction
-    // so a mid-cycle crash can't leave an item stored without its price (or vice
-    // versa), and so the whole batch commits as a single fsync.
-    const newIds = new Set(out.newEnriched.map((i) => i.id));
+    // Persist every active item AND log its price (store-on-change, so an
+    // unchanged price is a no-op). This gives search-collected items a full price
+    // trajectory — not just the new ones — so /history and market insight work
+    // for them too. Wrapped in one transaction so a mid-cycle crash can't leave an
+    // item stored without its price (or vice versa), committing as a single fsync.
     this.deps.store.transaction(() => {
       for (const item of out.active) {
         this.deps.store.items.upsert(monitor.id, item, at);
-        if (newIds.has(item.id)) {
-          this.deps.store.priceHistory.append({
-            monitorId: monitor.id,
-            itemId: item.id,
-            price: item.price,
-            currency: item.currency,
-            observedAt: at,
-          });
-        }
+        this.deps.store.priceHistory.append({
+          monitorId: monitor.id,
+          itemId: item.id,
+          price: item.price,
+          currency: item.currency,
+          observedAt: at,
+        });
       }
     });
 

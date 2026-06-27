@@ -415,6 +415,26 @@ describe("10.1 search registration + new-listing detection", () => {
     // No additional dispatch happened.
     expect(h.notify).toHaveBeenCalledTimes(1);
   });
+
+  it("logs price history for EXISTING search items on a price change (store-on-change)", async () => {
+    h.setBody(searchDoc([]));
+    const res = await h.orchestrator.register({ chatId: 5, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("register failed");
+    const A = (price: number) => searchDoc([{ id: "A", title: "Phone A", price, currency: "RON", url: "https://www.synth.test/A", city: "Cluj" }]);
+
+    h.setNow(2_000); h.setBody(A(1000));
+    await h.orchestrator.runMonitorOnce(res.monitor.id);
+    expect(h.store.priceHistory.history(res.monitor.id, "A")).toHaveLength(1); // baseline
+
+    h.setNow(3_000); h.setBody(A(900)); // existing item, changed price
+    await h.orchestrator.runMonitorOnce(res.monitor.id);
+    expect(h.store.priceHistory.history(res.monitor.id, "A")).toHaveLength(2); // logged
+
+    h.setNow(4_000); h.setBody(A(900)); // unchanged → no new point
+    await h.orchestrator.runMonitorOnce(res.monitor.id);
+    expect(h.store.priceHistory.history(res.monitor.id, "A")).toHaveLength(2);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────

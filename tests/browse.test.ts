@@ -291,6 +291,20 @@ describe('/browse carousel', () => {
     expect(h.sent.at(-1)!.text).toMatch(/great deal|cheaper than/i);
   });
 
+  it('/history sends a price chart with a summary caption', async () => {
+    const m = h.store.monitors.create({ type: 'product', chatId: USER, vendor: 'synth', url: 'https://synth.test/h',
+      filters: { sellerVisibility: 'both', exclusionKeywords: [] }, intervalMs: 60_000, nextDueAt: 0, origin: 'tracked' });
+    h.store.items.upsert(m.id, item({ id: 'hh', title: 'Tracked Phone', price: 900, currency: 'RON', url: 'https://synth.test/hh' }), 3_000);
+    h.store.priceHistory.append({ monitorId: m.id, itemId: 'hh', price: 1000, currency: 'RON', observedAt: 1_000 });
+    h.store.priceHistory.append({ monitorId: m.id, itemId: 'hh', price: 900, currency: 'RON', observedAt: 2_000 });
+
+    await cmd(h.bot, `/history ${m.id}`);
+    const out = h.sent.at(-1)!;
+    expect(out.kind).toBe('photo');
+    expect(out.text).toMatch(/Tracked Phone/);
+    expect(out.text).toMatch(/points/i);
+  });
+
   it('br: with no open session prompts a fresh browse', async () => {
     // A brand-new chat that never ran /browse — a different id so no module-global
     // session from earlier cases leaks in. Allow it and tap a stale-looking nav.

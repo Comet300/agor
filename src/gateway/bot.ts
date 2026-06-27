@@ -32,6 +32,7 @@ import { toCsv } from '../util/csv';
 import { formatMoney } from '../util/money';
 import { findCheaperEquivalents } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
+import { marketInsight } from '../features/marketInsight';
 import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
@@ -460,6 +461,52 @@ export function buildBot(
       })));
       await ctx.replyWithDocument(new InputFile(Buffer.from(csv, 'utf8'), 'agor-listings.csv'), {
         caption: tr(lang).export_caption(items.length),
+      });
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  bot.command('history', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const id = Number((ctx.match ?? '').trim());
+      if (!Number.isInteger(id)) {
+        await ctx.reply(tr(lang).history_usage);
+        return;
+      }
+      const monitor = store.monitors.get(id);
+      if (!monitor || monitor.chatId !== chatId) {
+        await ctx.reply(tr(lang).history_not_found);
+        return;
+      }
+      // The monitor's (newest) item — for a product watch this is THE item.
+      const snap = store.items.browseByMonitor(id, 1, 0)[0];
+      if (!snap) {
+        await ctx.reply(tr(lang).history_not_found);
+        return;
+      }
+      const points = store.priceHistory.history(id, snap.itemId, PRICE_HISTORY_RENDER_CAP);
+      const chart = renderPriceHistory(points);
+      if (!chart.ok) {
+        await ctx.reply(tr(lang).price_history_insufficient);
+        return;
+      }
+      const insight = marketInsight(snap.postedAt, points, Date.now());
+      const first = points[0]!;
+      const last = points[points.length - 1]!;
+      const days = Math.max(0, Math.round((last.observedAt - first.observedAt) / 86_400_000));
+      await ctx.replyWithPhoto(new InputFile(chart.png), {
+        caption: tr(lang).history_summary({
+          title: snap.title ?? snap.itemId,
+          first: formatMoney(first.price, first.currency),
+          last: formatMoney(last.price, last.currency),
+          low: formatMoney(insight.lowestPrice ?? last.price, last.currency),
+          cuts: insight.priceCuts,
+          points: points.length,
+          days,
+        }),
       });
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);

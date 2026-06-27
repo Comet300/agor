@@ -67,6 +67,10 @@ export interface Catalog {
   export_caption: (rows: number) => string;
   /** Reply when there's nothing to export. */
   export_empty: string;
+  history_usage: string;
+  history_not_found: string;
+  /** Caption/text summary under a /history price chart. */
+  history_summary: (p: { title: string; first: string; last: string; low: string; cuts: number; points: number; days: number }) => string;
   cheaper_usage: string;
   cheaper_not_found: string;
   cheaper_none: string;
@@ -312,6 +316,10 @@ const ro: Catalog = {
     (vendors ? `• Site-uri: ${vendors}` : ''),
   export_caption: (rows) => `📄 ${rows} anunț${rows === 1 ? '' : 'uri'} exportate.`,
   export_empty: 'Niciun anunț de exportat încă.',
+  history_usage: 'Folosire: /history <id>',
+  history_not_found: 'Urmărirea nu există, nu îți aparține sau nu are istoric de preț.',
+  history_summary: ({ title, first, last, low, cuts, points, days }) =>
+    `📈 ${title}\nDe la ${first} → acum ${last}\nMinim ${low} · ${cuts} reducer${cuts === 1 ? 'e' : 'i'} · ${points} puncte · ${days}z`,
   cheaper_usage: 'Folosire: /cheaper <id> (id-ul unei urmăriri de produs)',
   cheaper_not_found: 'Urmărirea nu există, nu îți aparține sau nu are încă un anunț.',
   cheaper_none: 'Niciun echivalent mai ieftin în anunțurile tale colectate.',
@@ -552,6 +560,10 @@ const en: Catalog = {
     (vendors ? `• Sites: ${vendors}` : ''),
   export_caption: (rows) => `📄 Exported ${rows} listing${rows === 1 ? '' : 's'}.`,
   export_empty: 'Nothing to export yet.',
+  history_usage: 'Usage: /history <id>',
+  history_not_found: 'That watch does not exist, is not yours, or has no price history.',
+  history_summary: ({ title, first, last, low, cuts, points, days }) =>
+    `📈 ${title}\nFrom ${first} → now ${last}\nLow ${low} · ${cuts} cut${cuts === 1 ? '' : 's'} · ${points} points · ${days}d`,
   cheaper_usage: 'Usage: /cheaper <id> (id of a product watch)',
   cheaper_not_found: 'That watch does not exist, is not yours, or has no listing yet.',
   cheaper_none: 'No cheaper equivalents in your collected listings.',
@@ -763,6 +775,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'check', description: 'Verifică o urmărire acum (/check <id>)' },
     { command: 'edit', description: 'Modifică o urmărire (/edit <id>)' },
     { command: 'stats', description: 'Rezumatul urmăririlor tale' },
+    { command: 'history', description: 'Grafic preț pentru o urmărire (/history <id>)' },
     { command: 'export', description: 'Exportă anunțurile colectate (CSV)' },
     { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
     { command: 'lang', description: 'Schimbă limba (/lang ro|en)' },
@@ -777,6 +790,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'check', description: 'Check a watch now (/check <id>)' },
     { command: 'edit', description: 'Edit a watch (/edit <id>)' },
     { command: 'stats', description: 'Summary of your watches' },
+    { command: 'history', description: 'Price chart for a watch (/history <id>)' },
     { command: 'export', description: 'Export collected listings (CSV)' },
     { command: 'remove', description: 'Stop a watch (/remove <id>)' },
     { command: 'lang', description: 'Change language (/lang ro|en)' },
