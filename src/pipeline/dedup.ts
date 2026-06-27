@@ -15,6 +15,7 @@
  */
 import type { EnrichedItem, IScrapedItem, MessageRef } from '../contracts';
 import { compositeSignature } from '../util/hash';
+import { vinOf } from './vin';
 import type { DedupStore } from '../persistence/dedupStore';
 
 export interface AlternativeSource {
@@ -40,6 +41,10 @@ export interface CrossPost {
 }
 
 function signatureOf(item: IScrapedItem): string {
+  // A VIN is definitive: same VIN = same physical car, so dedup on it (collapses
+  // a cross-vendor or re-listed car even when title/price differ).
+  const vin = vinOf(item);
+  if (vin) return `vin:${vin}`;
   return compositeSignature({
     title: item.title,
     price: item.price,
