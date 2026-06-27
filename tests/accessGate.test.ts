@@ -162,6 +162,13 @@ describe('access gate (enforced with an admin configured)', () => {
     expect(h.sent.some((s) => s.chatId === ADMIN && s.text === tr('ro').help_body)).toBe(true);
   });
 
+  it('lets a NON-allowed chat run /chatid (needed to read a group id for sharing)', async () => {
+    await feed(h.bot, USER, '/chatid');
+    const last = h.sent.filter((s) => s.chatId === USER).pop();
+    expect(last?.text).toBe(tr('ro').chat_id_line(USER));
+    expect(last?.text).not.toBe(tr('ro').access_denied);
+  });
+
   it('runs the /request_access name→email flow, records pending, notifies admin with buttons', async () => {
     await feed(h.bot, USER, '/request_access');
     expect(h.sent.filter((s) => s.chatId === USER).pop()?.text).toContain(tr('ro').access_ask_name);

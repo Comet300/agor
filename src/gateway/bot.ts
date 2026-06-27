@@ -399,9 +399,12 @@ export function buildBot(
     const text = ctx.message?.text ?? '';
     const isStart = text.startsWith('/start');
     const isRequest = text.startsWith('/request_access');
+    // /chatid only echoes this chat's own numeric id (no data leak); it must work
+    // in an un-allowed group so a watch owner can read the id to share alerts into.
+    const isChatId = text.startsWith('/chatid');
     const midFlow = pendingAccess.has(chatId);
     // Let the request_access entry points and an in-flight name/email reply through.
-    if (isStart || isRequest || (midFlow && !text.startsWith('/'))) return next();
+    if (isStart || isRequest || isChatId || (midFlow && !text.startsWith('/'))) return next();
 
     // Refuse everything else. Answer callback queries so the spinner clears.
     if (ctx.callbackQuery) {
