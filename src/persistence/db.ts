@@ -164,6 +164,16 @@ export function migrate(db: DB): void {
       PRIMARY KEY (chat_id, item_id, flag)
     );
 
+    -- Group/shared watches: extra chats that also receive a watch's alerts.
+    -- The owner is monitors.chat_id; rows here are ADDITIONAL subscriber chats
+    -- the watch's listing alerts fan out to. One row per (watch, subscriber).
+    CREATE TABLE IF NOT EXISTS watch_subscribers (
+      monitor_id INTEGER NOT NULL,
+      chat_id    INTEGER NOT NULL,
+      created_at INTEGER,
+      PRIMARY KEY (monitor_id, chat_id)
+    );
+
     -- Fair-value (v2): per (category, currency) ridge accumulators.
     CREATE TABLE IF NOT EXISTS valuation_models (
       category   TEXT,

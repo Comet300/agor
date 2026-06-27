@@ -133,6 +133,10 @@ const pendingTarget = new ExpiringMap<number, number>(PENDING_TTL_MS);
 const pendingPriceRange = new ExpiringMap<number, number>(PENDING_TTL_MS);
 const pendingAttrRange = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
+/** Chats awaiting a share / unshare target-chat-id reply (chat id → monitor id). */
+const pendingShare = new ExpiringMap<number, number>(PENDING_TTL_MS);
+const pendingUnshare = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
 /** Attributes the spec-range filter recognises (parsed numerics). */
 const RANGE_ATTRS = ['year', 'km', 'area', 'rooms', 'power'] as const;
 
@@ -820,6 +824,7 @@ export function buildBot(
   /** Where each id command sources its picker options. */
   const idPickerSource: Record<IdCommand, 'watch' | 'product' | 'user'> = {
     edit: 'watch', remove: 'watch', check: 'watch', history: 'watch', cheaper: 'product',
+    share: 'watch', unshare: 'watch',
     allow: 'user', deny: 'user', promote: 'user', demote: 'user', userinfo: 'user', setname: 'user', setemail: 'user',
   };
 
@@ -880,6 +885,22 @@ export function buildBot(
       }
       case 'cheaper': {
         await runCheaper(ctx, chatId, id);
+        return;
+      }
+      case 'share': {
+        const monitor = store.monitors.get(id);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).remove_not_found); return; }
+        pendingShare.set(chatId, id);
+        await ctx.reply(tr(lang).share_prompt);
+        return;
+      }
+      case 'unshare': {
+        const monitor = store.monitors.get(id);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).remove_not_found); return; }
+        const subs = store.watchSubscribers.listChats(id);
+        if (subs.length === 0) { await ctx.reply(tr(lang).share_none); return; }
+        pendingUnshare.set(chatId, id);
+        await ctx.reply(tr(lang).unshare_prompt({ list: subs.join(', ') }));
         return;
       }
       case 'allow': {
@@ -981,6 +1002,71 @@ export function buildBot(
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
+  });
+
+  // Parse a target chat id for sharing: any non-zero integer (group ids are
+  // negative, e.g. -1001234567890). Returns undefined on garbage.
+  const parseChatId = (raw: string): number | undefined => {
+    const n = Number((raw ?? '').trim());
+    return Number.isInteger(n) && n !== 0 ? n : undefined;
+  };
+
+  /** Subscribe a target chat to one of the caller's watches. */
+  const applyShare = async (ctx: IdCtx, chatId: number, monitorId: number, raw: string): Promise<void> => {
+    const lang = langFor(store, chatId);
+    const target = parseChatId(raw);
+    if (target === undefined || target === chatId) { await ctx.reply(tr(lang).share_invalid); return; }
+    store.watchSubscribers.add(monitorId, target, Date.now());
+    await ctx.reply(tr(lang).share_added({ chatId: target, count: store.watchSubscribers.count(monitorId) }));
+  };
+
+  /** Unsubscribe a target chat from one of the caller's watches. */
+  const applyUnshare = async (ctx: IdCtx, chatId: number, monitorId: number, raw: string): Promise<void> => {
+    const lang = langFor(store, chatId);
+    const target = parseChatId(raw);
+    if (target === undefined || !store.watchSubscribers.remove(monitorId, target)) { await ctx.reply(tr(lang).share_invalid); return; }
+    await ctx.reply(tr(lang).share_removed({ count: store.watchSubscribers.count(monitorId) }));
+  };
+
+  // /share [<id> [<chatId>]] — fan a watch's alerts out to another chat.
+  bot.command('share', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const tokens = (ctx.match ?? '').trim().split(/\s+/).filter(Boolean);
+      const id = parseId(tokens[0] ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'share'); return; }
+      const monitor = store.monitors.get(id);
+      if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).remove_not_found); return; }
+      if (tokens.length >= 2) { await applyShare(ctx, chatId, id, tokens[1]!); return; }
+      await runIdCommand('share', ctx, chatId, id); // sets the pending target-chat prompt
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  // /unshare [<id> [<chatId>]] — stop fanning a watch's alerts to a chat.
+  bot.command('unshare', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const tokens = (ctx.match ?? '').trim().split(/\s+/).filter(Boolean);
+      const id = parseId(tokens[0] ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'unshare'); return; }
+      const monitor = store.monitors.get(id);
+      if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).remove_not_found); return; }
+      if (tokens.length >= 2) { await applyUnshare(ctx, chatId, id, tokens[1]!); return; }
+      await runIdCommand('unshare', ctx, chatId, id);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  // /chatid — echo this chat's numeric id (so it can be shared into).
+  bot.command('chatid', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    await ctx.reply(tr(lang).chat_id_line(chatId));
   });
 
   bot.command('check', async (ctx) => {
@@ -1714,6 +1800,7 @@ export function buildBot(
         const monitor = store.monitors.get(id);
         if (!monitor || monitor.chatId !== chatId) { await ctx.answerCallbackQuery(tr(lang).remove_not_found); return; }
         store.monitors.delete(id);
+        store.watchSubscribers.removeAll(id); // drop any shared-watch subscribers
         log('cycle').info({ monitorId: id, chatId, action: 'remove' }, 'monitor removed');
         await ctx.answerCallbackQuery(tr(lang).cb_removed);
         return;
@@ -2056,6 +2143,28 @@ export function buildBot(
         const label = raw === '-' ? '' : raw.slice(0, 40); // cap to keep /list tidy
         store.monitors.setLabel(renameMonitorId, label);
         await ctx.reply(label ? tr(lang).rename_done(label) : tr(lang).rename_cleared);
+        return;
+      }
+
+      // 1c-share. Awaiting the target chat id to share a watch with?
+      const shareMonitorId = pendingShare.get(chatId);
+      if (shareMonitorId !== undefined) {
+        pendingShare.delete(chatId);
+        if (text.trim() === '-') { await ctx.reply(tr(lang).cb_cancelled); return; }
+        const monitor = store.monitors.get(shareMonitorId);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).cb_watch_gone); return; }
+        await applyShare(ctx, chatId, shareMonitorId, text);
+        return;
+      }
+
+      // 1c-unshare. Awaiting the target chat id to stop sharing with?
+      const unshareMonitorId = pendingUnshare.get(chatId);
+      if (unshareMonitorId !== undefined) {
+        pendingUnshare.delete(chatId);
+        if (text.trim() === '-') { await ctx.reply(tr(lang).cb_cancelled); return; }
+        const monitor = store.monitors.get(unshareMonitorId);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).cb_watch_gone); return; }
+        await applyUnshare(ctx, chatId, unshareMonitorId, text);
         return;
       }
 

@@ -451,6 +451,28 @@ describe("10.1 search registration + new-listing detection", () => {
     expect(h.notify).not.toHaveBeenCalled(); // …but suppressed at dispatch
   });
 
+  it("fans a new_listing out to the owner plus every subscriber, honoring per-chat dismiss", async () => {
+    h.setBody(searchDoc([]));
+    const res = await h.orchestrator.register({ chatId: 5, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("register failed");
+    // Share the watch with two extra chats (one a negative group id).
+    h.store.watchSubscribers.add(res.monitor.id, 777, 1);
+    h.store.watchSubscribers.add(res.monitor.id, -1001, 1);
+    // One subscriber already dismissed the incoming item → must NOT receive it.
+    h.store.itemFlags.set(-1001, "C", res.monitor.id, "dismissed", 1);
+    h.notify.mockClear();
+
+    h.setNow(2_000);
+    h.setBody(searchDoc([{ id: "C", title: "Galaxy", price: 2500, currency: "RON", url: "https://www.synth.test/C", city: "Cluj" }]));
+    await h.orchestrator.runMonitorOnce(res.monitor.id);
+
+    // Owner 5 + subscriber 777 are alerted; subscriber -1001 is suppressed (dismissed).
+    const chatIds = h.notify.mock.calls.map((c) => c[0].chatId).sort((a, b) => a - b);
+    expect(chatIds).toEqual([5, 777]);
+    expect(h.notify.mock.calls.every((c) => c[0].item!.id === "C")).toBe(true);
+  });
+
   it("rolls up dropped listings after the absent threshold, then re-lists on return", async () => {
     const A = { id: "A", title: "Alpha", price: 1000, currency: "RON", url: "https://www.synth.test/A", city: "Cluj" };
     const B = { id: "B", title: "Beta", price: 1100, currency: "RON", url: "https://www.synth.test/B", city: "Cluj" };

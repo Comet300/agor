@@ -13,6 +13,7 @@ import { DedupRepo } from "./dedupStore";
 import { AuditRepo } from "./audit";
 import { ValuationRepo } from "./valuation";
 import { ItemFlagsRepo } from "./itemFlags";
+import { WatchSubscribersRepo } from "./watchSubscribers";
 
 export { MonitorRepo } from "./monitors";
 export { ItemRepo } from "./items";
@@ -22,6 +23,7 @@ export { AccessRepo } from "./access";
 export { DedupRepo } from "./dedupStore";
 export { ValuationRepo } from "./valuation";
 export { ItemFlagsRepo, type ItemFlag } from "./itemFlags";
+export { WatchSubscribersRepo } from "./watchSubscribers";
 export { AuditRepo } from "./audit";
 export type { DedupStore, PersistedDedupEntry } from "./dedupStore";
 export type { AuditAction, AuditEntry } from "./audit";
@@ -53,6 +55,8 @@ export interface Store {
   valuation: ValuationRepo;
   /** Per-chat item flags: saved (shortlist) + dismissed (hidden). */
   itemFlags: ItemFlagsRepo;
+  /** Group/shared watches: extra subscriber chats a watch's alerts fan out to. */
+  watchSubscribers: WatchSubscribersRepo;
   /**
    * Run `fn`'s writes inside a single SQLite transaction (atomic + faster):
    * either every write commits or, on a thrown error, all roll back. Used to
@@ -77,6 +81,7 @@ export function openStore(path: string): Store {
     audit: new AuditRepo(db),
     valuation: new ValuationRepo(db),
     itemFlags: new ItemFlagsRepo(db),
+    watchSubscribers: new WatchSubscribersRepo(db),
     transaction: <T>(fn: () => T): T => db.transaction(fn)(),
   };
 }
