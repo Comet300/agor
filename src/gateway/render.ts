@@ -368,6 +368,8 @@ export function renderEditCard(monitor: Monitor, lang: Lang): RenderedMessage {
       vendor: monitor.vendor,
       type: monitor.type,
       minutes: Math.round(monitor.intervalMs / 60000),
+      paused: monitor.paused,
+      ...(monitor.label ? { label: monitor.label } : {}),
     }),
     keyboard: editKeyboard(monitor, lang),
   };

@@ -14,7 +14,7 @@ function monitor(over: Partial<Monitor> = {}): Monitor {
     id: 4, type: 'search', origin: 'user', chatId: 1, vendor: 'OLX',
     url: 'https://www.olx.ro/auto/q-golf/',
     filters: { sellerVisibility: 'both', exclusionKeywords: [] },
-    intervalMs: 600000, fastTier: false, nextDueAt: 0, consecutiveFailures: 0, createdAt: 0,
+    intervalMs: 600000, fastTier: false, nextDueAt: 0, consecutiveFailures: 0, paused: false, createdAt: 0,
     ...over,
   };
 }
@@ -151,25 +151,45 @@ describe('editKeyboard', () => {
   const dataOf = (kb: ReturnType<typeof editKeyboard>): string[] =>
     kb.inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : `url:${'url' in b ? b.url : ''}`));
 
-  it('search watch: seller + frequency + exclusion + remove + done, no Start', () => {
+  it('search watch: seller + frequency + exclusion + deals-only + rename + pause + remove + done, no Start', () => {
     const d = dataOf(editKeyboard(monitor({ id: 4, type: 'search' }), 'en'));
     expect(d).toContain('esv:4:both');     // seller (edit-scoped callback)
     expect(d).toContain('efq:4:10');       // frequency presets
     expect(d).toContain('efq:4:30');
     expect(d).toContain('ex:4');           // exclusion (reuses registration callback)
+    expect(d).toContain('eo:4');           // deals-only toggle
+    expect(d).toContain('er:4');           // rename
+    expect(d).toContain('ep:4');           // pause/resume
     expect(d).toContain('rm:4');           // remove
     expect(d).toContain('ed');             // done
     expect(d.some((x) => x.startsWith('go:'))).toBe(false); // no "Start" on an existing watch
   });
 
-  it('product watch: frequency + remove + done only (no seller / no exclusion)', () => {
+  it('product watch: frequency + rename + pause + remove + done (no seller / exclusion / deals-only)', () => {
     const d = dataOf(editKeyboard(monitor({ id: 9, type: 'product', origin: 'tracked' }), 'en'));
     expect(d).toContain('efq:9:5');
+    expect(d).toContain('er:9');           // rename works for any watch
+    expect(d).toContain('ep:9');           // pause works for any watch
     expect(d).toContain('rm:9');
     expect(d).toContain('ed');
     expect(d.some((x) => x.startsWith('esv:'))).toBe(false); // seller filter N/A to one listing
     expect(d.some((x) => x.startsWith('ex:'))).toBe(false);  // exclusions N/A
+    expect(d.some((x) => x.startsWith('eo:'))).toBe(false);  // deals-only N/A
     expect(d.some((x) => x.startsWith('go:'))).toBe(false);
+  });
+
+  it('pause button label flips to Resume when the watch is paused', () => {
+    const labelsOf = (m: Monitor): string[] =>
+      editKeyboard(m, 'en').inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
+    expect(labelsOf(monitor({ paused: false }))).toContain(tr('en').btn_pause);
+    expect(labelsOf(monitor({ paused: true }))).toContain(tr('en').btn_resume);
+  });
+
+  it('marks deals-only with a check when enabled', () => {
+    const labelsOf = (m: Monitor): string[] =>
+      editKeyboard(m, 'en').inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
+    const on = monitor({ filters: { sellerVisibility: 'both', exclusionKeywords: [], dealsOnly: true } });
+    expect(labelsOf(on)).toContain(`✅ ${tr('en').btn_deals_only}`);
   });
 
   it('marks the active frequency and seller with a check', () => {

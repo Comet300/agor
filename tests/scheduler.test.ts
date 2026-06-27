@@ -74,6 +74,7 @@ function makeMonitor(over: Partial<Monitor> = {}): Monitor {
     fastTier: false,
     nextDueAt: 0,
     consecutiveFailures: 0,
+    paused: false,
     createdAt: 0,
     ...over,
   };

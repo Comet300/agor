@@ -223,10 +223,9 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
   const id = monitor.id;
   const isSearch = monitor.type === 'search';
   const activeMinutes = Math.round(monitor.intervalMs / 60000);
+  const mark = (on: boolean, label: string): string => (on ? `✅ ${label}` : label);
   const markSeller = (label: string, value: SellerVisibility): string =>
-    value === monitor.filters.sellerVisibility ? `✅ ${label}` : label;
-  const markFreq = (label: string, minutes: number): string =>
-    minutes === activeMinutes ? `✅ ${label}` : label;
+    mark(value === monitor.filters.sellerVisibility, label);
 
   const kb = new InlineKeyboard();
   if (isSearch) {
@@ -236,10 +235,20 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
       .row();
   }
   for (const minutes of FREQUENCY_PRESETS) {
-    kb.text(markFreq(t.btn_freq(minutes), minutes), `efq:${id}:${minutes}`);
+    kb.text(mark(minutes === activeMinutes, t.btn_freq(minutes)), `efq:${id}:${minutes}`);
   }
   kb.row();
-  if (isSearch) kb.text(t.btn_exclusion, `ex:${id}`);
-  kb.text(t.btn_remove, `rm:${id}`);
-  return kb.row().text(t.btn_done, 'ed');
+  // Filters that only make sense for a multi-result search.
+  if (isSearch) {
+    kb.text(t.btn_exclusion, `ex:${id}`)
+      .text(mark(monitor.filters.dealsOnly === true, t.btn_deals_only), `eo:${id}`)
+      .row();
+  }
+  // Rename + pause/resume on their own row, then remove + done.
+  kb.text(t.btn_rename, `er:${id}`)
+    .text(monitor.paused ? t.btn_resume : t.btn_pause, `ep:${id}`)
+    .row()
+    .text(t.btn_remove, `rm:${id}`)
+    .text(t.btn_done, 'ed');
+  return kb;
 }

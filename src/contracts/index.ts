@@ -141,6 +141,12 @@ export interface FilterConfig {
   sellerVisibility: SellerVisibility;
   /** Lowercased exclusion keywords (Feature 8). */
   exclusionKeywords: string[];
+  /**
+   * When true, a search watch only alerts on listings at or below the benchmark
+   * median (a "deal"). Listings the benchmark is confident are above median are
+   * suppressed; when the sample is too small to judge, nothing is suppressed.
+   */
+  dealsOnly?: boolean;
 }
 
 export interface Monitor {
@@ -163,6 +169,10 @@ export interface Monitor {
   nextDueAt: number;
   /** Consecutive unhealthy cycles (blocked / empty); drives failure surfacing. */
   consecutiveFailures: number;
+  /** When true the scheduler skips this watch (paused, but config + history kept). */
+  paused: boolean;
+  /** Optional user-given name, shown in /list, /browse scope, and the edit card. */
+  label?: string;
   createdAt: number;
 }
 

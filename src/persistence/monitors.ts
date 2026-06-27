@@ -36,11 +36,13 @@ interface MonitorRow {
   consecutive_failures: number | null;
   created_at: number;
   origin: string | null;
+  paused: number | null;
+  label: string | null;
 }
 
 /** Map a DB row into the typed domain {@link Monitor}. */
 function rowToMonitor(row: MonitorRow): Monitor {
-  return {
+  const monitor: Monitor = {
     id: row.id,
     type: row.type as MonitorType,
     origin: (row.origin as MonitorOrigin) ?? 'user',
@@ -52,8 +54,11 @@ function rowToMonitor(row: MonitorRow): Monitor {
     fastTier: row.fast_tier === 1,
     nextDueAt: row.next_due_at,
     consecutiveFailures: row.consecutive_failures ?? 0,
+    paused: row.paused === 1,
     createdAt: row.created_at,
   };
+  if (row.label != null && row.label !== '') monitor.label = row.label;
+  return monitor;
 }
 
 export class MonitorRepo {
@@ -94,6 +99,7 @@ export class MonitorRepo {
       fastTier: false,
       nextDueAt: input.nextDueAt,
       consecutiveFailures: 0,
+      paused: false,
       createdAt,
     };
   }
@@ -114,11 +120,16 @@ export class MonitorRepo {
     return rows.map(rowToMonitor);
   }
 
-  /** Monitors whose next poll is due at or before `now`, soonest first. */
+  /**
+   * Monitors whose next poll is due at or before `now`, soonest first. Paused
+   * watches are skipped — they keep their config and history but are not polled.
+   */
   listDue(now: number): Monitor[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM monitors WHERE next_due_at <= ? ORDER BY next_due_at`,
+        `SELECT * FROM monitors
+          WHERE next_due_at <= ? AND (paused IS NULL OR paused = 0)
+          ORDER BY next_due_at`,
       )
       .all(now) as MonitorRow[];
     return rows.map(rowToMonitor);
@@ -160,6 +171,16 @@ export class MonitorRepo {
   /** Persist a monitor's consecutive-failure count (failure surfacing). */
   setFailures(id: number, count: number): void {
     this.db.prepare(`UPDATE monitors SET consecutive_failures = ? WHERE id = ?`).run(count, id);
+  }
+
+  /** Pause or resume a monitor (paused watches are skipped by {@link listDue}). */
+  setPaused(id: number, paused: boolean): void {
+    this.db.prepare(`UPDATE monitors SET paused = ? WHERE id = ?`).run(paused ? 1 : 0, id);
+  }
+
+  /** Set or clear a monitor's user-given label (empty string clears it). */
+  setLabel(id: number, label: string): void {
+    this.db.prepare(`UPDATE monitors SET label = ? WHERE id = ?`).run(label || null, id);
   }
 
   /** Remove a monitor by id. */
