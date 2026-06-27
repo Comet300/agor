@@ -124,8 +124,17 @@ export function listRowKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
 /** Max options per picker page (paginated when more). */
 export const PICKER_PAGE_SIZE = 15;
 
-/** What a picker is choosing — drives selection behaviour + the prompt. */
-export type PickerKind = 'editpick' | 'block' | 'exclude' | 'require';
+/** Every command that accepts an id — a no-arg invocation opens an id picker. */
+export type IdCommand =
+  | 'edit' | 'remove' | 'check' | 'history' | 'cheaper'
+  | 'allow' | 'deny' | 'promote' | 'demote' | 'userinfo' | 'setname' | 'setemail';
+
+/**
+ * What a picker is choosing:
+ *   - 'command' — pick an id, then run {@link PickerSession.command} against it,
+ *   - 'block'/'exclude'/'require' — toggle the picked value in a watch's filter.
+ */
+export type PickerKind = 'command' | 'block' | 'exclude' | 'require';
 
 /** One selectable option in a picker. `value` is the payload acted on when tapped. */
 export interface PickerOption {
@@ -138,7 +147,11 @@ export interface PickerOption {
 /** State of an open picker, keyed per chat. */
 export interface PickerSession {
   kind: PickerKind;
-  /** The watch being edited (0 for the editpick chooser, which picks a watch). */
+  /** Header prompt (already localized). */
+  prompt: string;
+  /** For kind 'command': the command to run on the picked id. */
+  command?: IdCommand;
+  /** The watch being edited (toggle pickers); 0 for command pickers. */
   monitorId: number;
   options: PickerOption[];
   page: number;

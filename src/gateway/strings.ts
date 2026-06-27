@@ -149,7 +149,8 @@ export interface Catalog {
   btn_target: string;
   btn_type: string;
   /** Picker prompts (paginated button choosers). */
-  picker_edit_prompt: string;
+  picker_choose_watch: string;
+  picker_choose_user: string;
   picker_block_prompt: string;
   picker_exclude_prompt: string;
   picker_require_prompt: string;
@@ -259,6 +260,8 @@ export interface Catalog {
   access_userinfo: (p: { id: number; status: string; isAdmin: boolean; name: string; email: string }) => string;
   access_setname_usage: string;
   access_setemail_usage: string;
+  access_setname_prompt: (p: { id: number }) => string;
+  access_setemail_prompt: (p: { id: number }) => string;
   access_setname_done: (p: { id: number; name: string }) => string;
   access_setemail_done: (p: { id: number; email: string }) => string;
   access_promote_usage: string;
@@ -404,7 +407,8 @@ const ro: Catalog = {
   btn_edit: '✏️ Editează',
   btn_target: '🎯 Preț țintă',
   btn_type: '✏️ Scrie',
-  picker_edit_prompt: 'Ce urmărire vrei să editezi?',
+  picker_choose_watch: 'Care urmărire?',
+  picker_choose_user: 'Care utilizator?',
   picker_block_prompt: 'Ce vânzător vrei să blochezi? (apasă; din nou = deblochezi)',
   picker_exclude_prompt: 'Ce cuvinte să exclud? (apasă; din nou = scoți)',
   picker_require_prompt: 'Ce cuvinte sunt necesare? (apasă; din nou = scoți)',
@@ -522,6 +526,8 @@ const ro: Catalog = {
     `Utilizator ${id}\nstatus: ${status}${isAdmin ? ' (admin)' : ''}\nnume: ${name || '—'}\nemail: ${email || '—'}`,
   access_setname_usage: 'Folosire: /setname <chat_id> <nume>',
   access_setemail_usage: 'Folosire: /setemail <chat_id> <email>',
+  access_setname_prompt: ({ id }) => `Trimite numele pentru utilizatorul ${id}.`,
+  access_setemail_prompt: ({ id }) => `Trimite emailul pentru utilizatorul ${id}.`,
   access_setname_done: ({ id, name }) => `✅ Nume actualizat pentru ${id}: ${name}`,
   access_setemail_done: ({ id, email }) => `✅ Email actualizat pentru ${id}: ${email}`,
   access_promote_usage: 'Folosire: /promote <chat_id>',
@@ -664,7 +670,8 @@ const en: Catalog = {
   btn_edit: '✏️ Edit',
   btn_target: '🎯 Target price',
   btn_type: '✏️ Type',
-  picker_edit_prompt: 'Which watch do you want to edit?',
+  picker_choose_watch: 'Which watch?',
+  picker_choose_user: 'Which user?',
   picker_block_prompt: 'Block which seller? (tap; tap again to unblock)',
   picker_exclude_prompt: 'Exclude which words? (tap; tap again to remove)',
   picker_require_prompt: 'Require which words? (tap; tap again to remove)',
@@ -779,6 +786,8 @@ const en: Catalog = {
     `User ${id}\nstatus: ${status}${isAdmin ? ' (admin)' : ''}\nname: ${name || '—'}\nemail: ${email || '—'}`,
   access_setname_usage: 'Usage: /setname <chat_id> <name>',
   access_setemail_usage: 'Usage: /setemail <chat_id> <email>',
+  access_setname_prompt: ({ id }) => `Send the name for user ${id}.`,
+  access_setemail_prompt: ({ id }) => `Send the email for user ${id}.`,
   access_setname_done: ({ id, name }) => `✅ Name updated for ${id}: ${name}`,
   access_setemail_done: ({ id, email }) => `✅ Email updated for ${id}: ${email}`,
   access_promote_usage: 'Usage: /promote <chat_id>',

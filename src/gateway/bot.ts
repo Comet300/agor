@@ -34,7 +34,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, estimateFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope, type PickerSession, type PickerOption } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -131,6 +131,10 @@ const pendingTarget = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
 /** Open /edit option pickers (watch chooser, block/exclude/require), per chat. */
 const pickerSessions = new ExpiringMap<number, PickerSession>(PENDING_TTL_MS);
+
+/** Admins mid-way through /setname or /setemail (chat id → target user id). */
+const pendingSetName = new ExpiringMap<number, number>(PENDING_TTL_MS);
+const pendingSetEmail = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
 /** Candidate title-words offered in a keyword picker before pagination. */
 const PICKER_WORD_CAP = 45;
@@ -478,43 +482,9 @@ export function buildBot(
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     try {
-      const id = Number((ctx.match ?? '').trim());
-      if (!Number.isInteger(id)) {
-        await ctx.reply(tr(lang).history_usage);
-        return;
-      }
-      const monitor = store.monitors.get(id);
-      if (!monitor || monitor.chatId !== chatId) {
-        await ctx.reply(tr(lang).history_not_found);
-        return;
-      }
-      // The monitor's (newest) item — for a product watch this is THE item.
-      const snap = store.items.browseByMonitor(id, 1, 0)[0];
-      if (!snap) {
-        await ctx.reply(tr(lang).history_not_found);
-        return;
-      }
-      const points = store.priceHistory.history(id, snap.itemId, PRICE_HISTORY_RENDER_CAP);
-      const chart = renderPriceHistory(points);
-      if (!chart.ok) {
-        await ctx.reply(tr(lang).price_history_insufficient);
-        return;
-      }
-      const insight = marketInsight(snap.postedAt, points, Date.now());
-      const first = points[0]!;
-      const last = points[points.length - 1]!;
-      const days = Math.max(0, Math.round((last.observedAt - first.observedAt) / 86_400_000));
-      await ctx.replyWithPhoto(new InputFile(chart.png), {
-        caption: tr(lang).history_summary({
-          title: snap.title ?? snap.itemId,
-          first: formatMoney(first.price, first.currency),
-          last: formatMoney(last.price, last.currency),
-          low: formatMoney(insight.lowestPrice ?? last.price, last.currency),
-          cuts: insight.priceCuts,
-          points: points.length,
-          days,
-        }),
-      });
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'history'); return; }
+      await runHistory(ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -559,37 +529,9 @@ export function buildBot(
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     try {
-      const id = Number((ctx.match ?? '').trim());
-      if (!Number.isInteger(id)) {
-        await ctx.reply(tr(lang).cheaper_usage);
-        return;
-      }
-      const monitor = store.monitors.get(id);
-      if (!monitor || monitor.chatId !== chatId) {
-        await ctx.reply(tr(lang).cheaper_not_found);
-        return;
-      }
-      // The watched listing (a product watch holds exactly one item).
-      const snap = store.items.browseByMonitor(id, 1, 0)[0];
-      if (!snap) {
-        await ctx.reply(tr(lang).cheaper_not_found);
-        return;
-      }
-      const pool = store.items.browse(chatId, BROWSE_WINDOW, 0);
-      const target = { itemId: snap.itemId, title: snap.title ?? snap.itemId, price: snap.lastPrice, currency: snap.currency, ...(snap.url ? { url: snap.url } : {}) };
-      const rating = ratePrice(target, pool);
-      const ratingLine = rating.tag !== 'unknown' && rating.percentile !== undefined
-        ? tr(lang).price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n, suspicious: rating.suspicious }) + '\n'
-        : '';
-      const matches = findCheaperEquivalents(target, pool);
-      if (matches.length === 0) {
-        await ctx.reply(ratingLine + tr(lang).cheaper_none);
-        return;
-      }
-      const lines = matches.map((m) =>
-        tr(lang).cheaper_item({ title: m.title, price: formatMoney(m.price, m.currency), url: m.url ?? '' }),
-      );
-      await replyChunked((t) => ctx.reply(t), `${ratingLine}${tr(lang).cheaper_intro(snap.title ?? snap.itemId)}\n\n${lines.join('\n\n')}`);
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'cheaper'); return; }
+      await runCheaper(ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -704,7 +646,7 @@ export function buildBot(
 
   /** (Re)build the option list for a session's kind against the current state. */
   const rebuildPickerOptions = (session: PickerSession): void => {
-    if (session.kind === 'editpick') return;
+    if (session.kind === 'command') return; // command pickers are one-shot
     const monitor = store.monitors.get(session.monitorId);
     if (!monitor) return;
     if (session.kind === 'block') session.options = buildBlockOptions(monitor);
@@ -744,6 +686,196 @@ export function buildBot(
     store.monitors.update(monitor);
   };
 
+  // ── ID commands: a no-arg invocation opens a button picker of valid ids ─────
+
+  /** /history core: send the watch item's price chart + a summary caption. */
+  const runHistory = async (
+    ctx: { reply: (t: string, o?: object) => Promise<unknown>; replyWithPhoto: (p: InputFile, o?: object) => Promise<unknown> },
+    chatId: number,
+    id: number,
+  ): Promise<void> => {
+    const lang = langFor(store, chatId);
+    const monitor = store.monitors.get(id);
+    if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).history_not_found); return; }
+    const snap = store.items.browseByMonitor(id, 1, 0)[0];
+    if (!snap) { await ctx.reply(tr(lang).history_not_found); return; }
+    const points = store.priceHistory.history(id, snap.itemId, PRICE_HISTORY_RENDER_CAP);
+    const chart = renderPriceHistory(points);
+    if (!chart.ok) { await ctx.reply(tr(lang).price_history_insufficient); return; }
+    const insight = marketInsight(snap.postedAt, points, Date.now());
+    const first = points[0]!;
+    const last = points[points.length - 1]!;
+    const days = Math.max(0, Math.round((last.observedAt - first.observedAt) / 86_400_000));
+    await ctx.replyWithPhoto(new InputFile(chart.png), {
+      caption: tr(lang).history_summary({
+        title: snap.title ?? snap.itemId,
+        first: formatMoney(first.price, first.currency),
+        last: formatMoney(last.price, last.currency),
+        low: formatMoney(insight.lowestPrice ?? last.price, last.currency),
+        cuts: insight.priceCuts,
+        points: points.length,
+        days,
+      }),
+    });
+  };
+
+  /** /cheaper core: rate the tracked item + list cheaper equivalents from the pool. */
+  const runCheaper = async (
+    ctx: { reply: (t: string, o?: object) => Promise<unknown> },
+    chatId: number,
+    id: number,
+  ): Promise<void> => {
+    const lang = langFor(store, chatId);
+    const monitor = store.monitors.get(id);
+    if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).cheaper_not_found); return; }
+    const snap = store.items.browseByMonitor(id, 1, 0)[0];
+    if (!snap) { await ctx.reply(tr(lang).cheaper_not_found); return; }
+    const pool = store.items.browse(chatId, BROWSE_WINDOW, 0);
+    const target = { itemId: snap.itemId, title: snap.title ?? snap.itemId, price: snap.lastPrice, currency: snap.currency, ...(snap.url ? { url: snap.url } : {}) };
+    const rating = ratePrice(target, pool);
+    const ratingLine = rating.tag !== 'unknown' && rating.percentile !== undefined
+      ? tr(lang).price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n, suspicious: rating.suspicious }) + '\n'
+      : '';
+    const matches = findCheaperEquivalents(target, pool);
+    if (matches.length === 0) { await ctx.reply(ratingLine + tr(lang).cheaper_none); return; }
+    const lines = matches.map((m) => tr(lang).cheaper_item({ title: m.title, price: formatMoney(m.price, m.currency), url: m.url ?? '' }));
+    await replyChunked((t) => ctx.reply(t), `${ratingLine}${tr(lang).cheaper_intro(snap.title ?? snap.itemId)}\n\n${lines.join('\n\n')}`);
+  };
+
+  /** Product/tracked watches only — for /cheaper. */
+  const buildProductOptions = (chatId: number): PickerOption[] =>
+    store.monitors.listByChat(chatId).filter((m) => m.type === 'product').map((m) => ({
+      label: `${m.label ?? `${m.vendor} · ${m.type}`}`,
+      value: String(m.id),
+    }));
+
+  /** Access users — for the admin id commands. */
+  const buildUserOptions = (): PickerOption[] =>
+    store.access.list().map((u) => ({
+      label: `${u.name || u.chatId}${u.isAdmin ? ' 👑' : ''} · ${u.status}`,
+      value: String(u.chatId),
+    }));
+
+  /** Where each id command sources its picker options. */
+  const idPickerSource: Record<IdCommand, 'watch' | 'product' | 'user'> = {
+    edit: 'watch', remove: 'watch', check: 'watch', history: 'watch', cheaper: 'product',
+    allow: 'user', deny: 'user', promote: 'user', demote: 'user', userinfo: 'user', setname: 'user', setemail: 'user',
+  };
+
+  /** Minimal ctx an id-command core needs (text + photo replies). */
+  type IdCtx = {
+    reply: (t: string, o?: object) => Promise<unknown>;
+    replyWithPhoto: (p: InputFile, o?: object) => Promise<unknown>;
+  };
+
+  /** Open the right id picker for a command (or reply "empty" when nothing valid). */
+  const openIdPicker = async (
+    ctx: Parameters<typeof openPicker>[0],
+    chatId: number,
+    command: IdCommand,
+  ): Promise<void> => {
+    const lang = langFor(store, chatId);
+    const src = idPickerSource[command];
+    const options = src === 'user' ? buildUserOptions() : src === 'product' ? buildProductOptions(chatId) : buildEditOptions(chatId);
+    if (options.length === 0) {
+      await ctx.reply(src === 'user' ? tr(lang).access_users_empty : tr(lang).list_empty);
+      return;
+    }
+    await openPicker(ctx, chatId, {
+      kind: 'command', command, monitorId: 0, page: 0, allowType: false, options,
+      prompt: src === 'user' ? tr(lang).picker_choose_user : tr(lang).picker_choose_watch,
+    });
+  };
+
+  /** Run an id command's core against a resolved id (shared by the command + picker). */
+  const runIdCommand = async (command: IdCommand, ctx: IdCtx, chatId: number, id: number): Promise<void> => {
+    const lang = langFor(store, chatId);
+    switch (command) {
+      case 'edit': {
+        const monitor = store.monitors.get(id);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).edit_not_found); return; }
+        const view = renderEditCard(monitor, lang);
+        await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+        return;
+      }
+      case 'remove': {
+        const monitor = store.monitors.get(id);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).remove_not_found); return; }
+        await ctx.reply(tr(lang).confirm_remove(id), { reply_markup: confirmKeyboard('rm', id, lang) });
+        return;
+      }
+      case 'check': {
+        const monitor = store.monitors.get(id);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).check_not_found); return; }
+        if (checkCooldownMs > 0 && checkCooldown.has(chatId)) { await ctx.reply(tr(lang).check_rate_limited); return; }
+        if (checkCooldownMs > 0) checkCooldown.set(chatId, true);
+        const result = await orchestrator.runMonitorOnce(id);
+        await ctx.reply(result.ok ? tr(lang).check_ok({ items: result.itemsActive, new: result.newItems }) : tr(lang).check_failed);
+        return;
+      }
+      case 'history': {
+        await runHistory(ctx, chatId, id);
+        return;
+      }
+      case 'cheaper': {
+        await runCheaper(ctx, chatId, id);
+        return;
+      }
+      case 'allow': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        const now = Date.now();
+        store.access.allow(id, { by: chatId, at: now });
+        const rec = store.access.get(id);
+        store.audit.log('allow', id, chatId, now, rec?.name);
+        log('access').info({ chatId: id, action: 'allow', by: chatId }, 'access granted');
+        await ctx.reply(tr(lang).access_allow_done({ id, name: rec?.name ?? '' }));
+        try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_granted_user); } catch { /* blocked */ }
+        return;
+      }
+      case 'deny': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        const rec = store.access.get(id);
+        await ctx.reply(tr(lang).confirm_deny({ id, name: rec?.name ?? '' }), { reply_markup: confirmKeyboard('dn', id, lang) });
+        return;
+      }
+      case 'promote': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        store.access.promote(id);
+        store.audit.log('promote', id, chatId, Date.now());
+        log('access').info({ chatId: id, action: 'promote', by: chatId }, 'user promoted to admin');
+        await ctx.reply(tr(lang).access_promote_done({ id }));
+        try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_promoted_user); } catch { /* blocked */ }
+        return;
+      }
+      case 'demote': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        if (id === chatId) { await ctx.reply(tr(lang).access_demote_last_admin); return; }
+        if (!store.access.isAdmin(id)) { await ctx.reply(tr(lang).access_demote_done({ id })); return; }
+        await ctx.reply(tr(lang).confirm_demote(id), { reply_markup: confirmKeyboard('dm', id, lang) });
+        return;
+      }
+      case 'userinfo': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        const u = store.access.get(id);
+        if (!u) { await ctx.reply(tr(lang).access_user_not_found); return; }
+        await ctx.reply(tr(lang).access_userinfo({ id: u.chatId, status: u.status, isAdmin: u.isAdmin, name: u.name ?? '', email: u.email ?? '' }));
+        return;
+      }
+      case 'setname': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        pendingSetName.set(chatId, id);
+        await ctx.reply(tr(lang).access_setname_prompt({ id }));
+        return;
+      }
+      case 'setemail': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        pendingSetEmail.set(chatId, id);
+        await ctx.reply(tr(lang).access_setemail_prompt({ id }));
+        return;
+      }
+    }
+  };
+
   bot.command('browse', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
@@ -770,19 +902,9 @@ export function buildBot(
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     try {
-      const arg = (ctx.match ?? '').trim();
-      const id = Number(arg);
-      if (!arg || !Number.isInteger(id)) {
-        await ctx.reply(tr(lang).remove_usage);
-        return;
-      }
-      const monitor = store.monitors.get(id);
-      if (!monitor || monitor.chatId !== chatId) {
-        await ctx.reply(tr(lang).remove_not_found);
-        return;
-      }
-      // Destructive → confirm first; the cf:rm callback performs the delete.
-      await ctx.reply(tr(lang).confirm_remove(id), { reply_markup: confirmKeyboard('rm', id, lang) });
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'remove'); return; }
+      await runIdCommand('remove', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -792,29 +914,9 @@ export function buildBot(
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     try {
-      const arg = (ctx.match ?? '').trim();
-      // No id → show a button picker of the chat's watches.
-      if (!arg) {
-        const monitors = store.monitors.listByChat(chatId);
-        if (monitors.length === 0) {
-          await ctx.reply(tr(lang).list_empty);
-          return;
-        }
-        await openPicker(ctx, chatId, { kind: 'editpick', monitorId: 0, options: buildEditOptions(chatId), page: 0, allowType: false });
-        return;
-      }
-      const id = Number(arg);
-      if (!Number.isInteger(id)) {
-        await ctx.reply(tr(lang).edit_usage);
-        return;
-      }
-      const monitor = store.monitors.get(id);
-      if (!monitor || monitor.chatId !== chatId) {
-        await ctx.reply(tr(lang).edit_not_found);
-        return;
-      }
-      const view = renderEditCard(monitor, lang);
-      await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'edit'); return; }
+      await runIdCommand('edit', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -824,30 +926,9 @@ export function buildBot(
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     try {
-      const arg = (ctx.match ?? '').trim();
-      const id = Number(arg);
-      if (!arg || !Number.isInteger(id)) {
-        await ctx.reply(tr(lang).check_usage);
-        return;
-      }
-      const monitor = store.monitors.get(id);
-      if (!monitor || monitor.chatId !== chatId) {
-        await ctx.reply(tr(lang).check_not_found);
-        return;
-      }
-      // Flood gate: /check forces a synchronous scrape, so throttle repeats.
-      if (checkCooldownMs > 0 && checkCooldown.has(chatId)) {
-        await ctx.reply(tr(lang).check_rate_limited);
-        return;
-      }
-      if (checkCooldownMs > 0) checkCooldown.set(chatId, true);
-      // Poll now (alerts + health notices fire as in a real cycle); reply summary.
-      const result = await orchestrator.runMonitorOnce(id);
-      await ctx.reply(
-        result.ok
-          ? tr(lang).check_ok({ items: result.itemsActive, new: result.newItems })
-          : tr(lang).check_failed,
-      );
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'check'); return; }
+      await runIdCommand('check', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -906,7 +987,9 @@ export function buildBot(
 
   /** Parse a leading numeric chat-id argument from a command match. */
   const parseId = (raw: string): number | undefined => {
-    const n = Number((raw ?? '').trim().split(/\s+/)[0]);
+    const tok = (raw ?? '').trim().split(/\s+/)[0] ?? '';
+    if (tok === '') return undefined; // no id → caller opens a picker
+    const n = Number(tok);
     return Number.isInteger(n) ? n : undefined;
   };
 
@@ -917,14 +1000,8 @@ export function buildBot(
     if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
     try {
       const id = parseId(ctx.match ?? '');
-      if (id === undefined) { await ctx.reply(tr(lang).access_allow_usage); return; }
-      const now = Date.now();
-      store.access.allow(id, { by: chatId, at: now });
-      const rec = store.access.get(id);
-      store.audit.log('allow', id, chatId, now, rec?.name);
-      log('access').info({ chatId: id, action: 'allow', by: chatId }, 'access granted');
-      await ctx.reply(tr(lang).access_allow_done({ id, name: rec?.name ?? '' }));
-      try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_granted_user); } catch { /* user may have blocked */ }
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'allow'); return; }
+      await runIdCommand('allow', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -937,12 +1014,8 @@ export function buildBot(
     if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
     try {
       const id = parseId(ctx.match ?? '');
-      if (id === undefined) { await ctx.reply(tr(lang).access_deny_usage); return; }
-      // Destructive → confirm first; the cf:dn callback performs the deny.
-      const rec = store.access.get(id);
-      await ctx.reply(tr(lang).confirm_deny({ id, name: rec?.name ?? '' }), {
-        reply_markup: confirmKeyboard('dn', id, lang),
-      });
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'deny'); return; }
+      await runIdCommand('deny', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -994,16 +1067,14 @@ export function buildBot(
     if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
     try {
       const id = parseId(ctx.match ?? '');
-      if (id === undefined) { await ctx.reply(tr(lang).access_userinfo_usage); return; }
-      const u = store.access.get(id);
-      if (!u) { await ctx.reply(tr(lang).access_user_not_found); return; }
-      await ctx.reply(tr(lang).access_userinfo({ id: u.chatId, status: u.status, isAdmin: u.isAdmin, name: u.name ?? '', email: u.email ?? '' }));
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'userinfo'); return; }
+      await runIdCommand('userinfo', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
   });
 
-  // /setname <id> <name> — admin edits a user's tracking name.
+  // /setname [<id> <name>] — admin edits a user's tracking name (id+name, or pick).
   bot.command('setname', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
@@ -1011,8 +1082,9 @@ export function buildBot(
     try {
       const parts = (ctx.match ?? '').trim().split(/\s+/);
       const id = parseId(parts[0] ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'setname'); return; }
       const name = parts.slice(1).join(' ').trim();
-      if (id === undefined || !name) { await ctx.reply(tr(lang).access_setname_usage); return; }
+      if (!name) { await runIdCommand('setname', ctx, chatId, id); return; } // prompt for the name
       store.access.setName(id, name);
       log('access').info({ chatId: id, action: 'setname', by: chatId }, 'user name edited');
       await ctx.reply(tr(lang).access_setname_done({ id, name }));
@@ -1021,7 +1093,7 @@ export function buildBot(
     }
   });
 
-  // /setemail <id> <email> — admin edits a user's tracking email (format-checked).
+  // /setemail [<id> <email>] — admin edits a user's tracking email (id+email, or pick).
   bot.command('setemail', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
@@ -1029,8 +1101,9 @@ export function buildBot(
     try {
       const parts = (ctx.match ?? '').trim().split(/\s+/);
       const id = parseId(parts[0] ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'setemail'); return; }
       const email = (parts[1] ?? '').trim();
-      if (id === undefined || !email) { await ctx.reply(tr(lang).access_setemail_usage); return; }
+      if (!email) { await runIdCommand('setemail', ctx, chatId, id); return; } // prompt for the email
       if (!looksLikeEmail(email)) { await ctx.reply(tr(lang).access_email_invalid); return; }
       store.access.setEmail(id, email);
       log('access').info({ chatId: id, action: 'setemail', by: chatId }, 'user email edited');
@@ -1047,12 +1120,8 @@ export function buildBot(
     if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
     try {
       const id = parseId(ctx.match ?? '');
-      if (id === undefined) { await ctx.reply(tr(lang).access_promote_usage); return; }
-      store.access.promote(id);
-      store.audit.log('promote', id, chatId, Date.now());
-      log('access').info({ chatId: id, action: 'promote', by: chatId }, 'user promoted to admin');
-      await ctx.reply(tr(lang).access_promote_done({ id }));
-      try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_promoted_user); } catch { /* blocked */ }
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'promote'); return; }
+      await runIdCommand('promote', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -1066,12 +1135,8 @@ export function buildBot(
     if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
     try {
       const id = parseId(ctx.match ?? '');
-      if (id === undefined) { await ctx.reply(tr(lang).access_demote_usage); return; }
-      // Pre-validate the guards up-front so the user doesn't confirm a no-op.
-      if (id === chatId) { await ctx.reply(tr(lang).access_demote_last_admin); return; } // no self-demote
-      if (!store.access.isAdmin(id)) { await ctx.reply(tr(lang).access_demote_done({ id })); return; } // already not admin
-      // Destructive → confirm first; the cf:dm callback performs the demote.
-      await ctx.reply(tr(lang).confirm_demote(id), { reply_markup: confirmKeyboard('dm', id, lang) });
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'demote'); return; }
+      await runIdCommand('demote', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -1350,7 +1415,7 @@ export function buildBot(
         await ctx.reply(tr(lang).exclusion_prompt);
         return;
       }
-      await openPicker(ctx, chatId, { kind: 'exclude', monitorId, options, page: 0, allowType: true });
+      await openPicker(ctx, chatId, { kind: 'exclude', monitorId, options, page: 0, allowType: true, prompt: tr(lang).picker_exclude_prompt });
     } catch (err) {
       try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }
@@ -1374,7 +1439,7 @@ export function buildBot(
         await ctx.reply(tr(lang).required_prompt);
         return;
       }
-      await openPicker(ctx, chatId, { kind: 'require', monitorId, options, page: 0, allowType: true });
+      await openPicker(ctx, chatId, { kind: 'require', monitorId, options, page: 0, allowType: true, prompt: tr(lang).picker_require_prompt });
     } catch (err) {
       try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }
@@ -1399,7 +1464,7 @@ export function buildBot(
         await ctx.reply(tr(lang).block_prompt);
         return;
       }
-      await openPicker(ctx, chatId, { kind: 'block', monitorId, options, page: 0, allowType: true });
+      await openPicker(ctx, chatId, { kind: 'block', monitorId, options, page: 0, allowType: true, prompt: tr(lang).picker_block_prompt });
     } catch (err) {
       try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }
@@ -1432,13 +1497,12 @@ export function buildBot(
       const option = session?.options[Number(ctx.match[1])];
       if (!session || !option) { await ctx.answerCallbackQuery(); return; }
 
-      if (session.kind === 'editpick') {
+      // Command picker: a one-shot id chooser → run the command on the picked id.
+      if (session.kind === 'command' && session.command) {
         pickerSessions.delete(chatId);
-        const monitor = store.monitors.get(Number(option.value));
-        if (!monitor || monitor.chatId !== chatId) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
         await ctx.answerCallbackQuery();
-        const view = renderEditCard(monitor, lang);
-        await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+        try { await ctx.editMessageReplyMarkup(); } catch { /* leave the chooser as-is */ }
+        await runIdCommand(session.command, ctx, chatId, Number(option.value));
         return;
       }
 
@@ -1936,6 +2000,28 @@ export function buildBot(
         monitor.filters.targetPrice = n;
         store.monitors.update(monitor);
         await ctx.reply(tr(lang).target_set(n));
+        return;
+      }
+
+      // 1g. Admin mid-way through a picked /setname or /setemail.
+      const setNameTarget = pendingSetName.get(chatId);
+      if (setNameTarget !== undefined) {
+        pendingSetName.delete(chatId);
+        const name = text.trim();
+        if (!name) { await ctx.reply(tr(lang).access_setname_usage); return; }
+        store.access.setName(setNameTarget, name);
+        log('access').info({ chatId: setNameTarget, action: 'setname', by: chatId }, 'user name edited');
+        await ctx.reply(tr(lang).access_setname_done({ id: setNameTarget, name }));
+        return;
+      }
+      const setEmailTarget = pendingSetEmail.get(chatId);
+      if (setEmailTarget !== undefined) {
+        const email = text.trim();
+        if (!looksLikeEmail(email)) { await ctx.reply(tr(lang).access_email_invalid); return; } // stay armed
+        pendingSetEmail.delete(chatId);
+        store.access.setEmail(setEmailTarget, email);
+        log('access').info({ chatId: setEmailTarget, action: 'setemail', by: chatId }, 'user email edited');
+        await ctx.reply(tr(lang).access_setemail_done({ id: setEmailTarget, email }));
         return;
       }
 

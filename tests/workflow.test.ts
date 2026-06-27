@@ -176,3 +176,33 @@ describe('workflow commands', () => {
     expect(out.text).toContain('Toyota Corolla Hybrid 2020');
   });
 });
+
+describe('id-command pickers (no id → buttons)', () => {
+  let h: ReturnType<typeof harness>;
+  beforeEach(() => { h = harness(); });
+
+  it('/remove with no id opens a watch picker; picking → a remove confirmation', async () => {
+    mkSearch(h.store);
+    await cmd(h.bot, '/remove');
+    const picker = h.sent.at(-1)!;
+    expect(picker.text).toMatch(/which watch/i);
+    expect(picker.data).toContain('ki:0');
+    await tap(h.bot, 'ki:0');
+    expect(h.sent.at(-1)!.data.some((d) => d.startsWith('cf:rm:'))).toBe(true); // confirm-remove keyboard
+  });
+
+  it('/check and /history with no id open a watch picker', async () => {
+    mkSearch(h.store);
+    await cmd(h.bot, '/check');
+    expect(h.sent.at(-1)!.data).toContain('ki:0');
+    await cmd(h.bot, '/history');
+    expect(h.sent.at(-1)!.data).toContain('ki:0');
+  });
+
+  it('admin /allow with no id opens a user picker', async () => {
+    await cmd(h.bot, '/allow'); // USER is a seeded admin → access list is non-empty
+    const p = h.sent.at(-1)!;
+    expect(p.text).toMatch(/which user/i);
+    expect(p.data).toContain('ki:0');
+  });
+});

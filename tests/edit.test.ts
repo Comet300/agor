@@ -130,9 +130,10 @@ describe('/edit', () => {
     expect(h.store.monitors.get(m.id)!.filters.sellerVisibility).toBe('private');
   });
 
-  it('rejects a non-numeric id and a watch that is not yours', async () => {
-    await cmd(h.bot, '/edit abc');
-    expect(h.sent.at(-1)!.text).toMatch(/usage: \/edit/i);
+  it('non-numeric id → picker; a valid id that is not yours → not found', async () => {
+    mkMonitor(h.store, 'search'); // so the picker isn't empty
+    await cmd(h.bot, '/edit abc'); // non-numeric → watch picker
+    expect(h.sent.at(-1)!.text).toMatch(/which watch/i);
     await cmd(h.bot, '/edit 999999');
     expect(h.sent.at(-1)!.text).toMatch(/does not exist or is not yours/i);
   });

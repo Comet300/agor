@@ -215,7 +215,7 @@ describe('pickerKeyboard', () => {
   const opts = (n: number) => Array.from({ length: n }, (_, i) => ({ label: `opt${i}`, value: String(i) }));
 
   it('paginates at 15 per page with Prev/Next', () => {
-    const s: PickerSession = { kind: 'exclude', monitorId: 1, options: opts(20), page: 0, allowType: true };
+    const s: PickerSession = { kind: 'exclude', prompt: 'pick', monitorId: 1, options: opts(20), page: 0, allowType: true };
     const d = dataOf(pickerKeyboard(s, 'en'));
     expect(d.filter((x) => x.startsWith('ki:')).length).toBe(15); // first page = 15 items
     expect(d).toContain('kp:1');   // Next
@@ -229,7 +229,7 @@ describe('pickerKeyboard', () => {
   });
 
   it('marks selected options and omits Type when not allowed', () => {
-    const s: PickerSession = { kind: 'editpick', monitorId: 0, options: [{ label: 'A', value: '1', selected: true }], page: 0, allowType: false };
+    const s: PickerSession = { kind: 'command', command: 'edit', prompt: 'pick', monitorId: 0, options: [{ label: 'A', value: '1', selected: true }], page: 0, allowType: false };
     const kb = pickerKeyboard(s, 'en');
     const labels = kb.inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
     expect(labels.some((l) => l.startsWith('✅'))).toBe(true);

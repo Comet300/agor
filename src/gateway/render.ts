@@ -490,16 +490,10 @@ export function renderEditCard(monitor: Monitor, lang: Lang): RenderedMessage {
  * paginated) plus the {@link pickerKeyboard}.
  */
 export function renderPicker(session: PickerSession, lang: Lang): RenderedMessage {
-  const t = tr(lang);
   const pages = Math.max(1, Math.ceil(session.options.length / PICKER_PAGE_SIZE));
   const page = Math.min(Math.max(0, session.page), pages - 1);
-  const prompt =
-    session.kind === 'editpick' ? t.picker_edit_prompt
-    : session.kind === 'block' ? t.picker_block_prompt
-    : session.kind === 'exclude' ? t.picker_exclude_prompt
-    : t.picker_require_prompt;
   return {
-    text: pages > 1 ? `${prompt} (${page + 1}/${pages})` : prompt,
+    text: pages > 1 ? `${session.prompt} (${page + 1}/${pages})` : session.prompt,
     keyboard: pickerKeyboard(session, lang),
   };
 }
