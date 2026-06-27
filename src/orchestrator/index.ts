@@ -224,7 +224,16 @@ export class Orchestrator {
    * can edit that original alert to append the alternative source.
    */
   private async dispatch(notifications: Notification[]): Promise<void> {
+    // Suppress alerts for listings the chat has dismissed (per-chat cache).
+    const dismissedByChat = new Map<number, Set<string>>();
+    const isDismissed = (n: Notification): boolean => {
+      if (!n.item) return false;
+      let set = dismissedByChat.get(n.chatId);
+      if (!set) dismissedByChat.set(n.chatId, (set = this.deps.store.itemFlags.dismissedIds(n.chatId)));
+      return set.has(n.item.id);
+    };
     for (const n of notifications) {
+      if (isDismissed(n)) continue;
       // Isolate each delivery: a single failing notify() (Telegram hiccup,
       // blocked chat) must not abort the rest of the batch or short-circuit the
       // caller's health tracking. Log and continue.

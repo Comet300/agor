@@ -436,6 +436,21 @@ describe("10.1 search registration + new-listing detection", () => {
     expect(h.store.priceHistory.history(res.monitor.id, "A")).toHaveLength(2);
   });
 
+  it("does not dispatch alerts for a dismissed listing", async () => {
+    h.setBody(searchDoc([]));
+    const res = await h.orchestrator.register({ chatId: 5, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("register failed");
+    h.store.itemFlags.set(5, "D", res.monitor.id, "dismissed", 1);
+    h.notify.mockClear();
+
+    h.setNow(2_000);
+    h.setBody(searchDoc([{ id: "D", title: "Dismissed", price: 1000, currency: "RON", url: "https://www.synth.test/D", city: "Cluj" }]));
+    const notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.some((n) => n.kind === "new_listing")).toBe(true); // built by the cycle
+    expect(h.notify).not.toHaveBeenCalled(); // …but suppressed at dispatch
+  });
+
   it("rolls up dropped listings after the absent threshold, then re-lists on return", async () => {
     const A = { id: "A", title: "Alpha", price: 1000, currency: "RON", url: "https://www.synth.test/A", city: "Cluj" };
     const B = { id: "B", title: "Beta", price: 1100, currency: "RON", url: "https://www.synth.test/B", city: "Cluj" };

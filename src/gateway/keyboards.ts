@@ -94,6 +94,7 @@ export function browseKeyboard(
   url: string,
   lang: Lang,
   canSwitch = false,
+  saved = false,
 ): InlineKeyboard {
   const t = tr(lang);
   const kb = new InlineKeyboard();
@@ -108,6 +109,8 @@ export function browseKeyboard(
   // before the url column may have none, and Telegram rejects an empty-url button
   // (BUTTON_URL_INVALID) — which would fail the whole send.
   if (url) kb.url(t.btn_open, url);
+  // Shortlist + dismiss row.
+  kb.row().text(saved ? t.btn_saved : t.btn_save, `bsv:${index}`).text(t.btn_dismiss, `bdm:${index}`);
   return kb;
 }
 

@@ -399,6 +399,7 @@ export function renderBrowseCard(
   canSwitch = false,
   rating?: PriceRating,
   fairValue?: FairValue | null,
+  saved = false,
 ): BrowseView {
   const t = tr(lang);
   const lines: string[] = [];
@@ -447,7 +448,7 @@ export function renderBrowseCard(
   const url = snap.url ?? '';
   const view: BrowseView = {
     text: lines.join('\n'),
-    keyboard: browseKeyboard(index, total, url, lang, canSwitch),
+    keyboard: browseKeyboard(index, total, url, lang, canSwitch, saved),
   };
   if (snap.imageUrl) view.photoUrl = snap.imageUrl;
   return view;

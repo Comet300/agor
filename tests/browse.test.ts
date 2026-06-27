@@ -335,6 +335,23 @@ describe('/browse carousel', () => {
     expect(out.text).toMatch(/points/i);
   });
 
+  it('bsv saves the browsed item; bdm dismisses it; /saved lists saved', async () => {
+    seedItems([
+      item({ id: 'a', title: 'Alpha', url: 'https://synth.test/a' }),
+      item({ id: 'b', title: 'Bravo', url: 'https://synth.test/b' }),
+    ]);
+    await cmd(h.bot, '/browse'); // newest 'b' at index 0
+    await tap(h.bot, 'bsv:0');
+    expect(h.store.itemFlags.has(USER, 'b', 'saved')).toBe(true);
+
+    await cmd(h.bot, '/saved');
+    expect(h.sent.at(-1)!.text).toMatch(/saved listings/i);
+    expect(h.sent.at(-1)!.text).toContain('Bravo');
+
+    await tap(h.bot, 'bdm:0'); // dismiss 'b'
+    expect(h.store.itemFlags.has(USER, 'b', 'dismissed')).toBe(true);
+  });
+
   it('br: with no open session prompts a fresh browse', async () => {
     // A brand-new chat that never ran /browse — a different id so no module-global
     // session from earlier cases leaks in. Allow it and tap a stale-looking nav.

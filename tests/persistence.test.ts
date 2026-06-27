@@ -341,6 +341,24 @@ describe('ItemRepo.browse', () => {
   });
 });
 
+describe('ItemFlagsRepo', () => {
+  it('saves/unsets, checks, lists the shortlist, and tracks dismissed ids', () => {
+    const store = freshStore();
+    store.itemFlags.set(7, 'a', 1, 'saved', 100);
+    store.itemFlags.set(7, 'b', 1, 'saved', 200);
+    store.itemFlags.set(7, 'c', 1, 'dismissed', 300);
+
+    expect(store.itemFlags.has(7, 'a', 'saved')).toBe(true);
+    expect(store.itemFlags.has(7, 'a', 'dismissed')).toBe(false);
+    expect(store.itemFlags.listSaved(7).map((s) => s.itemId)).toEqual(['b', 'a']); // newest first
+    expect([...store.itemFlags.dismissedIds(7)]).toEqual(['c']);
+
+    store.itemFlags.unset(7, 'a', 'saved');
+    expect(store.itemFlags.has(7, 'a', 'saved')).toBe(false);
+    expect(store.itemFlags.dismissedIds(99).size).toBe(0); // chat isolation
+  });
+});
+
 describe('PriceHistoryRepo', () => {
   it('appends entries, orders history ascending, and reports lastPrice', () => {
     const store = freshStore();

@@ -34,7 +34,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, estimateFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -517,6 +517,24 @@ export function buildBot(
     }
   });
 
+  bot.command('saved', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const snaps = store.itemFlags
+        .listSaved(chatId)
+        .map((s) => store.items.getSnapshot(s.monitorId, s.itemId))
+        .filter((s): s is NonNullable<typeof s> => s !== undefined);
+      if (snaps.length === 0) { await ctx.reply(tr(lang).saved_empty); return; }
+      const lines = snaps.map((s) =>
+        tr(lang).saved_item({ title: s.title ?? s.itemId, price: formatMoney(s.lastPrice, s.currency), url: s.url ?? '' }),
+      );
+      await replyChunked((t) => ctx.reply(t), `${tr(lang).saved_intro}\n\n${lines.join('\n\n')}`);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
   bot.command('history', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
@@ -608,7 +626,8 @@ export function buildBot(
     const fairValue = cat
       ? estimateFairValue(snap.attributes, snap.lastPrice, Date.now(), store.valuation.get(cat, snap.currency))
       : null;
-    const view = renderBrowseCard(snap, i, items.length, lang, canSwitch, rating, fairValue);
+    const saved = store.itemFlags.has(chatId, snap.itemId, 'saved');
+    const view = renderBrowseCard(snap, i, items.length, lang, canSwitch, rating, fairValue, saved);
     const markup = view.keyboard ? { reply_markup: view.keyboard } : undefined;
     if (view.photoUrl) {
       try {
@@ -647,7 +666,9 @@ export function buildBot(
     chatId: number,
     items: ItemSnapshot[],
   ): Promise<void> => {
-    browseSessions.set(chatId, items);
+    // Hide listings the user has dismissed.
+    const dismissed = store.itemFlags.dismissedIds(chatId);
+    browseSessions.set(chatId, items.filter((s) => !dismissed.has(s.itemId)));
     await sendBrowseItem(ctx, chatId, 0);
   };
 
@@ -1815,6 +1836,50 @@ export function buildBot(
         return;
       }
       await ctx.reply(tr(lang).browse_track_done(item.title ?? item.itemId));
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Browse save toggle: bsv:<index> — add/remove the item from the shortlist.
+  bot.callbackQuery(/^bsv:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      const idx = Number(ctx.match[1]);
+      const items = browseSessions.get(chatId);
+      const snap = items?.[idx];
+      if (!snap) { await ctx.answerCallbackQuery(tr(lang).browse_gone); return; }
+      const nowSaved = !store.itemFlags.has(chatId, snap.itemId, 'saved');
+      if (nowSaved) store.itemFlags.set(chatId, snap.itemId, snap.monitorId, 'saved', Date.now());
+      else store.itemFlags.unset(chatId, snap.itemId, 'saved');
+      await ctx.answerCallbackQuery(nowSaved ? tr(lang).cb_saved : tr(lang).cb_unsaved);
+      const canSwitch = store.monitors.listByChat(chatId).length > 1;
+      try {
+        await ctx.editMessageReplyMarkup({ reply_markup: browseKeyboard(idx, items!.length, snap.url ?? '', lang, canSwitch, nowSaved) });
+      } catch { /* not modified / expired */ }
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Browse dismiss: bdm:<index> — hide the item; drop it from the session.
+  bot.callbackQuery(/^bdm:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      const idx = Number(ctx.match[1]);
+      const items = browseSessions.get(chatId);
+      const snap = items?.[idx];
+      if (!snap) { await ctx.answerCallbackQuery(tr(lang).browse_gone); return; }
+      store.itemFlags.set(chatId, snap.itemId, snap.monitorId, 'dismissed', Date.now());
+      await ctx.answerCallbackQuery(tr(lang).cb_dismissed);
+      const remaining = items!.filter((s) => s.itemId !== snap.itemId);
+      browseSessions.set(chatId, remaining);
+      if (remaining.length === 0) { await ctx.reply(tr(lang).browse_empty); return; }
+      await sendBrowseItem(ctx, chatId, Math.min(idx, remaining.length - 1));
     } catch {
       try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }

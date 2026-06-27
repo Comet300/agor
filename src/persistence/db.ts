@@ -154,6 +154,16 @@ export function migrate(db: DB): void {
     CREATE INDEX IF NOT EXISTS idx_audit_log_at
       ON audit_log (at DESC);
 
+    -- Per-chat item flags: 'saved' (shortlist) and 'dismissed' (hide/suppress).
+    CREATE TABLE IF NOT EXISTS item_flags (
+      chat_id    INTEGER,
+      item_id    TEXT,
+      monitor_id INTEGER,
+      flag       TEXT,
+      created_at INTEGER,
+      PRIMARY KEY (chat_id, item_id, flag)
+    );
+
     -- Fair-value (v2): per (category, currency) ridge accumulators.
     CREATE TABLE IF NOT EXISTS valuation_models (
       category   TEXT,
