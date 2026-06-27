@@ -23,12 +23,18 @@
  * friendly error instead of crashing the polling loop.
  */
 import { Bot, InlineKeyboard, InputFile } from 'grammy';
-import type { MessageRef, Notification, SellerVisibility } from '../contracts';
+import type { MessageRef, Monitor, Notification, SellerVisibility } from '../contracts';
 import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
-import { parseExclusionInput } from '../pipeline';
-import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard } from './render';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope } from './keyboards';
+import { parseExclusionInput, phoneKey } from '../pipeline';
+import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard, renderListRow, renderPicker } from './render';
+import { toCsv } from '../util/csv';
+import { formatMoney } from '../util/money';
+import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
+import { ratePrice } from '../features/priceRating';
+import { marketInsight } from '../features/marketInsight';
+import { parseNumericAttrs, inferCategory, estimateFairValue } from '../features/fairValue';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -76,6 +82,13 @@ const PRICE_HISTORY_RENDER_CAP = 500;
 /** Max items loaded into a single browse session (most-recent first). */
 const BROWSE_WINDOW = 100;
 
+/** Columns + cap for the /export CSV (most-recent listings first). */
+const EXPORT_HEADERS = [
+  'itemId', 'title', 'price', 'currency', 'inStock', 'location',
+  'seller', 'postedAt', 'url', 'firstSeen', 'lastSeen',
+] as const;
+const EXPORT_ROW_CAP = 5000;
+
 /**
  * An open /browse session for a chat: the ordered snapshot of items captured when
  * /browse ran. Nav/Track callbacks index into THIS list, so ordering is stable
@@ -107,6 +120,25 @@ const pendingJump = new ExpiringMap<number, number>(PENDING_TTL_MS);
  */
 const pendingRename = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
+/** Chats awaiting a required-keywords reply (chat id → monitor id). */
+const pendingRequired = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
+/** Chats awaiting a block-seller reply (chat id → monitor id). */
+const pendingBlock = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
+/** Chats awaiting a target-price reply (chat id → monitor id). */
+const pendingTarget = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
+/** Open /edit option pickers (watch chooser, block/exclude/require), per chat. */
+const pickerSessions = new ExpiringMap<number, PickerSession>(PENDING_TTL_MS);
+
+/** Admins mid-way through /setname or /setemail (chat id → target user id). */
+const pendingSetName = new ExpiringMap<number, number>(PENDING_TTL_MS);
+const pendingSetEmail = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
+/** Candidate title-words offered in a keyword picker before pagination. */
+const PICKER_WORD_CAP = 45;
+
 /**
  * Chats mid-way through the /request_access flow, keyed by chat id. `step` says
  * which field the next plain-text reply fills; `name` holds the captured name
@@ -130,6 +162,17 @@ function looksLikeUrl(text: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Extract the first http(s) URL embedded anywhere in `text` (trailing sentence
+ * punctuation stripped), or null. Used by forward-to-track, where a forwarded
+ * listing message carries the link amid other text.
+ */
+export function extractUrl(text: string): string | null {
+  const m = text.match(/https?:\/\/[^\s]+/);
+  if (!m) return null;
+  return m[0].replace(/[)\].,;!?]+$/, '');
 }
 
 /**
@@ -371,21 +414,124 @@ export function buildBot(
         await ctx.reply(tr(lang).list_empty);
         return;
       }
-      const lines = monitors.map((m) =>
-        tr(lang).list_item({
-          id: m.id,
-          vendor: m.vendor,
-          type: m.type,
-          seller: m.filters.sellerVisibility,
-          url: m.url,
-          exclusions: m.filters.exclusionKeywords.join(', '),
-          tracked: m.origin === 'tracked',
-          paused: m.paused,
-          dealsOnly: m.filters.dealsOnly === true,
-          ...(m.label ? { label: m.label } : {}),
+      // Intro, then one message per watch carrying its inline action row
+      // (Edit / Pause / Remove) so the user can manage it without typing ids.
+      await ctx.reply(tr(lang).list_intro);
+      for (const m of monitors) {
+        const row = renderListRow(m, lang);
+        await ctx.reply(row.text, row.keyboard ? { reply_markup: row.keyboard } : undefined);
+      }
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  bot.command('stats', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const monitors = store.monitors.listByChat(chatId);
+      const vendors = [...new Set(monitors.map((m) => m.vendor))].sort().join(', ');
+      await ctx.reply(
+        tr(lang).stats_summary({
+          watches: monitors.length,
+          search: monitors.filter((m) => m.type === 'search').length,
+          product: monitors.filter((m) => m.type === 'product').length,
+          paused: monitors.filter((m) => m.paused).length,
+          tracked: monitors.filter((m) => m.origin === 'tracked').length,
+          items: store.items.countForChat(chatId),
+          vendors,
         }),
       );
-      await replyChunked((t) => ctx.reply(t), `${tr(lang).list_intro}\n\n${lines.join('\n\n')}`);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  bot.command('export', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const items = store.items.browse(chatId, EXPORT_ROW_CAP, 0);
+      if (items.length === 0) {
+        await ctx.reply(tr(lang).export_empty);
+        return;
+      }
+      const csv = toCsv(EXPORT_HEADERS, items.map((s) => ({
+        itemId: s.itemId,
+        title: s.title ?? '',
+        price: s.lastPrice,
+        currency: s.currency,
+        inStock: s.inStock ? 'yes' : 'no',
+        location: s.location ?? '',
+        seller: s.sellerPrivate === undefined ? '' : s.sellerPrivate ? 'private' : 'company',
+        postedAt: s.postedAt ? new Date(s.postedAt).toISOString() : '',
+        url: s.url ?? '',
+        firstSeen: new Date(s.firstSeen).toISOString(),
+        lastSeen: new Date(s.lastSeen).toISOString(),
+      })));
+      await ctx.replyWithDocument(new InputFile(Buffer.from(csv, 'utf8'), 'agor-listings.csv'), {
+        caption: tr(lang).export_caption(items.length),
+      });
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  bot.command('history', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'history'); return; }
+      await runHistory(ctx, chatId, id);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  bot.command('rate', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const url = (ctx.match ?? '').trim();
+      if (!url) {
+        await ctx.reply(tr(lang).rate_usage);
+        return;
+      }
+      // Live scrape → throttle like /check.
+      if (checkCooldownMs > 0 && checkCooldown.has(chatId)) {
+        await ctx.reply(tr(lang).check_rate_limited);
+        return;
+      }
+      if (checkCooldownMs > 0) checkCooldown.set(chatId, true);
+
+      const preview = await orchestrator.previewItem(url);
+      if (!preview.ok) {
+        await ctx.reply(preview.reason === 'scrape_failed' ? tr(lang).rate_failed : tr(lang).rate_unsupported);
+        return;
+      }
+      const it = preview.item;
+      const rating = ratePrice(
+        { itemId: it.id, title: it.title, price: it.price, currency: it.currency, ...(it.url ? { url: it.url } : {}) },
+        store.items.browse(chatId, BROWSE_WINDOW, 0),
+      );
+      const line = rating.tag !== 'unknown' && rating.percentile !== undefined
+        ? tr(lang).price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n, suspicious: rating.suspicious })
+        : tr(lang).rate_no_comps;
+      await ctx.reply(`${tr(lang).rate_result({ title: it.title, price: formatMoney(it.price, it.currency) })}\n${line}`);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  bot.command('cheaper', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'cheaper'); return; }
+      await runCheaper(ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -412,7 +558,18 @@ export function buildBot(
     // Offer the scope "Switch" affordance only when there's more than one watch
     // to switch between (otherwise browse-all is the only scope).
     const canSwitch = store.monitors.listByChat(chatId).length > 1;
-    const view = renderBrowseCard(items[i]!, i, items.length, lang, canSwitch);
+    // Rate this item's price against the chat's collected pool (category-agnostic).
+    const snap = items[i]!;
+    const rating = ratePrice(
+      { itemId: snap.itemId, title: snap.title ?? snap.itemId, price: snap.lastPrice, currency: snap.currency, ...(snap.url ? { url: snap.url } : {}) },
+      store.items.browse(chatId, BROWSE_WINDOW, 0),
+    );
+    // Model-predicted fair value (v2): load the (category, currency) model.
+    const cat = inferCategory(parseNumericAttrs(snap.attributes));
+    const fairValue = cat
+      ? estimateFairValue(snap.attributes, snap.lastPrice, Date.now(), store.valuation.get(cat, snap.currency))
+      : null;
+    const view = renderBrowseCard(snap, i, items.length, lang, canSwitch, rating, fairValue);
     const markup = view.keyboard ? { reply_markup: view.keyboard } : undefined;
     if (view.photoUrl) {
       try {
@@ -455,6 +612,270 @@ export function buildBot(
     await sendBrowseItem(ctx, chatId, 0);
   };
 
+  // ── /edit option pickers ────────────────────────────────────────────────────
+
+  /** Watch-chooser options: every watch in the chat (label, value = monitor id). */
+  const buildEditOptions = (chatId: number): PickerOption[] =>
+    store.monitors.listByChat(chatId).map((m) => ({
+      label: `${m.paused ? '⏸ ' : ''}${m.origin === 'tracked' ? '📌 ' : ''}${m.label ?? `${m.vendor} · ${m.type}`}`,
+      value: String(m.id),
+    }));
+
+  /** Block-seller options: distinct sellers seen in the watch, ✅ when blocked. */
+  const buildBlockOptions = (monitor: Monitor): PickerOption[] => {
+    const blockedNames = new Set(monitor.filters.blockedSellers ?? []);
+    const blockedPhones = new Set((monitor.filters.blockedPhones ?? []).map(phoneKey));
+    return store.items.sellersForMonitor(monitor.id).map((s) => ({
+      label: s.count > 1 ? `${s.value} (${s.count})` : s.value,
+      value: s.value,
+      selected: s.kind === 'name' ? blockedNames.has(s.value.toLowerCase()) : blockedPhones.has(phoneKey(s.value)),
+    }));
+  };
+
+  /** Keyword options: frequent title words in the watch ∪ already-selected, ✅-marked. */
+  const buildWordOptions = (monitor: Monitor, selectedList: string[]): PickerOption[] => {
+    const freq = new Map<string, number>();
+    for (const s of store.items.browseByMonitor(monitor.id, BROWSE_WINDOW, 0)) {
+      for (const w of titleTokens(s.title ?? '')) freq.set(w, (freq.get(w) ?? 0) + 1);
+    }
+    const selected = new Set(selectedList);
+    const frequent = [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, PICKER_WORD_CAP).map(([w]) => w);
+    const all = [...new Set([...selectedList, ...frequent])];
+    return all.map((w) => ({ label: freq.has(w) ? `${w} (${freq.get(w)})` : w, value: w, selected: selected.has(w) }));
+  };
+
+  /** (Re)build the option list for a session's kind against the current state. */
+  const rebuildPickerOptions = (session: PickerSession): void => {
+    if (session.kind === 'command') return; // command pickers are one-shot
+    const monitor = store.monitors.get(session.monitorId);
+    if (!monitor) return;
+    if (session.kind === 'block') session.options = buildBlockOptions(monitor);
+    else if (session.kind === 'exclude') session.options = buildWordOptions(monitor, monitor.filters.exclusionKeywords);
+    else session.options = buildWordOptions(monitor, monitor.filters.requiredKeywords ?? []);
+  };
+
+  /** Open a picker: store the session and send its first page. */
+  const openPicker = async (
+    ctx: { reply: (t: string, o?: object) => Promise<unknown>; chat?: { id: number } },
+    chatId: number,
+    session: PickerSession,
+  ): Promise<void> => {
+    pickerSessions.set(chatId, session);
+    const view = renderPicker(session, langFor(store, chatId));
+    await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+  };
+
+  /** Add/remove a keyword in a filter list (toggle). */
+  const toggleWord = (list: string[], w: string): string[] =>
+    list.includes(w) ? list.filter((x) => x !== w) : [...list, w];
+
+  /** Block or unblock a seller value (phone vs name decided by digit count). */
+  const applyBlockToggle = (monitor: Monitor, value: string, currentlySelected: boolean): void => {
+    if ((value.match(/\d/g) ?? []).length >= 6) {
+      const phones = monitor.filters.blockedPhones ?? [];
+      monitor.filters.blockedPhones = currentlySelected
+        ? phones.filter((p) => phoneKey(p) !== phoneKey(value))
+        : phones.some((p) => phoneKey(p) === phoneKey(value)) ? phones : [...phones, value];
+    } else {
+      const name = value.toLowerCase();
+      const names = monitor.filters.blockedSellers ?? [];
+      monitor.filters.blockedSellers = currentlySelected
+        ? names.filter((n) => n !== name)
+        : names.includes(name) ? names : [...names, name];
+    }
+    store.monitors.update(monitor);
+  };
+
+  // ── ID commands: a no-arg invocation opens a button picker of valid ids ─────
+
+  /** /history core: send the watch item's price chart + a summary caption. */
+  const runHistory = async (
+    ctx: { reply: (t: string, o?: object) => Promise<unknown>; replyWithPhoto: (p: InputFile, o?: object) => Promise<unknown> },
+    chatId: number,
+    id: number,
+  ): Promise<void> => {
+    const lang = langFor(store, chatId);
+    const monitor = store.monitors.get(id);
+    if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).history_not_found); return; }
+    const snap = store.items.browseByMonitor(id, 1, 0)[0];
+    if (!snap) { await ctx.reply(tr(lang).history_not_found); return; }
+    const points = store.priceHistory.history(id, snap.itemId, PRICE_HISTORY_RENDER_CAP);
+    const chart = renderPriceHistory(points);
+    if (!chart.ok) { await ctx.reply(tr(lang).price_history_insufficient); return; }
+    const insight = marketInsight(snap.postedAt, points, Date.now());
+    const first = points[0]!;
+    const last = points[points.length - 1]!;
+    const days = Math.max(0, Math.round((last.observedAt - first.observedAt) / 86_400_000));
+    await ctx.replyWithPhoto(new InputFile(chart.png), {
+      caption: tr(lang).history_summary({
+        title: snap.title ?? snap.itemId,
+        first: formatMoney(first.price, first.currency),
+        last: formatMoney(last.price, last.currency),
+        low: formatMoney(insight.lowestPrice ?? last.price, last.currency),
+        cuts: insight.priceCuts,
+        points: points.length,
+        days,
+      }),
+    });
+  };
+
+  /** /cheaper core: rate the tracked item + list cheaper equivalents from the pool. */
+  const runCheaper = async (
+    ctx: { reply: (t: string, o?: object) => Promise<unknown> },
+    chatId: number,
+    id: number,
+  ): Promise<void> => {
+    const lang = langFor(store, chatId);
+    const monitor = store.monitors.get(id);
+    if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).cheaper_not_found); return; }
+    const snap = store.items.browseByMonitor(id, 1, 0)[0];
+    if (!snap) { await ctx.reply(tr(lang).cheaper_not_found); return; }
+    const pool = store.items.browse(chatId, BROWSE_WINDOW, 0);
+    const target = { itemId: snap.itemId, title: snap.title ?? snap.itemId, price: snap.lastPrice, currency: snap.currency, ...(snap.url ? { url: snap.url } : {}) };
+    const rating = ratePrice(target, pool);
+    const ratingLine = rating.tag !== 'unknown' && rating.percentile !== undefined
+      ? tr(lang).price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n, suspicious: rating.suspicious }) + '\n'
+      : '';
+    const matches = findCheaperEquivalents(target, pool);
+    if (matches.length === 0) { await ctx.reply(ratingLine + tr(lang).cheaper_none); return; }
+    const lines = matches.map((m) => tr(lang).cheaper_item({ title: m.title, price: formatMoney(m.price, m.currency), url: m.url ?? '' }));
+    await replyChunked((t) => ctx.reply(t), `${ratingLine}${tr(lang).cheaper_intro(snap.title ?? snap.itemId)}\n\n${lines.join('\n\n')}`);
+  };
+
+  /** Product/tracked watches only — for /cheaper. */
+  const buildProductOptions = (chatId: number): PickerOption[] =>
+    store.monitors.listByChat(chatId).filter((m) => m.type === 'product').map((m) => ({
+      label: `${m.label ?? `${m.vendor} · ${m.type}`}`,
+      value: String(m.id),
+    }));
+
+  /** Access users — for the admin id commands. */
+  const buildUserOptions = (): PickerOption[] =>
+    store.access.list().map((u) => ({
+      label: `${u.name || u.chatId}${u.isAdmin ? ' 👑' : ''} · ${u.status}`,
+      value: String(u.chatId),
+    }));
+
+  /** Where each id command sources its picker options. */
+  const idPickerSource: Record<IdCommand, 'watch' | 'product' | 'user'> = {
+    edit: 'watch', remove: 'watch', check: 'watch', history: 'watch', cheaper: 'product',
+    allow: 'user', deny: 'user', promote: 'user', demote: 'user', userinfo: 'user', setname: 'user', setemail: 'user',
+  };
+
+  /** Minimal ctx an id-command core needs (text + photo replies). */
+  type IdCtx = {
+    reply: (t: string, o?: object) => Promise<unknown>;
+    replyWithPhoto: (p: InputFile, o?: object) => Promise<unknown>;
+  };
+
+  /** Open the right id picker for a command (or reply "empty" when nothing valid). */
+  const openIdPicker = async (
+    ctx: Parameters<typeof openPicker>[0],
+    chatId: number,
+    command: IdCommand,
+  ): Promise<void> => {
+    const lang = langFor(store, chatId);
+    const src = idPickerSource[command];
+    const options = src === 'user' ? buildUserOptions() : src === 'product' ? buildProductOptions(chatId) : buildEditOptions(chatId);
+    if (options.length === 0) {
+      await ctx.reply(src === 'user' ? tr(lang).access_users_empty : tr(lang).list_empty);
+      return;
+    }
+    await openPicker(ctx, chatId, {
+      kind: 'command', command, monitorId: 0, page: 0, allowType: false, options,
+      prompt: src === 'user' ? tr(lang).picker_choose_user : tr(lang).picker_choose_watch,
+    });
+  };
+
+  /** Run an id command's core against a resolved id (shared by the command + picker). */
+  const runIdCommand = async (command: IdCommand, ctx: IdCtx, chatId: number, id: number): Promise<void> => {
+    const lang = langFor(store, chatId);
+    switch (command) {
+      case 'edit': {
+        const monitor = store.monitors.get(id);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).edit_not_found); return; }
+        const view = renderEditCard(monitor, lang);
+        await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+        return;
+      }
+      case 'remove': {
+        const monitor = store.monitors.get(id);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).remove_not_found); return; }
+        await ctx.reply(tr(lang).confirm_remove(id), { reply_markup: confirmKeyboard('rm', id, lang) });
+        return;
+      }
+      case 'check': {
+        const monitor = store.monitors.get(id);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).check_not_found); return; }
+        if (checkCooldownMs > 0 && checkCooldown.has(chatId)) { await ctx.reply(tr(lang).check_rate_limited); return; }
+        if (checkCooldownMs > 0) checkCooldown.set(chatId, true);
+        const result = await orchestrator.runMonitorOnce(id);
+        await ctx.reply(result.ok ? tr(lang).check_ok({ items: result.itemsActive, new: result.newItems }) : tr(lang).check_failed);
+        return;
+      }
+      case 'history': {
+        await runHistory(ctx, chatId, id);
+        return;
+      }
+      case 'cheaper': {
+        await runCheaper(ctx, chatId, id);
+        return;
+      }
+      case 'allow': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        const now = Date.now();
+        store.access.allow(id, { by: chatId, at: now });
+        const rec = store.access.get(id);
+        store.audit.log('allow', id, chatId, now, rec?.name);
+        log('access').info({ chatId: id, action: 'allow', by: chatId }, 'access granted');
+        await ctx.reply(tr(lang).access_allow_done({ id, name: rec?.name ?? '' }));
+        try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_granted_user); } catch { /* blocked */ }
+        return;
+      }
+      case 'deny': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        const rec = store.access.get(id);
+        await ctx.reply(tr(lang).confirm_deny({ id, name: rec?.name ?? '' }), { reply_markup: confirmKeyboard('dn', id, lang) });
+        return;
+      }
+      case 'promote': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        store.access.promote(id);
+        store.audit.log('promote', id, chatId, Date.now());
+        log('access').info({ chatId: id, action: 'promote', by: chatId }, 'user promoted to admin');
+        await ctx.reply(tr(lang).access_promote_done({ id }));
+        try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_promoted_user); } catch { /* blocked */ }
+        return;
+      }
+      case 'demote': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        if (id === chatId) { await ctx.reply(tr(lang).access_demote_last_admin); return; }
+        if (!store.access.isAdmin(id)) { await ctx.reply(tr(lang).access_demote_done({ id })); return; }
+        await ctx.reply(tr(lang).confirm_demote(id), { reply_markup: confirmKeyboard('dm', id, lang) });
+        return;
+      }
+      case 'userinfo': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        const u = store.access.get(id);
+        if (!u) { await ctx.reply(tr(lang).access_user_not_found); return; }
+        await ctx.reply(tr(lang).access_userinfo({ id: u.chatId, status: u.status, isAdmin: u.isAdmin, name: u.name ?? '', email: u.email ?? '' }));
+        return;
+      }
+      case 'setname': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        pendingSetName.set(chatId, id);
+        await ctx.reply(tr(lang).access_setname_prompt({ id }));
+        return;
+      }
+      case 'setemail': {
+        if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+        pendingSetEmail.set(chatId, id);
+        await ctx.reply(tr(lang).access_setemail_prompt({ id }));
+        return;
+      }
+    }
+  };
+
   bot.command('browse', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
@@ -481,19 +902,9 @@ export function buildBot(
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     try {
-      const arg = (ctx.match ?? '').trim();
-      const id = Number(arg);
-      if (!arg || !Number.isInteger(id)) {
-        await ctx.reply(tr(lang).remove_usage);
-        return;
-      }
-      const monitor = store.monitors.get(id);
-      if (!monitor || monitor.chatId !== chatId) {
-        await ctx.reply(tr(lang).remove_not_found);
-        return;
-      }
-      // Destructive → confirm first; the cf:rm callback performs the delete.
-      await ctx.reply(tr(lang).confirm_remove(id), { reply_markup: confirmKeyboard('rm', id, lang) });
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'remove'); return; }
+      await runIdCommand('remove', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -503,19 +914,9 @@ export function buildBot(
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     try {
-      const arg = (ctx.match ?? '').trim();
-      const id = Number(arg);
-      if (!arg || !Number.isInteger(id)) {
-        await ctx.reply(tr(lang).edit_usage);
-        return;
-      }
-      const monitor = store.monitors.get(id);
-      if (!monitor || monitor.chatId !== chatId) {
-        await ctx.reply(tr(lang).edit_not_found);
-        return;
-      }
-      const view = renderEditCard(monitor, lang);
-      await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'edit'); return; }
+      await runIdCommand('edit', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -525,30 +926,9 @@ export function buildBot(
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     try {
-      const arg = (ctx.match ?? '').trim();
-      const id = Number(arg);
-      if (!arg || !Number.isInteger(id)) {
-        await ctx.reply(tr(lang).check_usage);
-        return;
-      }
-      const monitor = store.monitors.get(id);
-      if (!monitor || monitor.chatId !== chatId) {
-        await ctx.reply(tr(lang).check_not_found);
-        return;
-      }
-      // Flood gate: /check forces a synchronous scrape, so throttle repeats.
-      if (checkCooldownMs > 0 && checkCooldown.has(chatId)) {
-        await ctx.reply(tr(lang).check_rate_limited);
-        return;
-      }
-      if (checkCooldownMs > 0) checkCooldown.set(chatId, true);
-      // Poll now (alerts + health notices fire as in a real cycle); reply summary.
-      const result = await orchestrator.runMonitorOnce(id);
-      await ctx.reply(
-        result.ok
-          ? tr(lang).check_ok({ items: result.itemsActive, new: result.newItems })
-          : tr(lang).check_failed,
-      );
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'check'); return; }
+      await runIdCommand('check', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -607,7 +987,9 @@ export function buildBot(
 
   /** Parse a leading numeric chat-id argument from a command match. */
   const parseId = (raw: string): number | undefined => {
-    const n = Number((raw ?? '').trim().split(/\s+/)[0]);
+    const tok = (raw ?? '').trim().split(/\s+/)[0] ?? '';
+    if (tok === '') return undefined; // no id → caller opens a picker
+    const n = Number(tok);
     return Number.isInteger(n) ? n : undefined;
   };
 
@@ -618,14 +1000,8 @@ export function buildBot(
     if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
     try {
       const id = parseId(ctx.match ?? '');
-      if (id === undefined) { await ctx.reply(tr(lang).access_allow_usage); return; }
-      const now = Date.now();
-      store.access.allow(id, { by: chatId, at: now });
-      const rec = store.access.get(id);
-      store.audit.log('allow', id, chatId, now, rec?.name);
-      log('access').info({ chatId: id, action: 'allow', by: chatId }, 'access granted');
-      await ctx.reply(tr(lang).access_allow_done({ id, name: rec?.name ?? '' }));
-      try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_granted_user); } catch { /* user may have blocked */ }
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'allow'); return; }
+      await runIdCommand('allow', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -638,12 +1014,8 @@ export function buildBot(
     if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
     try {
       const id = parseId(ctx.match ?? '');
-      if (id === undefined) { await ctx.reply(tr(lang).access_deny_usage); return; }
-      // Destructive → confirm first; the cf:dn callback performs the deny.
-      const rec = store.access.get(id);
-      await ctx.reply(tr(lang).confirm_deny({ id, name: rec?.name ?? '' }), {
-        reply_markup: confirmKeyboard('dn', id, lang),
-      });
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'deny'); return; }
+      await runIdCommand('deny', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -695,16 +1067,14 @@ export function buildBot(
     if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
     try {
       const id = parseId(ctx.match ?? '');
-      if (id === undefined) { await ctx.reply(tr(lang).access_userinfo_usage); return; }
-      const u = store.access.get(id);
-      if (!u) { await ctx.reply(tr(lang).access_user_not_found); return; }
-      await ctx.reply(tr(lang).access_userinfo({ id: u.chatId, status: u.status, isAdmin: u.isAdmin, name: u.name ?? '', email: u.email ?? '' }));
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'userinfo'); return; }
+      await runIdCommand('userinfo', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
   });
 
-  // /setname <id> <name> — admin edits a user's tracking name.
+  // /setname [<id> <name>] — admin edits a user's tracking name (id+name, or pick).
   bot.command('setname', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
@@ -712,8 +1082,9 @@ export function buildBot(
     try {
       const parts = (ctx.match ?? '').trim().split(/\s+/);
       const id = parseId(parts[0] ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'setname'); return; }
       const name = parts.slice(1).join(' ').trim();
-      if (id === undefined || !name) { await ctx.reply(tr(lang).access_setname_usage); return; }
+      if (!name) { await runIdCommand('setname', ctx, chatId, id); return; } // prompt for the name
       store.access.setName(id, name);
       log('access').info({ chatId: id, action: 'setname', by: chatId }, 'user name edited');
       await ctx.reply(tr(lang).access_setname_done({ id, name }));
@@ -722,7 +1093,7 @@ export function buildBot(
     }
   });
 
-  // /setemail <id> <email> — admin edits a user's tracking email (format-checked).
+  // /setemail [<id> <email>] — admin edits a user's tracking email (id+email, or pick).
   bot.command('setemail', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
@@ -730,8 +1101,9 @@ export function buildBot(
     try {
       const parts = (ctx.match ?? '').trim().split(/\s+/);
       const id = parseId(parts[0] ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'setemail'); return; }
       const email = (parts[1] ?? '').trim();
-      if (id === undefined || !email) { await ctx.reply(tr(lang).access_setemail_usage); return; }
+      if (!email) { await runIdCommand('setemail', ctx, chatId, id); return; } // prompt for the email
       if (!looksLikeEmail(email)) { await ctx.reply(tr(lang).access_email_invalid); return; }
       store.access.setEmail(id, email);
       log('access').info({ chatId: id, action: 'setemail', by: chatId }, 'user email edited');
@@ -748,12 +1120,8 @@ export function buildBot(
     if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
     try {
       const id = parseId(ctx.match ?? '');
-      if (id === undefined) { await ctx.reply(tr(lang).access_promote_usage); return; }
-      store.access.promote(id);
-      store.audit.log('promote', id, chatId, Date.now());
-      log('access').info({ chatId: id, action: 'promote', by: chatId }, 'user promoted to admin');
-      await ctx.reply(tr(lang).access_promote_done({ id }));
-      try { await bot.api.sendMessage(id, tr(langFor(store, id)).access_promoted_user); } catch { /* blocked */ }
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'promote'); return; }
+      await runIdCommand('promote', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -767,12 +1135,8 @@ export function buildBot(
     if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
     try {
       const id = parseId(ctx.match ?? '');
-      if (id === undefined) { await ctx.reply(tr(lang).access_demote_usage); return; }
-      // Pre-validate the guards up-front so the user doesn't confirm a no-op.
-      if (id === chatId) { await ctx.reply(tr(lang).access_demote_last_admin); return; } // no self-demote
-      if (!store.access.isAdmin(id)) { await ctx.reply(tr(lang).access_demote_done({ id })); return; } // already not admin
-      // Destructive → confirm first; the cf:dm callback performs the demote.
-      await ctx.reply(tr(lang).confirm_demote(id), { reply_markup: confirmKeyboard('dm', id, lang) });
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'demote'); return; }
+      await runIdCommand('demote', ctx, chatId, id);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -993,8 +1357,8 @@ export function buildBot(
     } catch { /* expired */ }
   });
 
-  // Exclusion keywords: ex:<monitorId> → prompt + remember the pending state.
-  bot.callbackQuery(/^ex:(\d+)$/, async (ctx) => {
+  // /list row → open the edit card: le:<monitorId>.
+  bot.callbackQuery(/^le:(\d+)$/, async (ctx) => {
     const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
       const monitorId = Number(ctx.match[1]);
@@ -1003,9 +1367,212 @@ export function buildBot(
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
-      pendingExclusion.set(ctx.chat?.id ?? monitor.chatId, monitorId);
       await ctx.answerCallbackQuery();
-      await ctx.reply(tr(lang).exclusion_prompt);
+      const view = renderEditCard(monitor, lang);
+      await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // /list row → toggle pause in place: lp:<monitorId> (re-renders the same row).
+  bot.callbackQuery(/^lp:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      const nowPaused = !monitor.paused;
+      store.monitors.setPaused(monitorId, nowPaused);
+      if (!nowPaused) store.monitors.setSchedule(monitorId, Date.now(), monitor.fastTier);
+      monitor.paused = nowPaused;
+      await ctx.answerCallbackQuery(nowPaused ? tr(lang).cb_paused : tr(lang).cb_resumed);
+      const row = renderListRow(monitor, lang);
+      await ctx.editMessageText(row.text, row.keyboard ? { reply_markup: row.keyboard } : undefined);
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Exclusion keywords: ex:<monitorId> → word picker (or text prompt if no words).
+  bot.callbackQuery(/^ex:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (chatId ?? NaN) || chatId === undefined) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      await ctx.answerCallbackQuery();
+      const options = buildWordOptions(monitor, monitor.filters.exclusionKeywords);
+      if (options.length === 0) {
+        pendingExclusion.set(chatId, monitorId);
+        await ctx.reply(tr(lang).exclusion_prompt);
+        return;
+      }
+      await openPicker(ctx, chatId, { kind: 'exclude', monitorId, options, page: 0, allowType: true, prompt: tr(lang).picker_exclude_prompt });
+    } catch (err) {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Required keywords: eq:<monitorId> → word picker (or text prompt if no words).
+  bot.callbackQuery(/^eq:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (chatId ?? NaN) || chatId === undefined) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      await ctx.answerCallbackQuery();
+      const options = buildWordOptions(monitor, monitor.filters.requiredKeywords ?? []);
+      if (options.length === 0) {
+        pendingRequired.set(chatId, monitorId);
+        await ctx.reply(tr(lang).required_prompt);
+        return;
+      }
+      await openPicker(ctx, chatId, { kind: 'require', monitorId, options, page: 0, allowType: true, prompt: tr(lang).picker_require_prompt });
+    } catch (err) {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Block seller: eb:<monitorId> → seller picker (or text prompt if none known).
+  bot.callbackQuery(/^eb:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (chatId ?? NaN) || chatId === undefined) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      await ctx.answerCallbackQuery();
+      const options = buildBlockOptions(monitor);
+      if (options.length === 0) {
+        // No seller identity captured yet — fall back to manual entry.
+        pendingBlock.set(chatId, monitorId);
+        await ctx.reply(tr(lang).block_prompt);
+        return;
+      }
+      await openPicker(ctx, chatId, { kind: 'block', monitorId, options, page: 0, allowType: true, prompt: tr(lang).picker_block_prompt });
+    } catch (err) {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Picker page nav: kp:<page>.
+  bot.callbackQuery(/^kp:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      await ctx.answerCallbackQuery();
+      if (chatId === undefined) return;
+      const session = pickerSessions.get(chatId);
+      if (!session) return;
+      session.page = Number(ctx.match[1]);
+      const view = renderPicker(session, lang);
+      await ctx.editMessageText(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+    } catch {
+      try { await ctx.answerCallbackQuery(); } catch { /* expired */ }
+    }
+  });
+
+  // Picker pick: ki:<index> — open a watch (editpick) or toggle a filter value.
+  bot.callbackQuery(/^ki:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      const session = pickerSessions.get(chatId);
+      const option = session?.options[Number(ctx.match[1])];
+      if (!session || !option) { await ctx.answerCallbackQuery(); return; }
+
+      // Command picker: a one-shot id chooser → run the command on the picked id.
+      if (session.kind === 'command' && session.command) {
+        pickerSessions.delete(chatId);
+        await ctx.answerCallbackQuery();
+        try { await ctx.editMessageReplyMarkup(); } catch { /* leave the chooser as-is */ }
+        await runIdCommand(session.command, ctx, chatId, Number(option.value));
+        return;
+      }
+
+      const monitor = store.monitors.get(session.monitorId);
+      if (!monitor || monitor.chatId !== chatId) {
+        pickerSessions.delete(chatId);
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      if (session.kind === 'block') {
+        applyBlockToggle(monitor, option.value, option.selected === true);
+      } else if (session.kind === 'exclude') {
+        monitor.filters.exclusionKeywords = toggleWord(monitor.filters.exclusionKeywords, option.value);
+        store.monitors.update(monitor);
+      } else {
+        monitor.filters.requiredKeywords = toggleWord(monitor.filters.requiredKeywords ?? [], option.value);
+        store.monitors.update(monitor);
+      }
+      rebuildPickerOptions(session);
+      await ctx.answerCallbackQuery();
+      const view = renderPicker(session, lang);
+      try { await ctx.editMessageText(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined); } catch { /* not modified */ }
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Picker "type one": kt — fall back to the free-text prompt for this kind.
+  bot.callbackQuery(/^kt$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      await ctx.answerCallbackQuery();
+      if (chatId === undefined) return;
+      const session = pickerSessions.get(chatId);
+      if (!session) return;
+      pickerSessions.delete(chatId);
+      try { await ctx.editMessageReplyMarkup(); } catch { /* expired */ }
+      if (session.kind === 'exclude') { pendingExclusion.set(chatId, session.monitorId); await ctx.reply(tr(lang).exclusion_prompt); }
+      else if (session.kind === 'require') { pendingRequired.set(chatId, session.monitorId); await ctx.reply(tr(lang).required_prompt); }
+      else if (session.kind === 'block') { pendingBlock.set(chatId, session.monitorId); await ctx.reply(tr(lang).block_prompt); }
+    } catch {
+      try { await ctx.answerCallbackQuery(); } catch { /* expired */ }
+    }
+  });
+
+  // Picker done: kc — close and clear the keyboard.
+  bot.callbackQuery(/^kc$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId !== undefined) pickerSessions.delete(chatId);
+      await ctx.answerCallbackQuery(tr(lang).cb_edit_done);
+      try { await ctx.editMessageReplyMarkup(); } catch { /* expired */ }
+    } catch { /* expired */ }
+  });
+
+  // Target price (product watch): et:<monitorId> → prompt + remember pending.
+  bot.callbackQuery(/^et:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      pendingTarget.set(ctx.chat?.id ?? monitor.chatId, monitorId);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(tr(lang).target_prompt);
     } catch (err) {
       await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
     }
@@ -1349,6 +1916,133 @@ export function buildBot(
         store.monitors.setLabel(renameMonitorId, label);
         await ctx.reply(label ? tr(lang).rename_done(label) : tr(lang).rename_cleared);
         return;
+      }
+
+      // 1d. Are we waiting for required keywords?
+      const requiredMonitorId = pendingRequired.get(chatId);
+      if (requiredMonitorId !== undefined) {
+        pendingRequired.delete(chatId);
+        const monitor = store.monitors.get(requiredMonitorId);
+        if (!monitor || monitor.chatId !== chatId) {
+          await ctx.reply(tr(lang).cb_watch_gone);
+          return;
+        }
+        const kw = text.trim() === '-' ? [] : parseExclusionInput(text);
+        monitor.filters.requiredKeywords = kw;
+        store.monitors.update(monitor);
+        await replyChunked(
+          (t) => ctx.reply(t),
+          kw.length > 0 ? tr(lang).required_set(kw.join(', ')) : tr(lang).required_cleared,
+        );
+        return;
+      }
+
+      // 1e. Are we waiting for a seller/phone to block?
+      const blockMonitorId = pendingBlock.get(chatId);
+      if (blockMonitorId !== undefined) {
+        pendingBlock.delete(chatId);
+        const monitor = store.monitors.get(blockMonitorId);
+        if (!monitor || monitor.chatId !== chatId) {
+          await ctx.reply(tr(lang).cb_watch_gone);
+          return;
+        }
+        const entry = text.trim();
+        if (entry === '-') {
+          monitor.filters.blockedSellers = [];
+          monitor.filters.blockedPhones = [];
+          store.monitors.update(monitor);
+          await ctx.reply(tr(lang).block_cleared);
+          return;
+        }
+        // 6+ digits → treat as a phone; otherwise a seller display name.
+        const digitCount = (entry.match(/\d/g) ?? []).length;
+        if (digitCount >= 6) {
+          const phones = monitor.filters.blockedPhones ?? [];
+          if (!phones.some((p) => phoneKey(p) === phoneKey(entry))) phones.push(entry);
+          monitor.filters.blockedPhones = phones;
+          store.monitors.update(monitor);
+          await ctx.reply(tr(lang).block_added_phone(entry));
+        } else {
+          const name = entry.toLowerCase();
+          const sellers = monitor.filters.blockedSellers ?? [];
+          if (!sellers.includes(name)) sellers.push(name);
+          monitor.filters.blockedSellers = sellers;
+          store.monitors.update(monitor);
+          await ctx.reply(tr(lang).block_added_seller(entry));
+        }
+        return;
+      }
+
+      // 1f-pre. Are we waiting for a target price?
+      const targetMonitorId = pendingTarget.get(chatId);
+      if (targetMonitorId !== undefined) {
+        pendingTarget.delete(chatId);
+        const monitor = store.monitors.get(targetMonitorId);
+        if (!monitor || monitor.chatId !== chatId) {
+          await ctx.reply(tr(lang).cb_watch_gone);
+          return;
+        }
+        const raw = text.trim();
+        if (raw === '-') {
+          delete monitor.filters.targetPrice;
+          store.monitors.update(monitor);
+          await ctx.reply(tr(lang).target_cleared);
+          return;
+        }
+        // Prices here are whole numbers; accept any format and keep the digits
+        // ("12 000", "12.000", "12,000 lei" → 12000).
+        const n = Number(raw.replace(/\D/g, ''));
+        if (!Number.isFinite(n) || n <= 0) {
+          await ctx.reply(tr(lang).target_invalid); // stay armed to retry
+          pendingTarget.set(chatId, targetMonitorId);
+          return;
+        }
+        monitor.filters.targetPrice = n;
+        store.monitors.update(monitor);
+        await ctx.reply(tr(lang).target_set(n));
+        return;
+      }
+
+      // 1g. Admin mid-way through a picked /setname or /setemail.
+      const setNameTarget = pendingSetName.get(chatId);
+      if (setNameTarget !== undefined) {
+        pendingSetName.delete(chatId);
+        const name = text.trim();
+        if (!name) { await ctx.reply(tr(lang).access_setname_usage); return; }
+        store.access.setName(setNameTarget, name);
+        log('access').info({ chatId: setNameTarget, action: 'setname', by: chatId }, 'user name edited');
+        await ctx.reply(tr(lang).access_setname_done({ id: setNameTarget, name }));
+        return;
+      }
+      const setEmailTarget = pendingSetEmail.get(chatId);
+      if (setEmailTarget !== undefined) {
+        const email = text.trim();
+        if (!looksLikeEmail(email)) { await ctx.reply(tr(lang).access_email_invalid); return; } // stay armed
+        pendingSetEmail.delete(chatId);
+        store.access.setEmail(setEmailTarget, email);
+        log('access').info({ chatId: setEmailTarget, action: 'setemail', by: chatId }, 'user email edited');
+        await ctx.reply(tr(lang).access_setemail_done({ id: setEmailTarget, email }));
+        return;
+      }
+
+      // 1f. A FORWARDED message carrying a listing link → track it (the link is
+      // usually surrounded by the original post's text, so extract it).
+      const fwd = ctx.message as unknown as { forward_origin?: unknown; forward_date?: number };
+      if (fwd.forward_origin !== undefined || fwd.forward_date !== undefined) {
+        const url = extractUrl(text);
+        if (url) {
+          if (urlRegisterCooldownMs > 0 && urlCooldown.has(chatId)) {
+            await ctx.reply(tr(lang).url_rate_limited);
+            return;
+          }
+          if (urlRegisterCooldownMs > 0) urlCooldown.set(chatId, true);
+          await handleTrack(
+            orchestrator, chatId, url, lang,
+            (t, keyboard) => ctx.reply(t, keyboard ? { reply_markup: keyboard } : undefined),
+            maxMonitorsPerChat,
+          );
+          return;
+        }
       }
 
       // 2. Route by message kind.

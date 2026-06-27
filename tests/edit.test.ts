@@ -130,11 +130,26 @@ describe('/edit', () => {
     expect(h.store.monitors.get(m.id)!.filters.sellerVisibility).toBe('private');
   });
 
-  it('rejects /edit with no id and a watch that is not yours', async () => {
-    await cmd(h.bot, '/edit');
-    expect(h.sent.at(-1)!.text).toMatch(/usage: \/edit/i);
+  it('non-numeric id → picker; a valid id that is not yours → not found', async () => {
+    mkMonitor(h.store, 'search'); // so the picker isn't empty
+    await cmd(h.bot, '/edit abc'); // non-numeric → watch picker
+    expect(h.sent.at(-1)!.text).toMatch(/which watch/i);
     await cmd(h.bot, '/edit 999999');
     expect(h.sent.at(-1)!.text).toMatch(/does not exist or is not yours/i);
+  });
+
+  it('/edit with no id shows a watch picker (or "no watches" when none)', async () => {
+    await cmd(h.bot, '/edit'); // no watches yet
+    expect(h.sent.at(-1)!.text).toMatch(/no watches/i);
+
+    const m = mkMonitor(h.store, 'search');
+    await cmd(h.bot, '/edit');
+    const picker = h.sent.at(-1)!;
+    expect(picker.text).toMatch(/which watch/i);
+    expect(picker.data).toContain(`ki:0`); // first watch as a button
+    await tap(h.bot, 'ki:0'); // pick it → opens its edit card
+    expect(h.sent.at(-1)!.data.some((d) => d.startsWith('efq:'))).toBe(true);
+    expect(m.id).toBeGreaterThan(0);
   });
 
   it('ep pauses and resumes the watch (scheduler skips while paused)', async () => {
@@ -168,5 +183,56 @@ describe('/edit', () => {
     await tap(h.bot, `er:${m.id}`);
     await say(h.bot, '-');
     expect(h.store.monitors.get(m.id)!.label).toBeUndefined();
+  });
+
+  it('eq falls back to a text prompt when the watch has no listing words yet', async () => {
+    const m = mkMonitor(h.store, 'search'); // no items → no word options
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `eq:${m.id}`);
+    await say(h.bot, 'hybrid, automat');
+    expect(h.store.monitors.get(m.id)!.filters.requiredKeywords).toEqual(['hybrid', 'automat']);
+  });
+
+  it('eq opens a word picker when the watch has listings; ki toggles a word', async () => {
+    const m = mkMonitor(h.store, 'search');
+    ['Toyota Corolla Hybrid', 'Toyota Corolla Hybrid break'].forEach((title, i) =>
+      h.store.items.upsert(m.id, { id: `x${i}`, title, price: 100, currency: 'RON', url: `https://x/${i}`, isPrivateOwner: true, inStock: true }, 1_000 + i));
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `eq:${m.id}`);
+    const picker = h.sent.at(-1)!;
+    expect(picker.text).toMatch(/require which words/i);
+    expect(picker.data).toContain('ki:0');
+    await tap(h.bot, 'ki:0'); // toggle the first word into the whitelist
+    expect((h.store.monitors.get(m.id)!.filters.requiredKeywords ?? []).length).toBe(1);
+    await tap(h.bot, 'ki:0'); // toggle it back off
+    expect((h.store.monitors.get(m.id)!.filters.requiredKeywords ?? []).length).toBe(0);
+  });
+
+  it('et sets and clears a target price on a product watch', async () => {
+    const m = mkMonitor(h.store, 'product');
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `et:${m.id}`);
+    await say(h.bot, '12.000');
+    expect(h.store.monitors.get(m.id)!.filters.targetPrice).toBe(12000);
+    await tap(h.bot, `et:${m.id}`);
+    await say(h.bot, '-');
+    expect(h.store.monitors.get(m.id)!.filters.targetPrice).toBeUndefined();
+  });
+
+  it('eb blocks a seller name or a phone, classifying by digit count', async () => {
+    const m = mkMonitor(h.store, 'search');
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `eb:${m.id}`);
+    await say(h.bot, 'Premium Cars SRL');
+    expect(h.store.monitors.get(m.id)!.filters.blockedSellers).toEqual(['premium cars srl']);
+
+    await tap(h.bot, `eb:${m.id}`);
+    await say(h.bot, '+40 712 345 678');
+    expect(h.store.monitors.get(m.id)!.filters.blockedPhones).toEqual(['+40 712 345 678']);
+
+    await tap(h.bot, `eb:${m.id}`);
+    await say(h.bot, '-');
+    expect(h.store.monitors.get(m.id)!.filters.blockedSellers).toEqual([]);
+    expect(h.store.monitors.get(m.id)!.filters.blockedPhones).toEqual([]);
   });
 });

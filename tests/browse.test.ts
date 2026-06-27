@@ -12,6 +12,7 @@ import { ProxyPool } from '../src/scraping/proxyPool';
 import { ScrapingEngine } from '../src/scraping/engine';
 import { loadConfig } from '../src/config';
 import type { IScrapedItem, IVendorPlugin } from '../src/contracts';
+import { emptyState, addObservation, featureVector } from '../src/features/fairValue';
 import type { Bot } from 'grammy';
 
 const USER = 7000;
@@ -275,6 +276,63 @@ describe('/browse carousel', () => {
     expect(h.sent.at(-1)!.text).toMatch(/1 to 2/);
     await say(h.bot, '1');               // still armed → lands item 1
     expect(h.sent.at(-1)!.text).toContain('item 1 of 2');
+  });
+
+  it('shows a price rating on the card when enough comparables exist', async () => {
+    // Six same-model listings; the newest (shown first) is the cheapest → great deal.
+    seedItems([
+      item({ id: 'a', title: 'Toyota Corolla Hybrid 2016', price: 20000, currency: 'EUR', url: 'https://synth.test/a' }),
+      item({ id: 'b', title: 'Toyota Corolla Hybrid 2017', price: 19000, currency: 'EUR', url: 'https://synth.test/b' }),
+      item({ id: 'c', title: 'Toyota Corolla Hybrid 2018', price: 21000, currency: 'EUR', url: 'https://synth.test/c' }),
+      item({ id: 'd', title: 'Toyota Corolla Hybrid 2019', price: 22000, currency: 'EUR', url: 'https://synth.test/d' }),
+      item({ id: 'e', title: 'Toyota Corolla Hybrid 2020', price: 18000, currency: 'EUR', url: 'https://synth.test/e' }),
+      item({ id: 'f', title: 'Toyota Corolla Hybrid 2021', price: 12000, currency: 'EUR', url: 'https://synth.test/f' }),
+    ]);
+    await cmd(h.bot, '/browse');
+    expect(h.sent.at(-1)!.text).toMatch(/great deal|cheaper than/i);
+  });
+
+  it('shows a model-predicted fair value on the card when the model is trained', async () => {
+    const now = Date.now();
+    const s = emptyState(3);
+    for (let year = 2016; year <= 2025; year++) {
+      for (const km of [50000, 100000, 150000]) {
+        const x = featureVector('car', { year, km }, now)!;
+        addObservation(s, x, 9 - 0.3 * x[1]! - 0.05 * x[2]!);
+      }
+    }
+    h.store.valuation.save('car', 'RON', s, now);
+    seedItems([item({ id: 'c1', title: 'Toyota Corolla', price: 90000, currency: 'RON', url: 'https://synth.test/c1', attributes: { year: '2018', km: '100000' } })]);
+    await cmd(h.bot, '/browse');
+    expect(h.sent.at(-1)!.text).toMatch(/fair ≈/i);
+  });
+
+  it('/rate scrapes a pasted link and replies with its price + a verdict', async () => {
+    await cmd(h.bot, '/rate https://synth.test/somecar');
+    const out = h.sent.at(-1)!;
+    expect(out.text).toMatch(/Tracked/); // scraped item title (harness productBody)
+    expect(out.text).toMatch(/100/);     // its price
+  });
+
+  it('/rate rejects a missing or unsupported link', async () => {
+    await cmd(h.bot, '/rate');
+    expect(h.sent.at(-1)!.text).toMatch(/usage: \/rate/i);
+    await cmd(h.bot, '/rate not-a-url');
+    expect(h.sent.at(-1)!.text).toMatch(/unsupported|invalid/i);
+  });
+
+  it('/history sends a price chart with a summary caption', async () => {
+    const m = h.store.monitors.create({ type: 'product', chatId: USER, vendor: 'synth', url: 'https://synth.test/h',
+      filters: { sellerVisibility: 'both', exclusionKeywords: [] }, intervalMs: 60_000, nextDueAt: 0, origin: 'tracked' });
+    h.store.items.upsert(m.id, item({ id: 'hh', title: 'Tracked Phone', price: 900, currency: 'RON', url: 'https://synth.test/hh' }), 3_000);
+    h.store.priceHistory.append({ monitorId: m.id, itemId: 'hh', price: 1000, currency: 'RON', observedAt: 1_000 });
+    h.store.priceHistory.append({ monitorId: m.id, itemId: 'hh', price: 900, currency: 'RON', observedAt: 2_000 });
+
+    await cmd(h.bot, `/history ${m.id}`);
+    const out = h.sent.at(-1)!;
+    expect(out.kind).toBe('photo');
+    expect(out.text).toMatch(/Tracked Phone/);
+    expect(out.text).toMatch(/points/i);
   });
 
   it('br: with no open session prompts a fresh browse', async () => {

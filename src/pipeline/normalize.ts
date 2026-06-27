@@ -252,6 +252,7 @@ function buildItem(
   const location = coerceString(get('location').value);
   const imageUrl = coerceString(get('imageUrl').value);
   const phone = coerceString(get('phone').value);
+  const sellerName = coerceString(get('sellerName').value);
 
   const description = coerceString(get('description').value);
   const postedAt = parseDate(get('postedAt').value);
@@ -269,6 +270,7 @@ function buildItem(
   if (location !== '') item.location = location;
   if (imageUrl !== '') item.imageUrl = imageUrl;
   if (phone !== '') item.phone = phone;
+  if (sellerName !== '') item.sellerName = sellerName;
   if (description !== '') item.description = description;
   if (postedAt !== undefined) item.postedAt = postedAt;
 

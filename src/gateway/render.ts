@@ -19,14 +19,21 @@ import type { ItemSnapshot } from '../persistence';
 import type { InlineKeyboard } from 'grammy';
 import { formatMoney } from '../util/money';
 import { draftOffer } from '../features/contactOffer';
+import { hasInsight } from '../features/marketInsight';
+import type { PriceRating } from '../features/priceRating';
+import type { FairValue } from '../features/fairValue';
 import {
   quickActionsKeyboard,
   registrationKeyboard,
   editKeyboard,
+  listRowKeyboard,
   openOnlyKeyboard,
   browseKeyboard,
   browseScopeKeyboard,
+  pickerKeyboard,
+  PICKER_PAGE_SIZE,
   type BrowseScope,
+  type PickerSession,
 } from './keyboards';
 import { type Lang, tr, type Catalog } from './strings';
 
@@ -164,10 +171,26 @@ function renderBackInStock(item: EnrichedItem, lang: Lang): RenderedMessage {
 }
 
 /**
- * Render any {@link Notification} into a ready-to-send message. Dispatches on
- * the notification kind; every branch attaches the same quick-action keyboard.
+ * Render any {@link Notification} into a ready-to-send message. Dispatches on the
+ * kind, then appends a market-insight line (time-on-market / price cuts) when the
+ * notification carries one (product alerts).
  */
 export function renderNotification(n: Notification, lang: Lang): RenderedMessage {
+  const msg = renderByKind(n, lang);
+  if (n.insight && hasInsight(n.insight)) {
+    const low = n.insight.lowestPrice !== undefined && n.item
+      ? formatMoney(n.insight.lowestPrice, n.item.currency)
+      : '';
+    msg.text += '\n' + tr(lang).insight_line({
+      cuts: n.insight.priceCuts,
+      low,
+      ...(n.insight.daysOnMarket !== undefined ? { days: n.insight.daysOnMarket } : {}),
+    });
+  }
+  return msg;
+}
+
+function renderByKind(n: Notification, lang: Lang): RenderedMessage {
   switch (n.kind) {
     case 'new_listing':
       return renderNewListing(n.item!, lang);
@@ -192,7 +215,47 @@ export function renderNotification(n: Notification, lang: Lang): RenderedMessage
       return renderListingsDropped(n.dropped, lang);
     case 're_listed':
       return renderReListed(n.item!, lang);
+    case 'target_hit':
+      return renderTargetHit(n.item!, n.target, lang);
+    case 'became_deal':
+      return renderBecameDeal(n.item!, n.becameDeal, lang);
   }
+}
+
+/** Render a "just became a great deal" alert for a tracked item. */
+function renderBecameDeal(
+  item: EnrichedItem,
+  info: Notification['becameDeal'],
+  lang: Lang,
+): RenderedMessage {
+  const t = tr(lang);
+  const lines: string[] = [
+    t.became_deal_title,
+    item.title,
+    `💰 ${formatMoney(item.price, item.currency)}`,
+  ];
+  if (info) {
+    const line = t.price_rating({ tag: 'great_deal', percentile: info.percentile, n: info.n });
+    if (line) lines.push(line);
+  }
+  return { text: lines.join('\n'), keyboard: quickActionsKeyboard(item, lang) };
+}
+
+/** Render a target-price hit: the item plus the target it reached. */
+function renderTargetHit(
+  item: EnrichedItem,
+  target: Notification['target'],
+  lang: Lang,
+): RenderedMessage {
+  const t = tr(lang);
+  const lines: string[] = [
+    t.target_hit_title,
+    item.title,
+    `💰 ${formatMoney(item.price, item.currency)}`,
+  ];
+  if (target) lines.push(t.target_hit_line(formatMoney(target.targetPrice, item.currency)));
+  if (item.location) lines.push(`📍 ${item.location}`);
+  return { text: lines.join('\n'), keyboard: quickActionsKeyboard(item, lang) };
 }
 
 /** Render a bidirectional price change for a tracked item. */
@@ -318,12 +381,29 @@ export function renderBrowseCard(
   total: number,
   lang: Lang,
   canSwitch = false,
+  rating?: PriceRating,
+  fairValue?: FairValue | null,
 ): BrowseView {
   const t = tr(lang);
   const lines: string[] = [];
   lines.push(`🏷️ ${snap.title ?? snap.itemId}`);
   const stock = snap.inStock ? t.browse_in_stock : t.browse_out_of_stock;
   lines.push(`💰 ${formatMoney(snap.lastPrice, snap.currency)} · ${stock}`);
+
+  // Price rating vs comparable collected listings (omitted when unknown).
+  if (rating && rating.tag !== 'unknown' && rating.percentile !== undefined) {
+    const line = t.price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n, suspicious: rating.suspicious });
+    if (line) lines.push(line);
+  }
+
+  // Model-predicted fair value (v2), when a trained model could value it.
+  if (fairValue) {
+    lines.push(t.fair_value_line({
+      fair: formatMoney(fairValue.fair, snap.currency),
+      deltaAbs: formatMoney(Math.abs(fairValue.delta), snap.currency),
+      under: fairValue.delta < 0,
+    }));
+  }
 
   const specs = snapshotSpecs(snap);
   if (specs) lines.push(t.specs_line(specs));
@@ -357,6 +437,35 @@ export function renderBrowseCard(
   return view;
 }
 
+/** Map a monitor to the {@link Catalog.list_item} parameters (shared by /list rows). */
+export function listItemParams(monitor: Monitor): Parameters<Catalog['list_item']>[0] {
+  return {
+    id: monitor.id,
+    vendor: monitor.vendor,
+    type: monitor.type,
+    seller: monitor.filters.sellerVisibility,
+    url: monitor.url,
+    exclusions: monitor.filters.exclusionKeywords.join(', '),
+    tracked: monitor.origin === 'tracked',
+    paused: monitor.paused,
+    dealsOnly: monitor.filters.dealsOnly === true,
+    required: (monitor.filters.requiredKeywords ?? []).join(', '),
+    blocked: (monitor.filters.blockedSellers ?? []).length + (monitor.filters.blockedPhones ?? []).length,
+    ...(monitor.label ? { label: monitor.label } : {}),
+  };
+}
+
+/**
+ * Render one /list watch as its own message: the watch line plus an inline action
+ * row (Edit / Pause-Resume / Remove) so the user can manage it without typing ids.
+ */
+export function renderListRow(monitor: Monitor, lang: Lang): RenderedMessage {
+  return {
+    text: tr(lang).list_item(listItemParams(monitor)),
+    keyboard: listRowKeyboard(monitor, lang),
+  };
+}
+
 /**
  * Render the /edit tuning card for an existing watch: a one-line summary
  * (id · vendor · type · current cadence) plus the {@link editKeyboard} controls.
@@ -372,6 +481,20 @@ export function renderEditCard(monitor: Monitor, lang: Lang): RenderedMessage {
       ...(monitor.label ? { label: monitor.label } : {}),
     }),
     keyboard: editKeyboard(monitor, lang),
+  };
+}
+
+/**
+ * Render an /edit option picker (watch chooser, block-seller, exclude/require
+ * keyword pickers) — the kind-specific prompt (with page indicator when
+ * paginated) plus the {@link pickerKeyboard}.
+ */
+export function renderPicker(session: PickerSession, lang: Lang): RenderedMessage {
+  const pages = Math.max(1, Math.ceil(session.options.length / PICKER_PAGE_SIZE));
+  const page = Math.min(Math.max(0, session.page), pages - 1);
+  return {
+    text: pages > 1 ? `${session.prompt} (${page + 1}/${pages})` : session.prompt,
+    keyboard: pickerKeyboard(session, lang),
   };
 }
 

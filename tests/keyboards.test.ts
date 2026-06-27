@@ -5,6 +5,8 @@ import {
   browseKeyboard,
   browseScopeKeyboard,
   browseScopeLabel,
+  pickerKeyboard,
+  type PickerSession,
 } from '../src/gateway/keyboards';
 import { tr } from '../src/gateway/strings';
 import type { Monitor } from '../src/contracts';
@@ -157,23 +159,29 @@ describe('editKeyboard', () => {
     expect(d).toContain('efq:4:10');       // frequency presets
     expect(d).toContain('efq:4:30');
     expect(d).toContain('ex:4');           // exclusion (reuses registration callback)
+    expect(d).toContain('eq:4');           // required keywords
+    expect(d).toContain('eb:4');           // block seller
     expect(d).toContain('eo:4');           // deals-only toggle
     expect(d).toContain('er:4');           // rename
     expect(d).toContain('ep:4');           // pause/resume
     expect(d).toContain('rm:4');           // remove
     expect(d).toContain('ed');             // done
+    expect(d.some((x) => x.startsWith('et:'))).toBe(false); // target price is product-only
     expect(d.some((x) => x.startsWith('go:'))).toBe(false); // no "Start" on an existing watch
   });
 
-  it('product watch: frequency + rename + pause + remove + done (no seller / exclusion / deals-only)', () => {
+  it('product watch: frequency + target + rename + pause + remove + done (no seller / exclusion / deals-only)', () => {
     const d = dataOf(editKeyboard(monitor({ id: 9, type: 'product', origin: 'tracked' }), 'en'));
     expect(d).toContain('efq:9:5');
+    expect(d).toContain('et:9');           // target price (product only)
     expect(d).toContain('er:9');           // rename works for any watch
     expect(d).toContain('ep:9');           // pause works for any watch
     expect(d).toContain('rm:9');
     expect(d).toContain('ed');
     expect(d.some((x) => x.startsWith('esv:'))).toBe(false); // seller filter N/A to one listing
     expect(d.some((x) => x.startsWith('ex:'))).toBe(false);  // exclusions N/A
+    expect(d.some((x) => x.startsWith('eq:'))).toBe(false);  // required keywords N/A
+    expect(d.some((x) => x.startsWith('eb:'))).toBe(false);  // block seller N/A
     expect(d.some((x) => x.startsWith('eo:'))).toBe(false);  // deals-only N/A
     expect(d.some((x) => x.startsWith('go:'))).toBe(false);
   });
@@ -198,5 +206,34 @@ describe('editKeyboard', () => {
     const l = labels(monitor({ intervalMs: 30 * 60000, filters: { sellerVisibility: 'private', exclusionKeywords: [] } }));
     expect(l).toContain(`✅ ${tr('en').btn_freq(30)}`);
     expect(l).toContain(`✅ ${tr('en').btn_private}`);
+  });
+});
+
+describe('pickerKeyboard', () => {
+  const dataOf = (kb: ReturnType<typeof pickerKeyboard>): string[] =>
+    kb.inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : ''));
+  const opts = (n: number) => Array.from({ length: n }, (_, i) => ({ label: `opt${i}`, value: String(i) }));
+
+  it('paginates at 15 per page with Prev/Next', () => {
+    const s: PickerSession = { kind: 'exclude', prompt: 'pick', monitorId: 1, options: opts(20), page: 0, allowType: true };
+    const d = dataOf(pickerKeyboard(s, 'en'));
+    expect(d.filter((x) => x.startsWith('ki:')).length).toBe(15); // first page = 15 items
+    expect(d).toContain('kp:1');   // Next
+    expect(d).not.toContain('kp:-1');
+    expect(d).toContain('kt');     // Type
+    expect(d).toContain('kc');     // Done
+
+    const d2 = dataOf(pickerKeyboard({ ...s, page: 1 }, 'en'));
+    expect(d2.filter((x) => x.startsWith('ki:')).length).toBe(5); // second page = remaining 5
+    expect(d2).toContain('kp:0');  // Prev
+  });
+
+  it('marks selected options and omits Type when not allowed', () => {
+    const s: PickerSession = { kind: 'command', command: 'edit', prompt: 'pick', monitorId: 0, options: [{ label: 'A', value: '1', selected: true }], page: 0, allowType: false };
+    const kb = pickerKeyboard(s, 'en');
+    const labels = kb.inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
+    expect(labels.some((l) => l.startsWith('✅'))).toBe(true);
+    expect(dataOf(kb)).not.toContain('kt');
+    expect(dataOf(kb)).toContain('kc');
   });
 });

@@ -12,7 +12,7 @@
  * dispatches anything itself — it returns the notifications for the caller (the
  * scheduler/orchestrator) to deliver. Time is injected for determinism.
  */
-import type { Monitor, Notification } from '../contracts';
+import type { IScrapedItem, Monitor, Notification } from '../contracts';
 import type { Store } from '../persistence';
 import type { PluginRegistry } from '../registry';
 import type { ScrapingEngine } from '../scraping/engine';
@@ -23,7 +23,16 @@ import {
   applyExclusion,
   DedupBuffer,
 } from '../pipeline';
+import { marketInsight } from '../features/marketInsight';
+import { ratePrice } from '../features/priceRating';
+import {
+  parseNumericAttrs, inferCategory, featureVector, targetValue,
+  emptyState, addObservation, FEATURE_K, type RidgeState,
+} from '../features/fairValue';
 import { log } from '../logging/logger';
+
+/** Cap on the comparable pool loaded when rating a tracked item for became-a-deal. */
+const RATING_POOL_CAP = 200;
 
 /** Dependencies a cycle run needs; nothing is read globally. */
 interface CycleDeps {
@@ -174,26 +183,26 @@ export class MonitorCycle {
       }
     }
 
-    // Persist every active item; the NEW ones also get a first price point.
-    // (Determine "new" via the pre-cycle known set so already-stored ids that
-    // re-appear this cycle don't double-log a price.) Wrapped in one transaction
-    // so a mid-cycle crash can't leave an item stored without its price (or vice
-    // versa), and so the whole batch commits as a single fsync.
-    const newIds = new Set(out.newEnriched.map((i) => i.id));
+    // Persist every active item AND log its price (store-on-change, so an
+    // unchanged price is a no-op). This gives search-collected items a full price
+    // trajectory — not just the new ones — so /history and market insight work
+    // for them too. Wrapped in one transaction so a mid-cycle crash can't leave an
+    // item stored without its price (or vice versa), committing as a single fsync.
     this.deps.store.transaction(() => {
       for (const item of out.active) {
         this.deps.store.items.upsert(monitor.id, item, at);
-        if (newIds.has(item.id)) {
-          this.deps.store.priceHistory.append({
-            monitorId: monitor.id,
-            itemId: item.id,
-            price: item.price,
-            currency: item.currency,
-            observedAt: at,
-          });
-        }
+        this.deps.store.priceHistory.append({
+          monitorId: monitor.id,
+          itemId: item.id,
+          price: item.price,
+          currency: item.currency,
+          observedAt: at,
+        });
       }
     });
+
+    // Feed the fair-value models with this batch's attributes (v2).
+    this.feedValuation(out.active, at);
 
     this.logPoll(monitor, at, {
       ok: true,
@@ -280,6 +289,23 @@ export class MonitorCycle {
       });
     }
 
+    // Target price reached: fire once when the price first crosses to at-or-below
+    // the user's target (prevPrice unknown or above target). Re-arms only if the
+    // price later climbs back above target, so a flat sub-target price won't spam.
+    const target = monitor.filters.targetPrice;
+    if (
+      target !== undefined &&
+      item.price <= target &&
+      (prevPrice === undefined || prevPrice > target)
+    ) {
+      notifications.push({
+        kind: 'target_hit',
+        chatId: monitor.chatId,
+        item,
+        target: { targetPrice: target, currentPrice: item.price },
+      });
+    }
+
     // Always record the new price point and refresh stored state — atomically,
     // so a crash between the two writes can't desynchronize price vs. state.
     this.deps.store.transaction(() => {
@@ -293,6 +319,40 @@ export class MonitorCycle {
       });
       this.deps.store.items.upsert(monitor.id, item, at);
     });
+
+    // Feed the fair-value models with this listing's attributes (v2).
+    this.feedValuation([item], at);
+
+    // Became-a-deal: rate the item against the chat's collected pool and alert
+    // once when it crosses INTO a great deal (wasn't great last cycle). Runs after
+    // the upsert so the pool is current; ratePrice excludes the item itself.
+    const rating = ratePrice(
+      { itemId: item.id, title: item.title, price: item.price, currency: item.currency, ...(item.url ? { url: item.url } : {}) },
+      this.deps.store.items.browse(monitor.chatId, RATING_POOL_CAP, 0),
+    );
+    if (rating.tag !== 'unknown') {
+      const priorTag = this.deps.store.items.getRating(monitor.id, item.id);
+      if (rating.tag === 'great_deal' && priorTag !== 'great_deal' && rating.percentile !== undefined) {
+        notifications.push({
+          kind: 'became_deal',
+          chatId: monitor.chatId,
+          item,
+          becameDeal: { percentile: rating.percentile, n: rating.n },
+        });
+      }
+      this.deps.store.items.setRating(monitor.id, item.id, rating.tag);
+    }
+
+    // Attach market insight (time-on-market, price cuts) to every item-bearing
+    // alert — computed AFTER the append so the history includes this price.
+    if (notifications.some((n) => n.item)) {
+      const insight = marketInsight(
+        item.postedAt,
+        this.deps.store.priceHistory.history(monitor.id, item.id),
+        at,
+      );
+      for (const n of notifications) if (n.item) n.insight = insight;
+    }
 
     // Reflect current stock onto the in-memory monitor so the scheduler can
     // place it on the fast (out-of-stock) tier when it re-arms the schedule.
@@ -312,5 +372,36 @@ export class MonitorCycle {
       itemsActive: 1,
       newItems: notifications.length,
     };
+  }
+
+  /**
+   * Fold a batch of scraped items into the fair-value (v2) ridge accumulators,
+   * grouped by (category, currency): parse numeric attributes, infer the
+   * category, build the feature row, and accumulate `ln(price)` against it. One
+   * load + one save per group keeps DB churn low. Items with no usable category
+   * or a non-positive price are skipped.
+   */
+  private feedValuation(items: IScrapedItem[], at: number): void {
+    const updates = new Map<string, RidgeState>();
+    for (const item of items) {
+      if (item.price <= 0 || item.currency === '') continue;
+      const attrs = parseNumericAttrs(item.attributes);
+      const category = inferCategory(attrs);
+      if (!category) continue;
+      const x = featureVector(category, attrs, at);
+      if (!x) continue;
+      const key = `${category}|${item.currency}`;
+      let state = updates.get(key);
+      if (!state) {
+        state = this.deps.store.valuation.get(category, item.currency) ?? emptyState(FEATURE_K[category]);
+        updates.set(key, state);
+      }
+      if (state.k !== x.length) continue;
+      addObservation(state, x, targetValue(item.price));
+    }
+    for (const [key, state] of updates) {
+      const [category, currency] = key.split('|');
+      this.deps.store.valuation.save(category!, currency!, state, at);
+    }
   }
 }

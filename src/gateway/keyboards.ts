@@ -18,7 +18,10 @@ import { type Lang, tr } from './strings';
 const CALLBACK_DATA_LIMIT = 64;
 
 /** The fixed set of check-frequency presets, in minutes. */
-export const FREQUENCY_PRESETS: readonly number[] = [5, 10, 30, 60];
+export const FREQUENCY_PRESETS: readonly number[] = [5, 10, 15, 30, 60, 120, 360, 720, 1440];
+
+/** Chunk size for laying frequency presets across keyboard rows. */
+const FREQ_PER_ROW = 5;
 
 /**
  * Two-tap confirmation keyboard for a destructive action. The confirm button
@@ -102,6 +105,82 @@ export function browseKeyboard(
   // before the url column may have none, and Telegram rejects an empty-url button
   // (BUTTON_URL_INVALID) — which would fail the whole send.
   if (url) kb.url(t.btn_open, url);
+  return kb;
+}
+
+/**
+ * The action row under a /list watch line: [✏️ Edit] [⏸/▶️ Pause-Resume] [🗑 Remove].
+ * Edit opens the edit card (`le:`), pause toggles in place (`lp:`), remove reuses
+ * the confirm flow (`rm:`).
+ */
+export function listRowKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  return new InlineKeyboard()
+    .text(t.btn_edit, `le:${monitor.id}`)
+    .text(monitor.paused ? t.btn_resume : t.btn_pause, `lp:${monitor.id}`)
+    .text(t.btn_remove, `rm:${monitor.id}`);
+}
+
+/** Max options per picker page (paginated when more). */
+export const PICKER_PAGE_SIZE = 15;
+
+/** Every command that accepts an id — a no-arg invocation opens an id picker. */
+export type IdCommand =
+  | 'edit' | 'remove' | 'check' | 'history' | 'cheaper'
+  | 'allow' | 'deny' | 'promote' | 'demote' | 'userinfo' | 'setname' | 'setemail';
+
+/**
+ * What a picker is choosing:
+ *   - 'command' — pick an id, then run {@link PickerSession.command} against it,
+ *   - 'block'/'exclude'/'require' — toggle the picked value in a watch's filter.
+ */
+export type PickerKind = 'command' | 'block' | 'exclude' | 'require';
+
+/** One selectable option in a picker. `value` is the payload acted on when tapped. */
+export interface PickerOption {
+  label: string;
+  value: string;
+  /** Shown with a ✅ and toggled off on re-tap (exclude/require/block). */
+  selected?: boolean;
+}
+
+/** State of an open picker, keyed per chat. */
+export interface PickerSession {
+  kind: PickerKind;
+  /** Header prompt (already localized). */
+  prompt: string;
+  /** For kind 'command': the command to run on the picked id. */
+  command?: IdCommand;
+  /** The watch being edited (toggle pickers); 0 for command pickers. */
+  monitorId: number;
+  options: PickerOption[];
+  page: number;
+  /** When true, offer a "type one" escape to the free-text prompt. */
+  allowType: boolean;
+}
+
+/**
+ * Build one page of a picker keyboard: up to {@link PICKER_PAGE_SIZE} option
+ * buttons (each `ki:<globalIndex>`, ✅-marked when selected), a Prev/Next row when
+ * paginated (`kp:<page>`), and a footer with an optional "Type one" (`kt`) and
+ * Done (`kc`).
+ */
+export function pickerKeyboard(session: PickerSession, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  const kb = new InlineKeyboard();
+  const pages = Math.max(1, Math.ceil(session.options.length / PICKER_PAGE_SIZE));
+  const page = Math.min(Math.max(0, session.page), pages - 1);
+  const start = page * PICKER_PAGE_SIZE;
+  session.options.slice(start, start + PICKER_PAGE_SIZE).forEach((opt, i) => {
+    kb.text(`${opt.selected ? '✅ ' : ''}${opt.label}`, `ki:${start + i}`).row();
+  });
+  if (pages > 1) {
+    if (page > 0) kb.text(t.btn_prev, `kp:${page - 1}`);
+    if (page < pages - 1) kb.text(t.btn_next, `kp:${page + 1}`);
+    kb.row();
+  }
+  if (session.allowType) kb.text(t.btn_type, 'kt');
+  kb.text(t.btn_done, 'kc');
   return kb;
 }
 
@@ -191,10 +270,11 @@ export function registrationKeyboard(
     .text(markSeller(t.btn_both, 'both'), `sv:${monitorId}:both`)
     .row();
 
-  // Frequency presets row (active minutes marked).
-  for (const minutes of FREQUENCY_PRESETS) {
+  // Frequency presets (active minutes marked), wrapped across rows.
+  FREQUENCY_PRESETS.forEach((minutes, i) => {
+    if (i > 0 && i % FREQ_PER_ROW === 0) kb.row();
     kb.text(markFreq(t.btn_freq(minutes), minutes), `fq:${monitorId}:${minutes}`);
-  }
+  });
 
   return kb
     .row()
@@ -234,15 +314,22 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
       .text(markSeller(t.btn_both, 'both'), `esv:${id}:both`)
       .row();
   }
-  for (const minutes of FREQUENCY_PRESETS) {
+  FREQUENCY_PRESETS.forEach((minutes, i) => {
+    if (i > 0 && i % FREQ_PER_ROW === 0) kb.row();
     kb.text(mark(minutes === activeMinutes, t.btn_freq(minutes)), `efq:${id}:${minutes}`);
-  }
+  });
   kb.row();
   // Filters that only make sense for a multi-result search.
   if (isSearch) {
     kb.text(t.btn_exclusion, `ex:${id}`)
+      .text(t.btn_required, `eq:${id}`)
+      .row()
       .text(mark(monitor.filters.dealsOnly === true, t.btn_deals_only), `eo:${id}`)
+      .text(t.btn_block, `eb:${id}`)
       .row();
+  } else {
+    // A single tracked listing: a target-price alert is the meaningful control.
+    kb.text(mark(monitor.filters.targetPrice !== undefined, t.btn_target), `et:${id}`).row();
   }
   // Rename + pause/resume on their own row, then remove + done.
   kb.text(t.btn_rename, `er:${id}`)

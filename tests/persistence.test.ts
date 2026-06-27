@@ -308,6 +308,20 @@ describe('ItemRepo.browse', () => {
     expect(store.items.browseByMonitor(m2.id, 10, 0).map((s) => s.itemId)).toEqual(['c']);     // m2 isolation
   });
 
+  it('sellersForMonitor lists distinct sellers (name, else phone) by frequency', () => {
+    const store = freshStore();
+    const m = store.monitors.create(newMonitorInput());
+    store.items.upsert(m.id, scrapedItem({ id: 'a', sellerName: 'Dealer X' }), 1_000);
+    store.items.upsert(m.id, scrapedItem({ id: 'b', sellerName: 'Dealer X' }), 1_000);
+    store.items.upsert(m.id, scrapedItem({ id: 'c', phone: '0712345678' }), 1_000); // no name → phone
+    store.items.upsert(m.id, scrapedItem({ id: 'd' }), 1_000);                        // neither → skipped
+
+    const sellers = store.items.sellersForMonitor(m.id);
+    expect(sellers[0]).toMatchObject({ value: 'Dealer X', kind: 'name', count: 2 }); // most frequent first
+    expect(sellers.some((s) => s.kind === 'phone' && s.value === '0712345678')).toBe(true);
+    expect(sellers).toHaveLength(2);
+  });
+
   it('browseCountsByMonitor tallies browsable items per monitor', () => {
     const store = freshStore();
     const m1 = store.monitors.create(newMonitorInput({ chatId: 7 }));
