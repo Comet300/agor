@@ -14,7 +14,7 @@
  * deterministic under test.
  */
 import type { AppConfig } from "../config";
-import type { MessageRef, Monitor, Notification } from "../contracts";
+import type { MessageRef, Monitor, Notification, NotificationKind } from "../contracts";
 import type { Store } from "../persistence";
 import { maintainDb } from "../persistence";
 import type { PluginRegistry } from "../registry";
@@ -196,7 +196,7 @@ export class Orchestrator {
     }
 
     const result = await this.cycle.run(monitor);
-    await this.dispatch(result.notifications);
+    await this.dispatch(result.notifications, monitor);
     await this.trackHealth(monitor, result);
 
     // Feed the breaker: a blocked or failed cycle is unhealthy. The user was
@@ -223,37 +223,54 @@ export class Orchestrator {
    * the returned Telegram message against the dedup buffer so a later cross-post
    * can edit that original alert to append the alternative source.
    */
-  private async dispatch(notifications: Notification[]): Promise<void> {
-    // Suppress alerts for listings the chat has dismissed (per-chat cache).
+  private async dispatch(notifications: Notification[], monitor: Monitor): Promise<void> {
+    // Group/shared watch: a listing alert fans out to the owner PLUS every
+    // subscriber chat. Operational and cross-post edits stay owner-only — a
+    // subscriber neither cares about the owner's watch health nor holds the
+    // original message a cross-post would edit.
+    const subscribers = this.deps.store.watchSubscribers
+      .listChats(monitor.id)
+      .filter((c) => c !== monitor.chatId);
+    const ownerOnly = (k: NotificationKind): boolean =>
+      k === "cross_post" || k === "watch_failing" || k === "watch_recovered";
+
+    // Suppress alerts for listings a chat has dismissed (per-chat cache).
     const dismissedByChat = new Map<number, Set<string>>();
-    const isDismissed = (n: Notification): boolean => {
-      if (!n.item) return false;
-      let set = dismissedByChat.get(n.chatId);
-      if (!set) dismissedByChat.set(n.chatId, (set = this.deps.store.itemFlags.dismissedIds(n.chatId)));
-      return set.has(n.item.id);
+    const isDismissed = (chatId: number, itemId: string): boolean => {
+      let set = dismissedByChat.get(chatId);
+      if (!set) dismissedByChat.set(chatId, (set = this.deps.store.itemFlags.dismissedIds(chatId)));
+      return set.has(itemId);
     };
+
     for (const n of notifications) {
-      if (isDismissed(n)) continue;
-      // Isolate each delivery: a single failing notify() (Telegram hiccup,
-      // blocked chat) must not abort the rest of the batch or short-circuit the
-      // caller's health tracking. Log and continue.
-      let ref: MessageRef | void;
-      try {
-        ref = await this.deps.notify(n);
-      } catch (err) {
-        log("orchestrator").warn(
-          { chatId: n.chatId, kind: n.kind, err: (err as Error).message },
-          "notification delivery failed",
-        );
-        continue;
-      }
-      if (n.kind === "new_listing" && ref && n.item) {
-        // Record the message ref on the OWNING chat's buffer (per-chat isolation).
-        const dedup = this.dedupFor(n.chatId);
-        const sig = dedup.signatureOf(n.item);
-        dedup.setMessageRef(sig, ref);
-        // Store the enriched original so a later cross-post edit keeps the badge.
-        dedup.refreshOriginal(sig, n.item);
+      const targets = ownerOnly(n.kind) ? [monitor.chatId] : [monitor.chatId, ...subscribers];
+      for (const chatId of targets) {
+        if (n.item && isDismissed(chatId, n.item.id)) continue;
+        // Re-target a copy for subscribers; the owner keeps the original object.
+        const delivery: Notification = chatId === monitor.chatId ? n : { ...n, chatId };
+        // Isolate each delivery: a single failing notify() (Telegram hiccup,
+        // blocked chat) must not abort the rest of the batch or short-circuit the
+        // caller's health tracking. Log and continue.
+        let ref: MessageRef | void;
+        try {
+          ref = await this.deps.notify(delivery);
+        } catch (err) {
+          log("orchestrator").warn(
+            { chatId, kind: n.kind, err: (err as Error).message },
+            "notification delivery failed",
+          );
+          continue;
+        }
+        if (chatId === monitor.chatId && n.kind === "new_listing" && ref && n.item) {
+          // Record the message ref on the OWNER's buffer (per-chat isolation) so a
+          // later cross-post can edit that original alert. Subscriber sends are
+          // fresh and untracked by design.
+          const dedup = this.dedupFor(chatId);
+          const sig = dedup.signatureOf(n.item);
+          dedup.setMessageRef(sig, ref);
+          // Store the enriched original so a later cross-post edit keeps the badge.
+          dedup.refreshOriginal(sig, n.item);
+        }
       }
     }
   }

@@ -359,6 +359,26 @@ describe('ItemFlagsRepo', () => {
   });
 });
 
+describe('WatchSubscribersRepo', () => {
+  it('adds (idempotent), lists, counts, removes, and clears subscribers', () => {
+    const store = freshStore();
+    store.watchSubscribers.add(1, 777, 100);
+    store.watchSubscribers.add(1, -1001, 200);
+    store.watchSubscribers.add(1, 777, 300); // duplicate → no-op
+
+    expect(store.watchSubscribers.listChats(1)).toEqual([777, -1001]); // insertion order
+    expect(store.watchSubscribers.count(1)).toBe(2);
+    expect(store.watchSubscribers.count(2)).toBe(0); // watch isolation
+
+    expect(store.watchSubscribers.remove(1, 777)).toBe(true);
+    expect(store.watchSubscribers.remove(1, 555)).toBe(false); // not a subscriber
+    expect(store.watchSubscribers.listChats(1)).toEqual([-1001]);
+
+    store.watchSubscribers.removeAll(1);
+    expect(store.watchSubscribers.count(1)).toBe(0);
+  });
+});
+
 describe('PriceHistoryRepo', () => {
   it('appends entries, orders history ascending, and reports lastPrice', () => {
     const store = freshStore();

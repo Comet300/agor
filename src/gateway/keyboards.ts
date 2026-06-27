@@ -133,6 +133,7 @@ export const PICKER_PAGE_SIZE = 15;
 /** Every command that accepts an id — a no-arg invocation opens an id picker. */
 export type IdCommand =
   | 'edit' | 'remove' | 'check' | 'history' | 'cheaper'
+  | 'share' | 'unshare'
   | 'allow' | 'deny' | 'promote' | 'demote' | 'userinfo' | 'setname' | 'setemail';
 
 /**
