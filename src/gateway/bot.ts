@@ -129,6 +129,45 @@ const pendingBlock = new ExpiringMap<number, number>(PENDING_TTL_MS);
 /** Chats awaiting a target-price reply (chat id → monitor id). */
 const pendingTarget = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
+/** Chats awaiting a price-range / attribute-range reply (chat id → monitor id). */
+const pendingPriceRange = new ExpiringMap<number, number>(PENDING_TTL_MS);
+const pendingAttrRange = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
+/** Attributes the spec-range filter recognises (parsed numerics). */
+const RANGE_ATTRS = ['year', 'km', 'area', 'rooms', 'power'] as const;
+
+/** Parse "min-max" / "5000-" / "-15000" / "5000" → bounds (empty object clears). */
+export function parsePriceRange(raw: string): { min?: number; max?: number } | null {
+  const t = raw.replace(/\s/g, '');
+  if (!t.includes('-')) {
+    const n = Number(t.replace(/\D/g, ''));
+    return Number.isFinite(n) && n > 0 ? { max: n } : null; // bare number = "under N"
+  }
+  const [lo, hi] = t.split('-');
+  const min = (lo ?? '').replace(/\D/g, '');
+  const max = (hi ?? '').replace(/\D/g, '');
+  const out: { min?: number; max?: number } = {};
+  if (min) out.min = Number(min);
+  if (max) out.max = Number(max);
+  return out; // {} when both blank → clears
+}
+
+/** Parse "year>=2019, km<=120000" → attribute ranges (only recognised attrs). */
+export function parseAttrRanges(raw: string): Record<string, { min?: number; max?: number }> {
+  const out: Record<string, { min?: number; max?: number }> = {};
+  const re = /(year|km|area|rooms|power)\s*(>=|<=|>|<)\s*([\d.\s]+)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    const key = m[1]!.toLowerCase();
+    const v = Number(m[3]!.replace(/\D/g, ''));
+    if (!Number.isFinite(v) || !(RANGE_ATTRS as readonly string[]).includes(key)) continue;
+    const range = out[key] ?? (out[key] = {});
+    if (m[2]!.startsWith('>')) range.min = v;
+    else range.max = v;
+  }
+  return out;
+}
+
 /** Open /edit option pickers (watch chooser, block/exclude/require), per chat. */
 const pickerSessions = new ExpiringMap<number, PickerSession>(PENDING_TTL_MS);
 
@@ -1578,6 +1617,42 @@ export function buildBot(
     }
   });
 
+  // Price range: epr:<monitorId> → prompt + remember pending.
+  bot.callbackQuery(/^epr:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      pendingPriceRange.set(ctx.chat?.id ?? monitor.chatId, monitorId);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(tr(lang).price_range_prompt);
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
+  // Attribute (spec) ranges: ear:<monitorId> → prompt + remember pending.
+  bot.callbackQuery(/^ear:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      pendingAttrRange.set(ctx.chat?.id ?? monitor.chatId, monitorId);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(tr(lang).attr_range_prompt);
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
   // Remove monitor button: rm:<monitorId> — prompts a confirmation (the cf:rm
   // callback performs the delete), only for a watch owned by this chat.
   bot.callbackQuery(/^rm:(\d+)$/, async (ctx) => {
@@ -2000,6 +2075,55 @@ export function buildBot(
         monitor.filters.targetPrice = n;
         store.monitors.update(monitor);
         await ctx.reply(tr(lang).target_set(n));
+        return;
+      }
+
+      // 1f-2. Are we waiting for a price range?
+      const priceRangeMonitorId = pendingPriceRange.get(chatId);
+      if (priceRangeMonitorId !== undefined) {
+        pendingPriceRange.delete(chatId);
+        const monitor = store.monitors.get(priceRangeMonitorId);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).cb_watch_gone); return; }
+        if (text.trim() === '-') {
+          delete monitor.filters.priceMin;
+          delete monitor.filters.priceMax;
+          store.monitors.update(monitor);
+          await ctx.reply(tr(lang).range_cleared);
+          return;
+        }
+        const range = parsePriceRange(text);
+        if (range === null) { await ctx.reply(tr(lang).price_range_prompt); pendingPriceRange.set(chatId, priceRangeMonitorId); return; }
+        if (range.min !== undefined) monitor.filters.priceMin = range.min; else delete monitor.filters.priceMin;
+        if (range.max !== undefined) monitor.filters.priceMax = range.max; else delete monitor.filters.priceMax;
+        store.monitors.update(monitor);
+        await ctx.reply(
+          monitor.filters.priceMin === undefined && monitor.filters.priceMax === undefined
+            ? tr(lang).range_cleared
+            : tr(lang).price_range_set({ min: monitor.filters.priceMin, max: monitor.filters.priceMax }),
+        );
+        return;
+      }
+
+      // 1f-3. Are we waiting for attribute (spec) ranges?
+      const attrRangeMonitorId = pendingAttrRange.get(chatId);
+      if (attrRangeMonitorId !== undefined) {
+        pendingAttrRange.delete(chatId);
+        const monitor = store.monitors.get(attrRangeMonitorId);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).cb_watch_gone); return; }
+        if (text.trim() === '-') {
+          delete monitor.filters.attrRanges;
+          store.monitors.update(monitor);
+          await ctx.reply(tr(lang).range_cleared);
+          return;
+        }
+        const ranges = parseAttrRanges(text);
+        if (Object.keys(ranges).length === 0) { await ctx.reply(tr(lang).attr_range_prompt); pendingAttrRange.set(chatId, attrRangeMonitorId); return; }
+        monitor.filters.attrRanges = ranges;
+        store.monitors.update(monitor);
+        const summary = Object.entries(ranges)
+          .map(([k, r]) => `${k}${r.min !== undefined ? `≥${r.min}` : ''}${r.max !== undefined ? `≤${r.max}` : ''}`)
+          .join(', ');
+        await ctx.reply(tr(lang).attr_range_set(summary));
         return;
       }
 

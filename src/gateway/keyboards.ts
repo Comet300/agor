@@ -329,6 +329,9 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
       .row()
       .text(mark(monitor.filters.dealsOnly === true, t.btn_deals_only), `eo:${id}`)
       .text(t.btn_block, `eb:${id}`)
+      .row()
+      .text(mark(monitor.filters.priceMin !== undefined || monitor.filters.priceMax !== undefined, t.btn_price_range), `epr:${id}`)
+      .text(mark(monitor.filters.attrRanges !== undefined && Object.keys(monitor.filters.attrRanges).length > 0, t.btn_specs), `ear:${id}`)
       .row();
   } else {
     // A single tracked listing: a target-price alert is the meaningful control.

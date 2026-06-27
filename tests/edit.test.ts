@@ -4,7 +4,7 @@
  * interval/seller mutations, and ownership/usage guards.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { buildBot } from '../src/gateway/bot';
+import { buildBot, parsePriceRange, parseAttrRanges } from '../src/gateway/bot';
 import { Orchestrator } from '../src/orchestrator';
 import { openStore, type Store } from '../src/persistence';
 import { PluginRegistry } from '../src/registry';
@@ -219,6 +219,26 @@ describe('/edit', () => {
     expect(h.store.monitors.get(m.id)!.filters.targetPrice).toBeUndefined();
   });
 
+  it('epr sets a price range from the next text reply', async () => {
+    const m = mkMonitor(h.store, 'search');
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `epr:${m.id}`);
+    await say(h.bot, '5000-15000');
+    expect(h.store.monitors.get(m.id)!.filters.priceMin).toBe(5000);
+    expect(h.store.monitors.get(m.id)!.filters.priceMax).toBe(15000);
+    await tap(h.bot, `epr:${m.id}`);
+    await say(h.bot, '-');
+    expect(h.store.monitors.get(m.id)!.filters.priceMin).toBeUndefined();
+  });
+
+  it('ear sets attribute (spec) ranges from the next text reply', async () => {
+    const m = mkMonitor(h.store, 'search');
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `ear:${m.id}`);
+    await say(h.bot, 'year>=2019, km<=120000');
+    expect(h.store.monitors.get(m.id)!.filters.attrRanges).toEqual({ year: { min: 2019 }, km: { max: 120000 } });
+  });
+
   it('eb blocks a seller name or a phone, classifying by digit count', async () => {
     const m = mkMonitor(h.store, 'search');
     await cmd(h.bot, `/edit ${m.id}`);
@@ -234,5 +254,22 @@ describe('/edit', () => {
     await say(h.bot, '-');
     expect(h.store.monitors.get(m.id)!.filters.blockedSellers).toEqual([]);
     expect(h.store.monitors.get(m.id)!.filters.blockedPhones).toEqual([]);
+  });
+});
+
+describe('range parsers', () => {
+  it('parsePriceRange handles a-b / a- / -b / bare / clear', () => {
+    expect(parsePriceRange('5000-15000')).toEqual({ min: 5000, max: 15000 });
+    expect(parsePriceRange('5000-')).toEqual({ min: 5000 });
+    expect(parsePriceRange('-15000')).toEqual({ max: 15000 });
+    expect(parsePriceRange('5000')).toEqual({ max: 5000 }); // bare = "under N"
+    expect(parsePriceRange('-')).toEqual({}); // clears
+  });
+
+  it('parseAttrRanges reads >=/<= for recognised attrs only', () => {
+    expect(parseAttrRanges('year>=2019, km<=120000, area > 60')).toEqual({
+      year: { min: 2019 }, km: { max: 120000 }, area: { min: 60 },
+    });
+    expect(parseAttrRanges('color = red')).toEqual({}); // unknown attr ignored
   });
 });

@@ -56,7 +56,7 @@ describe('command menu', () => {
 });
 
 describe('list_item exclusions', () => {
-  const base = { id: 3, vendor: 'OLX', type: 'search', seller: 'both', url: 'https://x', tracked: false, paused: false, dealsOnly: false, required: '', blocked: 0 };
+  const base = { id: 3, vendor: 'OLX', type: 'search', seller: 'both', url: 'https://x', tracked: false, paused: false, dealsOnly: false, required: '', blocked: 0, priceRange: '', specs: '' };
   it('appends exclusion keywords when present', () => {
     expect(tr('ro').list_item({ ...base, exclusions: 'lovit, dube' })).toContain('excluse: lovit, dube');
     expect(tr('en').list_item({ ...base, exclusions: 'damaged' })).toContain('excluded: damaged');

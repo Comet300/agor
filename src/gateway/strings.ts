@@ -49,6 +49,10 @@ export interface Catalog {
     required: string;
     /** Count of blocked sellers + phones; 0 when none. */
     blocked: number;
+    /** Price range summary (e.g. "5000–15000"); empty when none. */
+    priceRange: string;
+    /** Attribute-range summary (e.g. "year≥2019 · km≤120000"); empty when none. */
+    specs: string;
   }) => string;
   remove_usage: string;
   remove_done: (id: number) => string;
@@ -142,6 +146,8 @@ export interface Catalog {
   btn_deals_only: string;
   btn_required: string;
   btn_block: string;
+  btn_price_range: string;
+  btn_specs: string;
   btn_rename: string;
   btn_pause: string;
   btn_resume: string;
@@ -202,6 +208,11 @@ export interface Catalog {
   required_prompt: string;
   required_set: (keywords: string) => string;
   required_cleared: string;
+  price_range_prompt: string;
+  price_range_set: (p: { min?: number; max?: number }) => string;
+  attr_range_prompt: string;
+  attr_range_set: (text: string) => string;
+  range_cleared: string;
   target_prompt: string;
   target_set: (price: number) => string;
   target_cleared: string;
@@ -315,12 +326,14 @@ const ro: Catalog = {
   track_error: 'Nu am putut înregistra urmărirea. Te rog încearcă din nou.',
   list_empty: 'Nicio urmărire încă. Trimite un link de anunț ca să creezi una.',
   list_intro: 'Urmăririle tale:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked }) =>
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked, priceRange, specs }) =>
     `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `„${label}” (${vendor})` : vendor} · ${type}` +
     // Seller filter, deals-only & keyword filters only apply to search watches; a
     // product watch tracks one listing, so they'd be meaningless noise.
     (type === 'search' ? ` · vânzător=${seller}` : '') +
     (type === 'search' && dealsOnly ? ' · doar oferte' : '') +
+    (type === 'search' && priceRange ? ` · preț ${priceRange}` : '') +
+    (type === 'search' && specs ? ` · ${specs}` : '') +
     (type === 'search' && required ? ` · necesită: ${required}` : '') +
     (type === 'search' && exclusions ? ` · excluse: ${exclusions}` : '') +
     (type === 'search' && blocked > 0 ? ` · blocați: ${blocked}` : '') +
@@ -401,6 +414,8 @@ const ro: Catalog = {
   btn_deals_only: '🔥 Doar oferte',
   btn_required: '✅ Cuvinte necesare',
   btn_block: '⛔ Blochează vânzător',
+  btn_price_range: '💶 Interval preț',
+  btn_specs: '📐 Specificații',
   btn_rename: '✏️ Redenumește',
   btn_pause: '⏸ Pauză',
   btn_resume: '▶️ Reia',
@@ -460,6 +475,11 @@ const ro: Catalog = {
   required_prompt: 'Trimite cuvintele necesare, separate prin virgulă (anunțul trebuie să conțină cel puțin unul). „-” le șterge.',
   required_set: (kw) => `Necesită: ${kw}`,
   required_cleared: 'Toate cuvintele necesare au fost șterse.',
+  price_range_prompt: 'Trimite intervalul de preț: min-max (ex.: 5000-15000, 5000-, -15000). „-” îl șterge.',
+  price_range_set: ({ min, max }) => `Interval preț: ${min ?? '0'}–${max ?? '∞'}`,
+  attr_range_prompt: 'Trimite specificații, ex.: year>=2019, km<=120000, area>=60 (year/km/area/rooms/power). „-” le șterge.',
+  attr_range_set: (text) => `Specificații: ${text}`,
+  range_cleared: 'Filtrul a fost șters.',
   target_prompt: 'Trimite prețul țintă (doar numărul, în moneda anunțului). Te anunț când scade până la el. „-” îl șterge.',
   target_set: (price) => `Preț țintă setat: ${price}`,
   target_cleared: 'Prețul țintă a fost șters.',
@@ -578,12 +598,14 @@ const en: Catalog = {
   track_error: 'Sorry — I could not register that watch. Please try again.',
   list_empty: 'No watches yet. Send a listing link to create one.',
   list_intro: 'Your watches:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked }) =>
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked, priceRange, specs }) =>
     `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `“${label}” (${vendor})` : vendor} · ${type}` +
     // Seller filter, deals-only & keyword filters only apply to search watches; a
     // product watch tracks one listing, so they'd be meaningless noise.
     (type === 'search' ? ` · seller=${seller}` : '') +
     (type === 'search' && dealsOnly ? ' · deals only' : '') +
+    (type === 'search' && priceRange ? ` · price ${priceRange}` : '') +
+    (type === 'search' && specs ? ` · ${specs}` : '') +
     (type === 'search' && required ? ` · requires: ${required}` : '') +
     (type === 'search' && exclusions ? ` · excluded: ${exclusions}` : '') +
     (type === 'search' && blocked > 0 ? ` · blocked: ${blocked}` : '') +
@@ -664,6 +686,8 @@ const en: Catalog = {
   btn_deals_only: '🔥 Deals only',
   btn_required: '✅ Required words',
   btn_block: '⛔ Block seller',
+  btn_price_range: '💶 Price range',
+  btn_specs: '📐 Specs',
   btn_rename: '✏️ Rename',
   btn_pause: '⏸ Pause',
   btn_resume: '▶️ Resume',
@@ -723,6 +747,11 @@ const en: Catalog = {
   required_prompt: 'Send comma-separated required keywords (a listing must contain at least one). “-” clears them.',
   required_set: (kw) => `Requiring: ${kw}`,
   required_cleared: 'Cleared all required keywords.',
+  price_range_prompt: 'Send a price range: min-max (e.g. 5000-15000, 5000-, -15000). “-” clears it.',
+  price_range_set: ({ min, max }) => `Price range: ${min ?? '0'}–${max ?? '∞'}`,
+  attr_range_prompt: 'Send specs, e.g. year>=2019, km<=120000, area>=60 (year/km/area/rooms/power). “-” clears them.',
+  attr_range_set: (text) => `Specs: ${text}`,
+  range_cleared: 'Filter cleared.',
   target_prompt: 'Send the target price (number only, in the listing’s currency). I’ll alert when it drops to it. “-” clears it.',
   target_set: (price) => `Target price set: ${price}`,
   target_cleared: 'Target price cleared.',

@@ -15,6 +15,7 @@ import type { EnrichedItem, FilterConfig, IScrapedItem, IVendorPlugin } from '..
 import { normalizeItems } from './normalize';
 import { applyExclusion, applyRequired } from './exclusionKeywords';
 import { applyBlocklist } from './sellerBlocklist';
+import { applyPriceRange, applyAttrRanges } from './rangeFilters';
 import { applySellerFilter } from './sellerTypeFilter';
 import { newItems } from './delta';
 import { collapseDuplicates, DedupBuffer, type CrossPost } from './dedup';
@@ -71,8 +72,12 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
     filters.blockedPhones ?? [],
   );
 
+  // 2c. Price range, then numeric attribute ranges (year/km/area/…).
+  const afterPrice = applyPriceRange(afterBlock, filters.priceMin, filters.priceMax);
+  const afterRanges = applyAttrRanges(afterPrice, filters.attrRanges);
+
   // 3. Apply the seller-type visibility preference -> the active set.
-  const active = applySellerFilter(afterBlock, filters.sellerVisibility);
+  const active = applySellerFilter(afterRanges, filters.sellerVisibility);
 
   // 4. Isolate the genuinely new listings.
   const news = newItems(active, historicalIds);
@@ -109,6 +114,7 @@ export {
   applyRequired,
 } from './exclusionKeywords';
 export { applyBlocklist, phoneKey } from './sellerBlocklist';
+export { applyPriceRange, applyAttrRanges } from './rangeFilters';
 export { applySellerFilter } from './sellerTypeFilter';
 export { computeDelta, newItems } from './delta';
 export {
