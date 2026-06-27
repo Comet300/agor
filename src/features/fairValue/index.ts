@@ -17,7 +17,8 @@ export {
   emptyState, addObservation, decay, solveRidge, predict, type RidgeState,
 } from './ridge';
 
-export type ValuationCategory = 'car' | 'property';
+import type { FairValue, ValuationCategory } from '../../contracts';
+export type { FairValue, ValuationCategory } from '../../contracts';
 
 /** Feature-vector length per category (intercept included). */
 export const FEATURE_K: Record<ValuationCategory, number> = { car: 3, property: 3 };
@@ -58,17 +59,6 @@ export function featureVector(category: ValuationCategory, a: NumericAttrs, now:
 /** The regression target: log price (homoscedastic, keeps predictions positive). */
 export function targetValue(price: number): number {
   return Math.log(price);
-}
-
-/** What `estimateFairValue` returns when a model could value the listing. */
-export interface FairValue {
-  category: ValuationCategory;
-  /** Predicted fair price (same currency as the listing). */
-  fair: number;
-  /** price − fair (negative = under fair). */
-  delta: number;
-  /** delta / fair (negative = under fair). */
-  deltaPct: number;
 }
 
 /**

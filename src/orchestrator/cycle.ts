@@ -26,7 +26,7 @@ import {
 import { marketInsight } from '../features/marketInsight';
 import { ratePrice } from '../features/priceRating';
 import {
-  parseNumericAttrs, inferCategory, featureVector, targetValue,
+  parseNumericAttrs, inferCategory, featureVector, targetValue, estimateFairValue,
   emptyState, addObservation, FEATURE_K, type RidgeState,
 } from '../features/fairValue';
 import { log } from '../logging/logger';
@@ -189,6 +189,17 @@ export class MonitorCycle {
       chatId: monitor.chatId,
       item,
     }));
+
+    // Attach a model-predicted fair value to each new listing (when a trained
+    // model for its category+currency can value it). Uses the model state BEFORE
+    // this batch's update, so a listing isn't valued against itself.
+    for (const n of notifications) {
+      if (!n.item) continue;
+      const category = inferCategory(parseNumericAttrs(n.item.attributes));
+      if (!category) continue;
+      const fv = estimateFairValue(n.item.attributes, n.item.price, at, this.deps.store.valuation.get(category, n.item.currency));
+      if (fv) n.fairValue = fv;
+    }
 
     // Cross-batch duplicates: the new alert is suppressed; instead we edit the
     // ORIGINAL alert to append the alternative source. Only possible when the

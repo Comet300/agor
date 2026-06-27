@@ -92,7 +92,10 @@ function postedDate(item: EnrichedItem): string {
 }
 
 /** Render a brand-new listing as a rich card. */
-function renderNewListing(item: EnrichedItem, lang: Lang): RenderedMessage {
+/** Below this fraction of predicted fair value, a new listing is flagged under-priced. */
+const UNDER_PRICED_PCT = -0.08;
+
+function renderNewListing(item: EnrichedItem, lang: Lang, fairValue?: FairValue): RenderedMessage {
   const t = tr(lang);
   const lines: string[] = [];
 
@@ -102,6 +105,19 @@ function renderNewListing(item: EnrichedItem, lang: Lang): RenderedMessage {
 
   // Deal-tag badge (only when the pipeline tagged it).
   if (item.dealTag) lines.push(t[DEAL_BADGE_KEY[item.dealTag]] as string);
+
+  // Model-predicted fair value: a strong flag when clearly under, else the estimate.
+  if (fairValue) {
+    if (fairValue.deltaPct <= UNDER_PRICED_PCT) {
+      lines.push(t.fair_value_under({ fair: formatMoney(fairValue.fair, item.currency), pct: Math.round(-fairValue.deltaPct * 100) }));
+    } else {
+      lines.push(t.fair_value_line({
+        fair: formatMoney(fairValue.fair, item.currency),
+        deltaAbs: formatMoney(Math.abs(fairValue.delta), item.currency),
+        under: fairValue.delta < 0,
+      }));
+    }
+  }
 
   // Seller type + optional location.
   lines.push(sellerLine(item, lang));
@@ -193,7 +209,7 @@ export function renderNotification(n: Notification, lang: Lang): RenderedMessage
 function renderByKind(n: Notification, lang: Lang): RenderedMessage {
   switch (n.kind) {
     case 'new_listing':
-      return renderNewListing(n.item!, lang);
+      return renderNewListing(n.item!, lang, n.fairValue);
     case 'price_drop':
       return renderPriceDrop(n.item!, n.priceDrop, lang);
     case 'back_in_stock':
