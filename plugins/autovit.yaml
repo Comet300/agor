@@ -29,6 +29,7 @@ search_mapping:
     url: "node.url"
     imageUrl: "node.thumbnail.x1"
     isPrivateOwner: "node.seller.__typename"
+    sellerName: "node.seller.name"
     location: "node.location.city.name"
     description: "node.shortDescription"
     postedAt: "node.createdAt"
@@ -52,4 +53,5 @@ product_mapping:
     currency: "price.currency"
     url: "url"
     isPrivateOwner: "seller.type"
+    sellerName: "seller.name"
     location: "seller.location.city.name"

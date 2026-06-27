@@ -153,6 +153,18 @@ export function migrate(db: DB): void {
 
     CREATE INDEX IF NOT EXISTS idx_audit_log_at
       ON audit_log (at DESC);
+
+    -- Fair-value (v2): per (category, currency) ridge accumulators.
+    CREATE TABLE IF NOT EXISTS valuation_models (
+      category   TEXT,
+      currency   TEXT,
+      k          INTEGER,
+      a_json     TEXT,
+      b_json     TEXT,
+      n          REAL,
+      updated_at INTEGER,
+      PRIMARY KEY (category, currency)
+    );
   `);
 
   // Idempotent column additions for databases created before these columns existed.
@@ -181,6 +193,9 @@ export function migrate(db: DB): void {
     ['attributes_json', 'TEXT'],
     ['gone_count',      'INTEGER DEFAULT 0'],
     ['delisted_at',     'INTEGER'],
+    ['last_rating',     'TEXT'],
+    ['seller_name',     'TEXT'],
+    ['phone',           'TEXT'],
   ];
   for (const [col, type] of itemAlters) {
     if (!itemCols.some((c) => c.name === col)) {

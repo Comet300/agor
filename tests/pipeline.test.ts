@@ -10,6 +10,9 @@ import {
   parseExclusionInput,
   buildExclusionRegex,
   applyExclusion,
+  applyRequired,
+  applyBlocklist,
+  phoneKey,
   applySellerFilter,
   computeDelta,
   newItems,
@@ -396,6 +399,55 @@ describe('exclusion keywords', () => {
     ];
     const kept = applyExclusion(items, ['bmw']);
     expect(kept.map((i) => i.id)).toEqual(['2', '3']);
+  });
+});
+
+describe('required keywords (whitelist)', () => {
+  const items = [
+    item({ id: '1', title: 'BMW 320d' }),
+    item({ id: '2', title: 'Audi A4' }),
+    item({ id: '3', title: 'VW Golf' }),
+  ];
+
+  it('keeps everything when there are no required keywords', () => {
+    expect(applyRequired(items, []).map((i) => i.id)).toEqual(['1', '2', '3']);
+  });
+
+  it('keeps only titles matching at least one required keyword', () => {
+    expect(applyRequired(items, ['bmw', 'audi']).map((i) => i.id)).toEqual(['1', '2']);
+  });
+
+  it('matches on a word boundary like exclusions', () => {
+    expect(applyRequired([item({ id: 'x', title: 'Embmwedded' })], ['bmw'])).toHaveLength(0);
+  });
+});
+
+describe('seller blocklist', () => {
+  it('phoneKey normalizes to the last 9 digits regardless of formatting', () => {
+    expect(phoneKey('+40 712 345 678')).toBe('712345678');
+    expect(phoneKey('0712345678')).toBe('712345678');
+    expect(phoneKey('0040-712-345-678')).toBe('712345678');
+  });
+
+  it('drops items whose seller name is blocked (case-insensitive)', () => {
+    const items = [
+      { ...item({ id: '1' }), sellerName: 'Premium Cars SRL' },
+      { ...item({ id: '2' }), sellerName: 'Jane' },
+    ];
+    expect(applyBlocklist(items, ['premium cars srl'], []).map((i) => i.id)).toEqual(['2']);
+  });
+
+  it('drops items whose phone is blocked across formatting/prefix', () => {
+    const items = [
+      item({ id: '1', phone: '+40712345678' }),
+      item({ id: '2', phone: '0722000000' }),
+    ];
+    expect(applyBlocklist(items, [], ['0712 345 678']).map((i) => i.id)).toEqual(['2']);
+  });
+
+  it('passes everything through with empty blocklists', () => {
+    const items = [{ ...item({ id: '1' }), sellerName: 'X' }, item({ id: '2', phone: '0712345678' })];
+    expect(applyBlocklist(items, [], [])).toHaveLength(2);
   });
 });
 

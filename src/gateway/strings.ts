@@ -45,10 +45,42 @@ export interface Catalog {
     paused: boolean;
     /** True when a search watch only alerts on at-or-below-median listings. */
     dealsOnly: boolean;
+    /** Comma-joined required keywords; empty when none. */
+    required: string;
+    /** Count of blocked sellers + phones; 0 when none. */
+    blocked: number;
   }) => string;
   remove_usage: string;
   remove_done: (id: number) => string;
   remove_not_found: string;
+  /** Portfolio summary for /stats. */
+  stats_summary: (p: {
+    watches: number;
+    search: number;
+    product: number;
+    paused: number;
+    tracked: number;
+    items: number;
+    vendors: string;
+  }) => string;
+  /** Caption on the exported CSV document. */
+  export_caption: (rows: number) => string;
+  /** Reply when there's nothing to export. */
+  export_empty: string;
+  rate_usage: string;
+  rate_unsupported: string;
+  rate_failed: string;
+  rate_no_comps: string;
+  rate_result: (p: { title: string; price: string }) => string;
+  history_usage: string;
+  history_not_found: string;
+  /** Caption/text summary under a /history price chart. */
+  history_summary: (p: { title: string; first: string; last: string; low: string; cuts: number; points: number; days: number }) => string;
+  cheaper_usage: string;
+  cheaper_not_found: string;
+  cheaper_none: string;
+  cheaper_intro: (title: string) => string;
+  cheaper_item: (p: { title: string; price: string; url: string }) => string;
   edit_usage: string;
   edit_not_found: string;
   rename_prompt: string;
@@ -108,9 +140,20 @@ export interface Catalog {
   btn_done: string;
   btn_remove: string;
   btn_deals_only: string;
+  btn_required: string;
+  btn_block: string;
   btn_rename: string;
   btn_pause: string;
   btn_resume: string;
+  btn_edit: string;
+  btn_target: string;
+  btn_type: string;
+  /** Picker prompts (paginated button choosers). */
+  picker_choose_watch: string;
+  picker_choose_user: string;
+  picker_block_prompt: string;
+  picker_exclude_prompt: string;
+  picker_require_prompt: string;
   btn_open: string;
   btn_call: string;
   btn_price_history: string;
@@ -124,6 +167,10 @@ export interface Catalog {
   btn_browse_all: string;
   browse_in_stock: string;
   browse_out_of_stock: string;
+  /** One-line price rating vs comparable listings; '' for an unknown verdict. */
+  price_rating: (p: { tag: 'great_deal' | 'fair_price' | 'overpriced' | 'unknown'; percentile: number; n: number; suspicious?: boolean }) => string;
+  /** Model-predicted fair price line (v2). */
+  fair_value_line: (p: { fair: string; deltaAbs: string; under: boolean }) => string;
   browse_position: (n: number, total: number) => string;
   browse_empty: string;
   browse_track_done: (title: string) => string;
@@ -152,6 +199,24 @@ export interface Catalog {
   exclusion_prompt: string;
   exclusion_set: (keywords: string) => string;
   exclusion_cleared: string;
+  required_prompt: string;
+  required_set: (keywords: string) => string;
+  required_cleared: string;
+  target_prompt: string;
+  target_set: (price: number) => string;
+  target_cleared: string;
+  target_invalid: string;
+  /** Title + line of a target-price-hit alert. */
+  target_hit_title: string;
+  target_hit_line: (target: string) => string;
+  /** Title of a "became a great deal" alert. */
+  became_deal_title: string;
+  /** Market-insight footer on a product alert (time-on-market, price cuts, low). */
+  insight_line: (p: { days?: number; cuts: number; low: string }) => string;
+  block_prompt: string;
+  block_added_seller: (name: string) => string;
+  block_added_phone: (phone: string) => string;
+  block_cleared: string;
   price_history_insufficient: string;
   price_history_error: string;
 
@@ -195,6 +260,8 @@ export interface Catalog {
   access_userinfo: (p: { id: number; status: string; isAdmin: boolean; name: string; email: string }) => string;
   access_setname_usage: string;
   access_setemail_usage: string;
+  access_setname_prompt: (p: { id: number }) => string;
+  access_setemail_prompt: (p: { id: number }) => string;
   access_setname_done: (p: { id: number; name: string }) => string;
   access_setemail_done: (p: { id: number; email: string }) => string;
   access_promote_usage: string;
@@ -236,6 +303,11 @@ const ro: Catalog = {
     '• /list — arată toate urmăririle din acest chat.\n' +
     '• /browse — răsfoiește anunțurile colectate; apasă „📌 Urmărește” ca să urmărești un anunț.\n' +
     '• /edit <id> — modifică frecvența, vânzătorul sau cuvintele excluse ale unei urmăriri.\n' +
+    '• /stats — rezumatul urmăririlor · /export — anunțurile colectate ca CSV.\n' +
+    '• /rate <link> — evaluează prețul unui anunț fără să-l urmărești.\n' +
+    '• /history <id> — grafic de preț pentru o urmărire.\n' +
+    '• /cheaper <id> — echivalente mai ieftine pentru un produs urmărit.\n' +
+    '• Redirecționează (forward) un anunț ca să-l urmărești automat.\n' +
     '• /remove <id> — oprește o urmărire.\n' +
     '• /lang ro|en — schimbă limba.\n' +
     '• Apasă „Istoric preț” pe orice alertă pentru un grafic.',
@@ -243,17 +315,41 @@ const ro: Catalog = {
   track_error: 'Nu am putut înregistra urmărirea. Te rog încearcă din nou.',
   list_empty: 'Nicio urmărire încă. Trimite un link de anunț ca să creezi una.',
   list_intro: 'Urmăririle tale:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly }) =>
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked }) =>
     `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `„${label}” (${vendor})` : vendor} · ${type}` +
-    // Seller filter, deals-only & exclusions only apply to search watches; a
+    // Seller filter, deals-only & keyword filters only apply to search watches; a
     // product watch tracks one listing, so they'd be meaningless noise.
     (type === 'search' ? ` · vânzător=${seller}` : '') +
     (type === 'search' && dealsOnly ? ' · doar oferte' : '') +
+    (type === 'search' && required ? ` · necesită: ${required}` : '') +
     (type === 'search' && exclusions ? ` · excluse: ${exclusions}` : '') +
+    (type === 'search' && blocked > 0 ? ` · blocați: ${blocked}` : '') +
     `\n${url}`,
   remove_usage: 'Folosire: /remove <id>',
   remove_done: (id) => `Urmărirea #${id} a fost oprită.`,
   remove_not_found: 'Urmărirea nu există sau nu îți aparține.',
+  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+    `📊 Rezumat\n` +
+    `• Urmăriri: ${watches} (${search} căutări, ${product} produse)\n` +
+    `• Urmărite (📌): ${tracked} · pe pauză (⏸): ${paused}\n` +
+    `• Anunțuri colectate: ${items}\n` +
+    (vendors ? `• Site-uri: ${vendors}` : ''),
+  export_caption: (rows) => `📄 ${rows} anunț${rows === 1 ? '' : 'uri'} exportate.`,
+  export_empty: 'Niciun anunț de exportat încă.',
+  rate_usage: 'Folosire: /rate <link>',
+  rate_unsupported: 'Site neacceptat sau link invalid.',
+  rate_failed: 'Nu am putut citi anunțul (site blocat sau indisponibil).',
+  rate_no_comps: 'Nu am încă destule anunțuri similare ca să-l evaluez.',
+  rate_result: ({ title, price }) => `🏷️ ${title}\n💰 ${price}`,
+  history_usage: 'Folosire: /history <id>',
+  history_not_found: 'Urmărirea nu există, nu îți aparține sau nu are istoric de preț.',
+  history_summary: ({ title, first, last, low, cuts, points, days }) =>
+    `📈 ${title}\nDe la ${first} → acum ${last}\nMinim ${low} · ${cuts} reducer${cuts === 1 ? 'e' : 'i'} · ${points} puncte · ${days}z`,
+  cheaper_usage: 'Folosire: /cheaper <id> (id-ul unei urmăriri de produs)',
+  cheaper_not_found: 'Urmărirea nu există, nu îți aparține sau nu are încă un anunț.',
+  cheaper_none: 'Niciun echivalent mai ieftin în anunțurile tale colectate.',
+  cheaper_intro: (title) => `🔎 Mai ieftine, similare cu „${title}”:`,
+  cheaper_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
   edit_usage: 'Folosire: /edit <id>',
   edit_not_found: 'Urmărirea nu există sau nu îți aparține.',
   rename_prompt: 'Trimite o denumire pentru această urmărire (sau „-” ca să o ștergi).',
@@ -303,13 +399,23 @@ const ro: Catalog = {
   btn_done: '✅ Gata',
   btn_remove: '🗑 Șterge',
   btn_deals_only: '🔥 Doar oferte',
+  btn_required: '✅ Cuvinte necesare',
+  btn_block: '⛔ Blochează vânzător',
   btn_rename: '✏️ Redenumește',
   btn_pause: '⏸ Pauză',
   btn_resume: '▶️ Reia',
+  btn_edit: '✏️ Editează',
+  btn_target: '🎯 Preț țintă',
+  btn_type: '✏️ Scrie',
+  picker_choose_watch: 'Care urmărire?',
+  picker_choose_user: 'Care utilizator?',
+  picker_block_prompt: 'Ce vânzător vrei să blochezi? (apasă; din nou = deblochezi)',
+  picker_exclude_prompt: 'Ce cuvinte să exclud? (apasă; din nou = scoți)',
+  picker_require_prompt: 'Ce cuvinte sunt necesare? (apasă; din nou = scoți)',
   btn_open: '🔗 Deschide',
   btn_call: '📞 Sună',
   btn_price_history: '📊 Istoric preț',
-  btn_freq: (m) => `⏱ ${m} min`,
+  btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
   btn_prev: '◀️ Înapoi',
   btn_next: 'Înainte ▶️',
   btn_track: '📌 Urmărește',
@@ -318,6 +424,15 @@ const ro: Catalog = {
   btn_browse_all: '📂 Toate anunțurile',
   browse_in_stock: '🟢 disponibil',
   browse_out_of_stock: '🔴 indisponibil',
+  price_rating: ({ tag, percentile, n, suspicious }) => {
+    if (suspicious) return `⚠️ Prea ieftin — verifică (mult sub ${n} similare)`;
+    if (tag === 'great_deal') return `🟢 Ofertă bună — mai ieftin ca ${Math.round((1 - percentile) * 100)}% din ${n} similare`;
+    if (tag === 'overpriced') return `🔴 Peste piață — mai scump ca ${Math.round(percentile * 100)}% din ${n} similare`;
+    if (tag === 'fair_price') return `🟡 Preț corect — în jurul mediei (${n} similare)`;
+    return '';
+  },
+  fair_value_line: ({ fair, deltaAbs, under }) =>
+    `💡 Preț estimat ≈ ${fair} (${deltaAbs} ${under ? 'sub' : 'peste'})`,
   browse_position: (n, total) => `articolul ${n} din ${total}`,
   browse_empty: 'Niciun anunț colectat încă. Adaugă o urmărire cu un link, apoi revino.',
   browse_track_done: (title) => `📌 Urmăresc acum „${title}". Te anunț la schimbări de preț și la eliminare.`,
@@ -342,6 +457,27 @@ const ro: Catalog = {
   exclusion_prompt: 'Trimite cuvintele de exclus, separate prin virgulă (ex.: lovit, piese, dube).',
   exclusion_set: (kw) => `Exclud: ${kw}`,
   exclusion_cleared: 'Toate cuvintele excluse au fost șterse.',
+  required_prompt: 'Trimite cuvintele necesare, separate prin virgulă (anunțul trebuie să conțină cel puțin unul). „-” le șterge.',
+  required_set: (kw) => `Necesită: ${kw}`,
+  required_cleared: 'Toate cuvintele necesare au fost șterse.',
+  target_prompt: 'Trimite prețul țintă (doar numărul, în moneda anunțului). Te anunț când scade până la el. „-” îl șterge.',
+  target_set: (price) => `Preț țintă setat: ${price}`,
+  target_cleared: 'Prețul țintă a fost șters.',
+  target_invalid: 'Trimite un număr valid (ex.: 12000).',
+  target_hit_title: '🎯 Preț țintă atins!',
+  target_hit_line: (target) => `Țintă: ${target}`,
+  became_deal_title: '🔥 A devenit o ofertă bună!',
+  insight_line: ({ days, cuts, low }) => {
+    const parts: string[] = [];
+    if (days !== undefined) parts.push(`📅 listat de ${days}z`);
+    if (cuts > 0) parts.push(`📉 ${cuts} reducer${cuts === 1 ? 'e' : 'i'}`);
+    if (low) parts.push(`min ${low}`);
+    return parts.join(' · ');
+  },
+  block_prompt: 'Trimite numele vânzătorului sau un număr de telefon de blocat. „-” golește lista.',
+  block_added_seller: (name) => `Vânzător blocat: ${name}`,
+  block_added_phone: (phone) => `Telefon blocat: ${phone}`,
+  block_cleared: 'Lista de vânzători blocați a fost golită.',
   price_history_insufficient: 'Încă nu sunt suficiente date de preț.',
   price_history_error: 'Nu am putut genera istoricul de preț.',
 
@@ -390,6 +526,8 @@ const ro: Catalog = {
     `Utilizator ${id}\nstatus: ${status}${isAdmin ? ' (admin)' : ''}\nnume: ${name || '—'}\nemail: ${email || '—'}`,
   access_setname_usage: 'Folosire: /setname <chat_id> <nume>',
   access_setemail_usage: 'Folosire: /setemail <chat_id> <email>',
+  access_setname_prompt: ({ id }) => `Trimite numele pentru utilizatorul ${id}.`,
+  access_setemail_prompt: ({ id }) => `Trimite emailul pentru utilizatorul ${id}.`,
   access_setname_done: ({ id, name }) => `✅ Nume actualizat pentru ${id}: ${name}`,
   access_setemail_done: ({ id, email }) => `✅ Email actualizat pentru ${id}: ${email}`,
   access_promote_usage: 'Folosire: /promote <chat_id>',
@@ -428,6 +566,11 @@ const en: Catalog = {
     '• /list — show every watch in this chat.\n' +
     '• /browse — browse collected listings; tap “📌 Track” to watch an item.\n' +
     '• /edit <id> — change a watch’s frequency, seller filter or exclusion keywords.\n' +
+    '• /stats — summary of your watches · /export — collected listings as CSV.\n' +
+    '• /rate <url> — rate a listing’s price without tracking it.\n' +
+    '• /history <id> — price chart for a watch.\n' +
+    '• /cheaper <id> — cheaper equivalents for a tracked product.\n' +
+    '• Forward a listing message to track it automatically.\n' +
     '• /remove <id> — stop a watch.\n' +
     '• /lang ro|en — change language.\n' +
     '• Tap “Price history” on any alert for a chart.',
@@ -435,17 +578,41 @@ const en: Catalog = {
   track_error: 'Sorry — I could not register that watch. Please try again.',
   list_empty: 'No watches yet. Send a listing link to create one.',
   list_intro: 'Your watches:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly }) =>
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked }) =>
     `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `“${label}” (${vendor})` : vendor} · ${type}` +
-    // Seller filter, deals-only & exclusions only apply to search watches; a
+    // Seller filter, deals-only & keyword filters only apply to search watches; a
     // product watch tracks one listing, so they'd be meaningless noise.
     (type === 'search' ? ` · seller=${seller}` : '') +
     (type === 'search' && dealsOnly ? ' · deals only' : '') +
+    (type === 'search' && required ? ` · requires: ${required}` : '') +
     (type === 'search' && exclusions ? ` · excluded: ${exclusions}` : '') +
+    (type === 'search' && blocked > 0 ? ` · blocked: ${blocked}` : '') +
     `\n${url}`,
   remove_usage: 'Usage: /remove <id>',
   remove_done: (id) => `Watch #${id} stopped.`,
   remove_not_found: 'That watch does not exist or is not yours.',
+  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+    `📊 Summary\n` +
+    `• Watches: ${watches} (${search} searches, ${product} products)\n` +
+    `• Tracked (📌): ${tracked} · paused (⏸): ${paused}\n` +
+    `• Listings collected: ${items}\n` +
+    (vendors ? `• Sites: ${vendors}` : ''),
+  export_caption: (rows) => `📄 Exported ${rows} listing${rows === 1 ? '' : 's'}.`,
+  export_empty: 'Nothing to export yet.',
+  rate_usage: 'Usage: /rate <url>',
+  rate_unsupported: 'Unsupported site or invalid link.',
+  rate_failed: 'Could not read that listing (site blocked or down).',
+  rate_no_comps: 'Not enough similar listings collected yet to rate it.',
+  rate_result: ({ title, price }) => `🏷️ ${title}\n💰 ${price}`,
+  history_usage: 'Usage: /history <id>',
+  history_not_found: 'That watch does not exist, is not yours, or has no price history.',
+  history_summary: ({ title, first, last, low, cuts, points, days }) =>
+    `📈 ${title}\nFrom ${first} → now ${last}\nLow ${low} · ${cuts} cut${cuts === 1 ? '' : 's'} · ${points} points · ${days}d`,
+  cheaper_usage: 'Usage: /cheaper <id> (id of a product watch)',
+  cheaper_not_found: 'That watch does not exist, is not yours, or has no listing yet.',
+  cheaper_none: 'No cheaper equivalents in your collected listings.',
+  cheaper_intro: (title) => `🔎 Cheaper, similar to “${title}”:`,
+  cheaper_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
   edit_usage: 'Usage: /edit <id>',
   edit_not_found: 'That watch does not exist or is not yours.',
   rename_prompt: 'Send a name for this watch (or “-” to clear it).',
@@ -495,13 +662,23 @@ const en: Catalog = {
   btn_done: '✅ Done',
   btn_remove: '🗑 Remove',
   btn_deals_only: '🔥 Deals only',
+  btn_required: '✅ Required words',
+  btn_block: '⛔ Block seller',
   btn_rename: '✏️ Rename',
   btn_pause: '⏸ Pause',
   btn_resume: '▶️ Resume',
+  btn_edit: '✏️ Edit',
+  btn_target: '🎯 Target price',
+  btn_type: '✏️ Type',
+  picker_choose_watch: 'Which watch?',
+  picker_choose_user: 'Which user?',
+  picker_block_prompt: 'Block which seller? (tap; tap again to unblock)',
+  picker_exclude_prompt: 'Exclude which words? (tap; tap again to remove)',
+  picker_require_prompt: 'Require which words? (tap; tap again to remove)',
   btn_open: '🔗 Open',
   btn_call: '📞 Call',
   btn_price_history: '📊 Price history',
-  btn_freq: (m) => `⏱ ${m} min`,
+  btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
   btn_prev: '◀️ Prev',
   btn_next: 'Next ▶️',
   btn_track: '📌 Track',
@@ -510,6 +687,15 @@ const en: Catalog = {
   btn_browse_all: '📂 All listings',
   browse_in_stock: '🟢 available',
   browse_out_of_stock: '🔴 unavailable',
+  price_rating: ({ tag, percentile, n, suspicious }) => {
+    if (suspicious) return `⚠️ Too cheap — verify (far below ${n} similar)`;
+    if (tag === 'great_deal') return `🟢 Great deal — cheaper than ${Math.round((1 - percentile) * 100)}% of ${n} similar`;
+    if (tag === 'overpriced') return `🔴 Above market — pricier than ${Math.round(percentile * 100)}% of ${n} similar`;
+    if (tag === 'fair_price') return `🟡 Fair price — around the going rate (${n} similar)`;
+    return '';
+  },
+  fair_value_line: ({ fair, deltaAbs, under }) =>
+    `💡 Est. fair ≈ ${fair} (${deltaAbs} ${under ? 'under' : 'over'})`,
   browse_position: (n, total) => `item ${n} of ${total}`,
   browse_empty: 'No items collected yet. Add a watch with a link, then come back.',
   browse_track_done: (title) => `📌 Now tracking "${title}". I'll alert you on price changes and de-listing.`,
@@ -534,6 +720,27 @@ const en: Catalog = {
   exclusion_prompt: 'Send a comma-separated list of keywords to exclude (e.g. damaged, parts, salvage).',
   exclusion_set: (kw) => `Excluding: ${kw}`,
   exclusion_cleared: 'Cleared all exclusion keywords.',
+  required_prompt: 'Send comma-separated required keywords (a listing must contain at least one). “-” clears them.',
+  required_set: (kw) => `Requiring: ${kw}`,
+  required_cleared: 'Cleared all required keywords.',
+  target_prompt: 'Send the target price (number only, in the listing’s currency). I’ll alert when it drops to it. “-” clears it.',
+  target_set: (price) => `Target price set: ${price}`,
+  target_cleared: 'Target price cleared.',
+  target_invalid: 'Send a valid number (e.g. 12000).',
+  target_hit_title: '🎯 Target price reached!',
+  target_hit_line: (target) => `Target: ${target}`,
+  became_deal_title: '🔥 Just became a great deal!',
+  insight_line: ({ days, cuts, low }) => {
+    const parts: string[] = [];
+    if (days !== undefined) parts.push(`📅 listed ${days}d`);
+    if (cuts > 0) parts.push(`📉 ${cuts} cut${cuts === 1 ? '' : 's'}`);
+    if (low) parts.push(`low ${low}`);
+    return parts.join(' · ');
+  },
+  block_prompt: 'Send a seller name or a phone number to block. “-” empties the list.',
+  block_added_seller: (name) => `Blocked seller: ${name}`,
+  block_added_phone: (phone) => `Blocked phone: ${phone}`,
+  block_cleared: 'Blocked-sellers list emptied.',
   price_history_insufficient: 'Not enough price history yet.',
   price_history_error: 'Could not render the price history.',
 
@@ -579,6 +786,8 @@ const en: Catalog = {
     `User ${id}\nstatus: ${status}${isAdmin ? ' (admin)' : ''}\nname: ${name || '—'}\nemail: ${email || '—'}`,
   access_setname_usage: 'Usage: /setname <chat_id> <name>',
   access_setemail_usage: 'Usage: /setemail <chat_id> <email>',
+  access_setname_prompt: ({ id }) => `Send the name for user ${id}.`,
+  access_setemail_prompt: ({ id }) => `Send the email for user ${id}.`,
   access_setname_done: ({ id, name }) => `✅ Name updated for ${id}: ${name}`,
   access_setemail_done: ({ id, email }) => `✅ Email updated for ${id}: ${email}`,
   access_promote_usage: 'Usage: /promote <chat_id>',
@@ -621,6 +830,10 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'browse', description: 'Răsfoiește anunțurile colectate' },
     { command: 'check', description: 'Verifică o urmărire acum (/check <id>)' },
     { command: 'edit', description: 'Modifică o urmărire (/edit <id>)' },
+    { command: 'stats', description: 'Rezumatul urmăririlor tale' },
+    { command: 'rate', description: 'Evaluează prețul unui link (/rate <link>)' },
+    { command: 'history', description: 'Grafic preț pentru o urmărire (/history <id>)' },
+    { command: 'export', description: 'Exportă anunțurile colectate (CSV)' },
     { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
     { command: 'lang', description: 'Schimbă limba (/lang ro|en)' },
     { command: 'request_access', description: 'Cere acces la bot' },
@@ -633,6 +846,10 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'browse', description: 'Browse collected listings' },
     { command: 'check', description: 'Check a watch now (/check <id>)' },
     { command: 'edit', description: 'Edit a watch (/edit <id>)' },
+    { command: 'stats', description: 'Summary of your watches' },
+    { command: 'rate', description: 'Rate a link’s price (/rate <url>)' },
+    { command: 'history', description: 'Price chart for a watch (/history <id>)' },
+    { command: 'export', description: 'Export collected listings (CSV)' },
     { command: 'remove', description: 'Stop a watch (/remove <id>)' },
     { command: 'lang', description: 'Change language (/lang ro|en)' },
     { command: 'request_access', description: 'Request access to the bot' },

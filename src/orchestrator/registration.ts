@@ -8,7 +8,7 @@
  *
  * Time is injected (`now()`), keeping registration deterministic under test.
  */
-import type { Monitor, MonitorOrigin, MonitorType } from '../contracts';
+import type { IScrapedItem, Monitor, MonitorOrigin, MonitorType } from '../contracts';
 import type { Store } from '../persistence';
 import type { PluginRegistry } from '../registry';
 import type { ScrapingEngine } from '../scraping/engine';
@@ -35,6 +35,11 @@ export interface RegisterInput {
 export type RegisterResult =
   | { ok: true; monitor: Monitor; baselineCount: number }
   | { ok: false; error: string; reason?: 'quota' };
+
+/** Outcome of a one-shot {@link RegistrationService.previewItem} scrape. */
+export type PreviewResult =
+  | { ok: true; item: IScrapedItem }
+  | { ok: false; reason: 'invalid_url' | 'unsupported' | 'scrape_failed' };
 
 /** Dependencies the registration service needs; nothing is read globally. */
 interface RegistrationDeps {
@@ -208,5 +213,26 @@ export class RegistrationService {
       'monitor registered',
     );
     return { ok: true, monitor: registered, baselineCount: items.length };
+  }
+
+  /**
+   * One-shot scrape of a product URL WITHOUT creating a watch or persisting
+   * anything — used by /rate to value a pasted link against the chat's pool.
+   * Returns the normalized item or a reason.
+   */
+  async previewItem(rawUrl: string): Promise<PreviewResult> {
+    let scrubbed: string;
+    try {
+      scrubbed = scrubUrl(rawUrl);
+    } catch {
+      return { ok: false, reason: 'invalid_url' };
+    }
+    const plugin = this.deps.registry.matchUrl(scrubbed);
+    if (!plugin) return { ok: false, reason: 'unsupported' };
+    const outcome = await this.deps.engine.scrapeProduct(plugin, scrubbed, this.now());
+    if (!outcome.ok) return { ok: false, reason: 'scrape_failed' };
+    const item = normalizeItems(outcome.rawNodes, plugin, 'product')[0];
+    if (!item) return { ok: false, reason: 'scrape_failed' };
+    return { ok: true, item };
   }
 }

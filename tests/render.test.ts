@@ -276,6 +276,30 @@ describe('renderNotification — browse/track/de-listing kinds', () => {
     expect(msg.text).toContain('Back again');
     expect(buttons(msg).length).toBeGreaterThan(0);
   });
+
+  it('became_deal renders the title + price + rating line', () => {
+    const item = makeItem({ title: 'Now a steal', price: 9000, currency: 'EUR' });
+    const msg = renderNotification(
+      { kind: 'became_deal', chatId: 1, item, becameDeal: { percentile: 0.1, n: 18 } },
+      'en',
+    );
+    expect(msg.text).toContain(tr('en').became_deal_title);
+    expect(msg.text).toContain('Now a steal');
+    expect(msg.text).toMatch(/cheaper than/i);
+    expect(buttons(msg).length).toBeGreaterThan(0);
+  });
+
+  it('target_hit renders the target reached + price with quick actions', () => {
+    const item = makeItem({ title: 'Bargain', price: 11500, currency: 'EUR' });
+    const msg = renderNotification(
+      { kind: 'target_hit', chatId: 1, item, target: { targetPrice: 12000, currentPrice: 11500 } },
+      'en',
+    );
+    expect(msg.text).toContain(tr('en').target_hit_title);
+    expect(msg.text).toContain(formatMoney(11500, 'EUR'));
+    expect(msg.text).toContain(formatMoney(12000, 'EUR')); // the target
+    expect(buttons(msg).length).toBeGreaterThan(0);
+  });
 });
 
 describe('renderBrowseCard', () => {

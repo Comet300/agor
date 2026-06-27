@@ -26,12 +26,13 @@ import {
   RegistrationService,
   type RegisterInput,
   type RegisterResult,
+  type PreviewResult,
 } from "./registration";
 import { MonitorCycle, type CycleResult } from "./cycle";
 import { log } from "../logging/logger";
 
 export { RegistrationService } from "./registration";
-export type { RegisterInput, RegisterResult } from "./registration";
+export type { RegisterInput, RegisterResult, PreviewResult } from "./registration";
 export { MonitorCycle, type CycleResult } from "./cycle";
 
 /** Everything the orchestrator needs handed to it; nothing is read globally. */
@@ -322,6 +323,11 @@ export class Orchestrator {
   /** Lifecycle A: register a new monitor from a raw URL (silent baseline). */
   register(input: RegisterInput): Promise<RegisterResult> {
     return this.registration.register(input);
+  }
+
+  /** One-shot scrape of a URL (no watch created) — powers /rate. */
+  previewItem(rawUrl: string): Promise<PreviewResult> {
+    return this.registration.previewItem(rawUrl);
   }
 
   /**

@@ -11,6 +11,7 @@ import { ChatPrefsRepo } from "./chatPrefs";
 import { AccessRepo } from "./access";
 import { DedupRepo } from "./dedupStore";
 import { AuditRepo } from "./audit";
+import { ValuationRepo } from "./valuation";
 
 export { MonitorRepo } from "./monitors";
 export { ItemRepo } from "./items";
@@ -18,6 +19,7 @@ export { PriceHistoryRepo } from "./priceHistory";
 export { ChatPrefsRepo } from "./chatPrefs";
 export { AccessRepo } from "./access";
 export { DedupRepo } from "./dedupStore";
+export { ValuationRepo } from "./valuation";
 export { AuditRepo } from "./audit";
 export type { DedupStore, PersistedDedupEntry } from "./dedupStore";
 export type { AuditAction, AuditEntry } from "./audit";
@@ -45,6 +47,8 @@ export interface Store {
   dedup: DedupRepo;
   /** Durable audit trail of access-control decisions. */
   audit: AuditRepo;
+  /** Fair-value (v2) ridge accumulators per (category, currency). */
+  valuation: ValuationRepo;
   /**
    * Run `fn`'s writes inside a single SQLite transaction (atomic + faster):
    * either every write commits or, on a thrown error, all roll back. Used to
@@ -67,6 +71,7 @@ export function openStore(path: string): Store {
     access: new AccessRepo(db),
     dedup: new DedupRepo(db),
     audit: new AuditRepo(db),
+    valuation: new ValuationRepo(db),
     transaction: <T>(fn: () => T): T => db.transaction(fn)(),
   };
 }

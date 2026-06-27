@@ -104,6 +104,8 @@ export interface IScrapedItem {
   inStock: boolean;
   /** Parsed seller phone, when available (powers the tel: deep link). */
   phone?: string;
+  /** Parsed seller display name, when the vendor exposes one (powers block-seller). */
+  sellerName?: string;
   /** Short listing description / teaser, when the vendor exposes one. */
   description?: string;
   /** When the listing was posted (epoch ms), parsed from the vendor's date. */
@@ -147,6 +149,22 @@ export interface FilterConfig {
    * suppressed; when the sample is too small to judge, nothing is suppressed.
    */
   dealsOnly?: boolean;
+  /**
+   * Lowercased required keywords (whitelist). When non-empty, a listing is kept
+   * only if its title matches AT LEAST ONE keyword (word-boundary, like
+   * exclusions). Absent/empty means "no requirement".
+   */
+  requiredKeywords?: string[];
+  /** Lowercased seller display names to block (drops matching listings). */
+  blockedSellers?: string[];
+  /** Normalized (digits-only) seller phone numbers to block. */
+  blockedPhones?: string[];
+  /**
+   * Target price (in the listing's own currency) for a product/tracked watch.
+   * When the item's price first reaches at-or-below this, a `target_hit` alert
+   * fires once (re-armed only if the price climbs back above the target).
+   */
+  targetPrice?: number;
 }
 
 export interface Monitor {
@@ -226,7 +244,11 @@ export type NotificationKind =
   /** A search monitor's roll-up of listings that dropped off this cycle. */
   | 'listings_dropped'
   /** A delisted item reappeared within the memory window. */
-  | 're_listed';
+  | 're_listed'
+  /** A tracked item's price reached the user's target (threshold crossing). */
+  | 'target_hit'
+  /** A tracked item just crossed INTO a great deal vs comparable listings. */
+  | 'became_deal';
 
 export interface PriceDropInfo {
   previousPrice: number;
@@ -241,6 +263,30 @@ export interface PriceChangeInfo {
   currentPrice: number;
   /** 'down' when the price fell, 'up' when it rose. */
   direction: 'up' | 'down';
+}
+
+/** Payload for a target-price hit (price reached the user's threshold). */
+export interface TargetHitInfo {
+  targetPrice: number;
+  currentPrice: number;
+}
+
+/** Payload for a became_deal alert (item just crossed into a great deal). */
+export interface BecameDealInfo {
+  /** Share of comparables priced below it (0..1). */
+  percentile: number;
+  /** Number of comparables. */
+  n: number;
+}
+
+/** Negotiation-relevant signals derived from a listing's age + price history. */
+export interface MarketInsight {
+  /** Whole days since the listing was posted (omitted when postedAt is unknown). */
+  daysOnMarket?: number;
+  /** Count of consecutive price decreases across the recorded history. */
+  priceCuts: number;
+  /** Lowest price ever observed (omitted when there is no history). */
+  lowestPrice?: number;
 }
 
 /** Why an item is considered gone. */
@@ -291,6 +337,12 @@ export interface Notification {
   priceDrop?: PriceDropInfo;
   /** Present only for price_change notifications (tracked items, any direction). */
   priceChange?: PriceChangeInfo;
+  /** Present only for target_hit notifications. */
+  target?: TargetHitInfo;
+  /** Present only for became_deal notifications. */
+  becameDeal?: BecameDealInfo;
+  /** Optional market insight (time-on-market, price cuts) for a product alert. */
+  insight?: MarketInsight;
   /** Present only for item_delisted notifications. */
   delist?: DelistInfo;
   /** Present only for listings_dropped (search de-listing roll-up). */
