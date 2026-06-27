@@ -177,6 +177,8 @@ export interface Catalog {
   price_rating: (p: { tag: 'great_deal' | 'fair_price' | 'overpriced' | 'unknown'; percentile: number; n: number; suspicious?: boolean }) => string;
   /** Model-predicted fair price line (v2). */
   fair_value_line: (p: { fair: string; deltaAbs: string; under: boolean }) => string;
+  /** Strong flag on a new listing priced clearly under predicted fair value. */
+  fair_value_under: (p: { fair: string; pct: number }) => string;
   browse_position: (n: number, total: number) => string;
   browse_empty: string;
   browse_track_done: (title: string) => string;
@@ -448,6 +450,7 @@ const ro: Catalog = {
   },
   fair_value_line: ({ fair, deltaAbs, under }) =>
     `💡 Preț estimat ≈ ${fair} (${deltaAbs} ${under ? 'sub' : 'peste'})`,
+  fair_value_under: ({ fair, pct }) => `🔥 ${pct}% sub prețul estimat (≈ ${fair})`,
   browse_position: (n, total) => `articolul ${n} din ${total}`,
   browse_empty: 'Niciun anunț colectat încă. Adaugă o urmărire cu un link, apoi revino.',
   browse_track_done: (title) => `📌 Urmăresc acum „${title}". Te anunț la schimbări de preț și la eliminare.`,
@@ -720,6 +723,7 @@ const en: Catalog = {
   },
   fair_value_line: ({ fair, deltaAbs, under }) =>
     `💡 Est. fair ≈ ${fair} (${deltaAbs} ${under ? 'under' : 'over'})`,
+  fair_value_under: ({ fair, pct }) => `🔥 ${pct}% under predicted (≈ ${fair})`,
   browse_position: (n, total) => `item ${n} of ${total}`,
   browse_empty: 'No items collected yet. Add a watch with a link, then come back.',
   browse_track_done: (title) => `📌 Now tracking "${title}". I'll alert you on price changes and de-listing.`,

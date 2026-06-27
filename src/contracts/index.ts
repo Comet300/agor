@@ -288,6 +288,20 @@ export interface BecameDealInfo {
   n: number;
 }
 
+/** A category the fair-value model can value. */
+export type ValuationCategory = 'car' | 'property';
+
+/** Model-predicted fair value for a listing (v2). */
+export interface FairValue {
+  category: ValuationCategory;
+  /** Predicted fair price (same currency as the listing). */
+  fair: number;
+  /** price − fair (negative = under fair). */
+  delta: number;
+  /** delta / fair (negative = under fair). */
+  deltaPct: number;
+}
+
 /** Negotiation-relevant signals derived from a listing's age + price history. */
 export interface MarketInsight {
   /** Whole days since the listing was posted (omitted when postedAt is unknown). */
@@ -352,6 +366,8 @@ export interface Notification {
   becameDeal?: BecameDealInfo;
   /** Optional market insight (time-on-market, price cuts) for a product alert. */
   insight?: MarketInsight;
+  /** Optional model-predicted fair value (on a new_listing alert). */
+  fairValue?: FairValue;
   /** Present only for item_delisted notifications. */
   delist?: DelistInfo;
   /** Present only for listings_dropped (search de-listing roll-up). */

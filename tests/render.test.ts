@@ -289,6 +289,22 @@ describe('renderNotification — browse/track/de-listing kinds', () => {
     expect(buttons(msg).length).toBeGreaterThan(0);
   });
 
+  it('new_listing shows the fair-value estimate, and a strong flag when under-priced', () => {
+    const item = makeItem({ title: 'Car', price: 10000, currency: 'EUR' });
+    const normal = renderNotification(
+      { kind: 'new_listing', chatId: 1, item, fairValue: { category: 'car', fair: 10500, delta: -500, deltaPct: -0.0476 } },
+      'en',
+    );
+    expect(normal.text).toMatch(/Est\. fair/i);
+
+    const under = renderNotification(
+      { kind: 'new_listing', chatId: 1, item, fairValue: { category: 'car', fair: 12000, delta: -2000, deltaPct: -0.1667 } },
+      'en',
+    );
+    expect(under.text).toMatch(/under predicted/i);
+    expect(under.text).toMatch(/17%/); // round(16.67) = 17
+  });
+
   it('target_hit renders the target reached + price with quick actions', () => {
     const item = makeItem({ title: 'Bargain', price: 11500, currency: 'EUR' });
     const msg = renderNotification(
