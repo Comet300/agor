@@ -147,6 +147,12 @@ export interface Catalog {
   btn_resume: string;
   btn_edit: string;
   btn_target: string;
+  btn_type: string;
+  /** Picker prompts (paginated button choosers). */
+  picker_edit_prompt: string;
+  picker_block_prompt: string;
+  picker_exclude_prompt: string;
+  picker_require_prompt: string;
   btn_open: string;
   btn_call: string;
   btn_price_history: string;
@@ -397,10 +403,15 @@ const ro: Catalog = {
   btn_resume: '▶️ Reia',
   btn_edit: '✏️ Editează',
   btn_target: '🎯 Preț țintă',
+  btn_type: '✏️ Scrie',
+  picker_edit_prompt: 'Ce urmărire vrei să editezi?',
+  picker_block_prompt: 'Ce vânzător vrei să blochezi? (apasă; din nou = deblochezi)',
+  picker_exclude_prompt: 'Ce cuvinte să exclud? (apasă; din nou = scoți)',
+  picker_require_prompt: 'Ce cuvinte sunt necesare? (apasă; din nou = scoți)',
   btn_open: '🔗 Deschide',
   btn_call: '📞 Sună',
   btn_price_history: '📊 Istoric preț',
-  btn_freq: (m) => `⏱ ${m} min`,
+  btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
   btn_prev: '◀️ Înapoi',
   btn_next: 'Înainte ▶️',
   btn_track: '📌 Urmărește',
@@ -652,10 +663,15 @@ const en: Catalog = {
   btn_resume: '▶️ Resume',
   btn_edit: '✏️ Edit',
   btn_target: '🎯 Target price',
+  btn_type: '✏️ Type',
+  picker_edit_prompt: 'Which watch do you want to edit?',
+  picker_block_prompt: 'Block which seller? (tap; tap again to unblock)',
+  picker_exclude_prompt: 'Exclude which words? (tap; tap again to remove)',
+  picker_require_prompt: 'Require which words? (tap; tap again to remove)',
   btn_open: '🔗 Open',
   btn_call: '📞 Call',
   btn_price_history: '📊 Price history',
-  btn_freq: (m) => `⏱ ${m} min`,
+  btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
   btn_prev: '◀️ Prev',
   btn_next: 'Next ▶️',
   btn_track: '📌 Track',

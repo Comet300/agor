@@ -194,6 +194,8 @@ export function migrate(db: DB): void {
     ['gone_count',      'INTEGER DEFAULT 0'],
     ['delisted_at',     'INTEGER'],
     ['last_rating',     'TEXT'],
+    ['seller_name',     'TEXT'],
+    ['phone',           'TEXT'],
   ];
   for (const [col, type] of itemAlters) {
     if (!itemCols.some((c) => c.name === col)) {

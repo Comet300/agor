@@ -115,10 +115,12 @@ export class ItemRepo {
       .prepare(
         `INSERT INTO items
            (monitor_id, item_id, in_stock, last_price, currency, first_seen, last_seen,
-            title, url, image_url, location, seller_private, posted_at, description, attributes_json)
+            title, url, image_url, location, seller_private, posted_at, description, attributes_json,
+            seller_name, phone)
          VALUES
            (@monitorId, @itemId, @inStock, @price, @currency, @now, @now,
-            @title, @url, @imageUrl, @location, @sellerPrivate, @postedAt, @description, @attributesJson)
+            @title, @url, @imageUrl, @location, @sellerPrivate, @postedAt, @description, @attributesJson,
+            @sellerName, @phone)
          ON CONFLICT(monitor_id, item_id) DO UPDATE SET
            in_stock        = excluded.in_stock,
            last_price      = excluded.last_price,
@@ -132,6 +134,8 @@ export class ItemRepo {
            posted_at       = excluded.posted_at,
            description     = excluded.description,
            attributes_json = excluded.attributes_json,
+           seller_name     = excluded.seller_name,
+           phone           = excluded.phone,
            gone_count      = 0,
            delisted_at     = NULL`,
       )
@@ -153,6 +157,8 @@ export class ItemRepo {
           item.attributes && Object.keys(item.attributes).length > 0
             ? JSON.stringify(item.attributes)
             : null,
+        sellerName: item.sellerName ?? null,
+        phone: item.phone ?? null,
       });
   }
 
@@ -230,6 +236,36 @@ export class ItemRepo {
       )
       .all(chatId) as Array<{ monitorId: number; n: number }>;
     return new Map(rows.map((r) => [r.monitorId, r.n]));
+  }
+
+  /**
+   * Distinct seller identities (display name, else phone) seen across a monitor's
+   * live items, most frequent first — powers the block-seller button picker.
+   * Sellers are sparse (only some vendors expose a name/phone), so the caller
+   * falls back to manual entry when this is empty.
+   */
+  sellersForMonitor(monitorId: number, limit = 60): Array<{ value: string; kind: 'name' | 'phone'; count: number }> {
+    const names = this.db
+      .prepare(
+        `SELECT seller_name AS value, COUNT(*) AS count FROM items
+          WHERE monitor_id = ? AND delisted_at IS NULL AND seller_name IS NOT NULL AND seller_name <> ''
+          GROUP BY seller_name ORDER BY count DESC LIMIT ?`,
+      )
+      .all(monitorId, limit) as Array<{ value: string; count: number }>;
+    const phones = this.db
+      .prepare(
+        `SELECT phone AS value, COUNT(*) AS count FROM items
+          WHERE monitor_id = ? AND delisted_at IS NULL AND phone IS NOT NULL AND phone <> ''
+            AND (seller_name IS NULL OR seller_name = '')
+          GROUP BY phone ORDER BY count DESC LIMIT ?`,
+      )
+      .all(monitorId, limit) as Array<{ value: string; count: number }>;
+    return [
+      ...names.map((n) => ({ value: n.value, kind: 'name' as const, count: n.count })),
+      ...phones.map((p) => ({ value: p.value, kind: 'phone' as const, count: p.count })),
+    ]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit);
   }
 
   /**

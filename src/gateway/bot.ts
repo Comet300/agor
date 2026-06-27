@@ -23,18 +23,18 @@
  * friendly error instead of crashing the polling loop.
  */
 import { Bot, InlineKeyboard, InputFile } from 'grammy';
-import type { MessageRef, Notification, SellerVisibility } from '../contracts';
+import type { MessageRef, Monitor, Notification, SellerVisibility } from '../contracts';
 import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput, phoneKey } from '../pipeline';
-import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard, renderListRow } from './render';
+import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard, renderListRow, renderPicker } from './render';
 import { toCsv } from '../util/csv';
 import { formatMoney } from '../util/money';
-import { findCheaperEquivalents } from '../features/cheaperFinder';
+import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, estimateFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope, type PickerSession, type PickerOption } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -128,6 +128,12 @@ const pendingBlock = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
 /** Chats awaiting a target-price reply (chat id → monitor id). */
 const pendingTarget = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
+/** Open /edit option pickers (watch chooser, block/exclude/require), per chat. */
+const pickerSessions = new ExpiringMap<number, PickerSession>(PENDING_TTL_MS);
+
+/** Candidate title-words offered in a keyword picker before pagination. */
+const PICKER_WORD_CAP = 45;
 
 /**
  * Chats mid-way through the /request_access flow, keyed by chat id. `step` says
@@ -664,6 +670,80 @@ export function buildBot(
     await sendBrowseItem(ctx, chatId, 0);
   };
 
+  // ── /edit option pickers ────────────────────────────────────────────────────
+
+  /** Watch-chooser options: every watch in the chat (label, value = monitor id). */
+  const buildEditOptions = (chatId: number): PickerOption[] =>
+    store.monitors.listByChat(chatId).map((m) => ({
+      label: `${m.paused ? '⏸ ' : ''}${m.origin === 'tracked' ? '📌 ' : ''}${m.label ?? `${m.vendor} · ${m.type}`}`,
+      value: String(m.id),
+    }));
+
+  /** Block-seller options: distinct sellers seen in the watch, ✅ when blocked. */
+  const buildBlockOptions = (monitor: Monitor): PickerOption[] => {
+    const blockedNames = new Set(monitor.filters.blockedSellers ?? []);
+    const blockedPhones = new Set((monitor.filters.blockedPhones ?? []).map(phoneKey));
+    return store.items.sellersForMonitor(monitor.id).map((s) => ({
+      label: s.count > 1 ? `${s.value} (${s.count})` : s.value,
+      value: s.value,
+      selected: s.kind === 'name' ? blockedNames.has(s.value.toLowerCase()) : blockedPhones.has(phoneKey(s.value)),
+    }));
+  };
+
+  /** Keyword options: frequent title words in the watch ∪ already-selected, ✅-marked. */
+  const buildWordOptions = (monitor: Monitor, selectedList: string[]): PickerOption[] => {
+    const freq = new Map<string, number>();
+    for (const s of store.items.browseByMonitor(monitor.id, BROWSE_WINDOW, 0)) {
+      for (const w of titleTokens(s.title ?? '')) freq.set(w, (freq.get(w) ?? 0) + 1);
+    }
+    const selected = new Set(selectedList);
+    const frequent = [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, PICKER_WORD_CAP).map(([w]) => w);
+    const all = [...new Set([...selectedList, ...frequent])];
+    return all.map((w) => ({ label: freq.has(w) ? `${w} (${freq.get(w)})` : w, value: w, selected: selected.has(w) }));
+  };
+
+  /** (Re)build the option list for a session's kind against the current state. */
+  const rebuildPickerOptions = (session: PickerSession): void => {
+    if (session.kind === 'editpick') return;
+    const monitor = store.monitors.get(session.monitorId);
+    if (!monitor) return;
+    if (session.kind === 'block') session.options = buildBlockOptions(monitor);
+    else if (session.kind === 'exclude') session.options = buildWordOptions(monitor, monitor.filters.exclusionKeywords);
+    else session.options = buildWordOptions(monitor, monitor.filters.requiredKeywords ?? []);
+  };
+
+  /** Open a picker: store the session and send its first page. */
+  const openPicker = async (
+    ctx: { reply: (t: string, o?: object) => Promise<unknown>; chat?: { id: number } },
+    chatId: number,
+    session: PickerSession,
+  ): Promise<void> => {
+    pickerSessions.set(chatId, session);
+    const view = renderPicker(session, langFor(store, chatId));
+    await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+  };
+
+  /** Add/remove a keyword in a filter list (toggle). */
+  const toggleWord = (list: string[], w: string): string[] =>
+    list.includes(w) ? list.filter((x) => x !== w) : [...list, w];
+
+  /** Block or unblock a seller value (phone vs name decided by digit count). */
+  const applyBlockToggle = (monitor: Monitor, value: string, currentlySelected: boolean): void => {
+    if ((value.match(/\d/g) ?? []).length >= 6) {
+      const phones = monitor.filters.blockedPhones ?? [];
+      monitor.filters.blockedPhones = currentlySelected
+        ? phones.filter((p) => phoneKey(p) !== phoneKey(value))
+        : phones.some((p) => phoneKey(p) === phoneKey(value)) ? phones : [...phones, value];
+    } else {
+      const name = value.toLowerCase();
+      const names = monitor.filters.blockedSellers ?? [];
+      monitor.filters.blockedSellers = currentlySelected
+        ? names.filter((n) => n !== name)
+        : names.includes(name) ? names : [...names, name];
+    }
+    store.monitors.update(monitor);
+  };
+
   bot.command('browse', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
@@ -713,8 +793,18 @@ export function buildBot(
     const lang = langFor(store, chatId);
     try {
       const arg = (ctx.match ?? '').trim();
+      // No id → show a button picker of the chat's watches.
+      if (!arg) {
+        const monitors = store.monitors.listByChat(chatId);
+        if (monitors.length === 0) {
+          await ctx.reply(tr(lang).list_empty);
+          return;
+        }
+        await openPicker(ctx, chatId, { kind: 'editpick', monitorId: 0, options: buildEditOptions(chatId), page: 0, allowType: false });
+        return;
+      }
       const id = Number(arg);
-      if (!arg || !Number.isInteger(id)) {
+      if (!Number.isInteger(id)) {
         await ctx.reply(tr(lang).edit_usage);
         return;
       }
@@ -1242,58 +1332,168 @@ export function buildBot(
     }
   });
 
-  // Exclusion keywords: ex:<monitorId> → prompt + remember the pending state.
+  // Exclusion keywords: ex:<monitorId> → word picker (or text prompt if no words).
   bot.callbackQuery(/^ex:(\d+)$/, async (ctx) => {
-    const lang = langFor(store, ctx.chat?.id ?? 0);
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || monitor.chatId !== (chatId ?? NaN) || chatId === undefined) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
-      pendingExclusion.set(ctx.chat?.id ?? monitor.chatId, monitorId);
       await ctx.answerCallbackQuery();
-      await ctx.reply(tr(lang).exclusion_prompt);
+      const options = buildWordOptions(monitor, monitor.filters.exclusionKeywords);
+      if (options.length === 0) {
+        pendingExclusion.set(chatId, monitorId);
+        await ctx.reply(tr(lang).exclusion_prompt);
+        return;
+      }
+      await openPicker(ctx, chatId, { kind: 'exclude', monitorId, options, page: 0, allowType: true });
     } catch (err) {
-      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }
   });
 
-  // Required keywords: eq:<monitorId> → prompt + remember the pending state.
+  // Required keywords: eq:<monitorId> → word picker (or text prompt if no words).
   bot.callbackQuery(/^eq:(\d+)$/, async (ctx) => {
-    const lang = langFor(store, ctx.chat?.id ?? 0);
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || monitor.chatId !== (chatId ?? NaN) || chatId === undefined) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
-      pendingRequired.set(ctx.chat?.id ?? monitor.chatId, monitorId);
       await ctx.answerCallbackQuery();
-      await ctx.reply(tr(lang).required_prompt);
+      const options = buildWordOptions(monitor, monitor.filters.requiredKeywords ?? []);
+      if (options.length === 0) {
+        pendingRequired.set(chatId, monitorId);
+        await ctx.reply(tr(lang).required_prompt);
+        return;
+      }
+      await openPicker(ctx, chatId, { kind: 'require', monitorId, options, page: 0, allowType: true });
     } catch (err) {
-      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }
   });
 
-  // Block seller: eb:<monitorId> → prompt + remember the pending state.
+  // Block seller: eb:<monitorId> → seller picker (or text prompt if none known).
   bot.callbackQuery(/^eb:(\d+)$/, async (ctx) => {
-    const lang = langFor(store, ctx.chat?.id ?? 0);
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || monitor.chatId !== (chatId ?? NaN) || chatId === undefined) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
-      pendingBlock.set(ctx.chat?.id ?? monitor.chatId, monitorId);
       await ctx.answerCallbackQuery();
-      await ctx.reply(tr(lang).block_prompt);
+      const options = buildBlockOptions(monitor);
+      if (options.length === 0) {
+        // No seller identity captured yet — fall back to manual entry.
+        pendingBlock.set(chatId, monitorId);
+        await ctx.reply(tr(lang).block_prompt);
+        return;
+      }
+      await openPicker(ctx, chatId, { kind: 'block', monitorId, options, page: 0, allowType: true });
     } catch (err) {
-      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }
+  });
+
+  // Picker page nav: kp:<page>.
+  bot.callbackQuery(/^kp:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      await ctx.answerCallbackQuery();
+      if (chatId === undefined) return;
+      const session = pickerSessions.get(chatId);
+      if (!session) return;
+      session.page = Number(ctx.match[1]);
+      const view = renderPicker(session, lang);
+      await ctx.editMessageText(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+    } catch {
+      try { await ctx.answerCallbackQuery(); } catch { /* expired */ }
+    }
+  });
+
+  // Picker pick: ki:<index> — open a watch (editpick) or toggle a filter value.
+  bot.callbackQuery(/^ki:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      const session = pickerSessions.get(chatId);
+      const option = session?.options[Number(ctx.match[1])];
+      if (!session || !option) { await ctx.answerCallbackQuery(); return; }
+
+      if (session.kind === 'editpick') {
+        pickerSessions.delete(chatId);
+        const monitor = store.monitors.get(Number(option.value));
+        if (!monitor || monitor.chatId !== chatId) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+        await ctx.answerCallbackQuery();
+        const view = renderEditCard(monitor, lang);
+        await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+        return;
+      }
+
+      const monitor = store.monitors.get(session.monitorId);
+      if (!monitor || monitor.chatId !== chatId) {
+        pickerSessions.delete(chatId);
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      if (session.kind === 'block') {
+        applyBlockToggle(monitor, option.value, option.selected === true);
+      } else if (session.kind === 'exclude') {
+        monitor.filters.exclusionKeywords = toggleWord(monitor.filters.exclusionKeywords, option.value);
+        store.monitors.update(monitor);
+      } else {
+        monitor.filters.requiredKeywords = toggleWord(monitor.filters.requiredKeywords ?? [], option.value);
+        store.monitors.update(monitor);
+      }
+      rebuildPickerOptions(session);
+      await ctx.answerCallbackQuery();
+      const view = renderPicker(session, lang);
+      try { await ctx.editMessageText(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined); } catch { /* not modified */ }
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Picker "type one": kt — fall back to the free-text prompt for this kind.
+  bot.callbackQuery(/^kt$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      await ctx.answerCallbackQuery();
+      if (chatId === undefined) return;
+      const session = pickerSessions.get(chatId);
+      if (!session) return;
+      pickerSessions.delete(chatId);
+      try { await ctx.editMessageReplyMarkup(); } catch { /* expired */ }
+      if (session.kind === 'exclude') { pendingExclusion.set(chatId, session.monitorId); await ctx.reply(tr(lang).exclusion_prompt); }
+      else if (session.kind === 'require') { pendingRequired.set(chatId, session.monitorId); await ctx.reply(tr(lang).required_prompt); }
+      else if (session.kind === 'block') { pendingBlock.set(chatId, session.monitorId); await ctx.reply(tr(lang).block_prompt); }
+    } catch {
+      try { await ctx.answerCallbackQuery(); } catch { /* expired */ }
+    }
+  });
+
+  // Picker done: kc — close and clear the keyboard.
+  bot.callbackQuery(/^kc$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId !== undefined) pickerSessions.delete(chatId);
+      await ctx.answerCallbackQuery(tr(lang).cb_edit_done);
+      try { await ctx.editMessageReplyMarkup(); } catch { /* expired */ }
+    } catch { /* expired */ }
   });
 
   // Target price (product watch): et:<monitorId> → prompt + remember pending.

@@ -5,6 +5,8 @@ import {
   browseKeyboard,
   browseScopeKeyboard,
   browseScopeLabel,
+  pickerKeyboard,
+  type PickerSession,
 } from '../src/gateway/keyboards';
 import { tr } from '../src/gateway/strings';
 import type { Monitor } from '../src/contracts';
@@ -204,5 +206,34 @@ describe('editKeyboard', () => {
     const l = labels(monitor({ intervalMs: 30 * 60000, filters: { sellerVisibility: 'private', exclusionKeywords: [] } }));
     expect(l).toContain(`✅ ${tr('en').btn_freq(30)}`);
     expect(l).toContain(`✅ ${tr('en').btn_private}`);
+  });
+});
+
+describe('pickerKeyboard', () => {
+  const dataOf = (kb: ReturnType<typeof pickerKeyboard>): string[] =>
+    kb.inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : ''));
+  const opts = (n: number) => Array.from({ length: n }, (_, i) => ({ label: `opt${i}`, value: String(i) }));
+
+  it('paginates at 15 per page with Prev/Next', () => {
+    const s: PickerSession = { kind: 'exclude', monitorId: 1, options: opts(20), page: 0, allowType: true };
+    const d = dataOf(pickerKeyboard(s, 'en'));
+    expect(d.filter((x) => x.startsWith('ki:')).length).toBe(15); // first page = 15 items
+    expect(d).toContain('kp:1');   // Next
+    expect(d).not.toContain('kp:-1');
+    expect(d).toContain('kt');     // Type
+    expect(d).toContain('kc');     // Done
+
+    const d2 = dataOf(pickerKeyboard({ ...s, page: 1 }, 'en'));
+    expect(d2.filter((x) => x.startsWith('ki:')).length).toBe(5); // second page = remaining 5
+    expect(d2).toContain('kp:0');  // Prev
+  });
+
+  it('marks selected options and omits Type when not allowed', () => {
+    const s: PickerSession = { kind: 'editpick', monitorId: 0, options: [{ label: 'A', value: '1', selected: true }], page: 0, allowType: false };
+    const kb = pickerKeyboard(s, 'en');
+    const labels = kb.inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
+    expect(labels.some((l) => l.startsWith('✅'))).toBe(true);
+    expect(dataOf(kb)).not.toContain('kt');
+    expect(dataOf(kb)).toContain('kc');
   });
 });

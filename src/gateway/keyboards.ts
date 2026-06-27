@@ -18,7 +18,10 @@ import { type Lang, tr } from './strings';
 const CALLBACK_DATA_LIMIT = 64;
 
 /** The fixed set of check-frequency presets, in minutes. */
-export const FREQUENCY_PRESETS: readonly number[] = [5, 10, 30, 60];
+export const FREQUENCY_PRESETS: readonly number[] = [5, 10, 15, 30, 60, 120, 360, 720, 1440];
+
+/** Chunk size for laying frequency presets across keyboard rows. */
+const FREQ_PER_ROW = 5;
 
 /**
  * Two-tap confirmation keyboard for a destructive action. The confirm button
@@ -118,6 +121,56 @@ export function listRowKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
     .text(t.btn_remove, `rm:${monitor.id}`);
 }
 
+/** Max options per picker page (paginated when more). */
+export const PICKER_PAGE_SIZE = 15;
+
+/** What a picker is choosing — drives selection behaviour + the prompt. */
+export type PickerKind = 'editpick' | 'block' | 'exclude' | 'require';
+
+/** One selectable option in a picker. `value` is the payload acted on when tapped. */
+export interface PickerOption {
+  label: string;
+  value: string;
+  /** Shown with a ✅ and toggled off on re-tap (exclude/require/block). */
+  selected?: boolean;
+}
+
+/** State of an open picker, keyed per chat. */
+export interface PickerSession {
+  kind: PickerKind;
+  /** The watch being edited (0 for the editpick chooser, which picks a watch). */
+  monitorId: number;
+  options: PickerOption[];
+  page: number;
+  /** When true, offer a "type one" escape to the free-text prompt. */
+  allowType: boolean;
+}
+
+/**
+ * Build one page of a picker keyboard: up to {@link PICKER_PAGE_SIZE} option
+ * buttons (each `ki:<globalIndex>`, ✅-marked when selected), a Prev/Next row when
+ * paginated (`kp:<page>`), and a footer with an optional "Type one" (`kt`) and
+ * Done (`kc`).
+ */
+export function pickerKeyboard(session: PickerSession, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  const kb = new InlineKeyboard();
+  const pages = Math.max(1, Math.ceil(session.options.length / PICKER_PAGE_SIZE));
+  const page = Math.min(Math.max(0, session.page), pages - 1);
+  const start = page * PICKER_PAGE_SIZE;
+  session.options.slice(start, start + PICKER_PAGE_SIZE).forEach((opt, i) => {
+    kb.text(`${opt.selected ? '✅ ' : ''}${opt.label}`, `ki:${start + i}`).row();
+  });
+  if (pages > 1) {
+    if (page > 0) kb.text(t.btn_prev, `kp:${page - 1}`);
+    if (page < pages - 1) kb.text(t.btn_next, `kp:${page + 1}`);
+    kb.row();
+  }
+  if (session.allowType) kb.text(t.btn_type, 'kt');
+  kb.text(t.btn_done, 'kc');
+  return kb;
+}
+
 /** A selectable browse scope: "all listings", or one of the chat's watches. */
 export interface BrowseScope {
   /** Callback target: `all` for the chat-wide union, else the monitor id. */
@@ -204,10 +257,11 @@ export function registrationKeyboard(
     .text(markSeller(t.btn_both, 'both'), `sv:${monitorId}:both`)
     .row();
 
-  // Frequency presets row (active minutes marked).
-  for (const minutes of FREQUENCY_PRESETS) {
+  // Frequency presets (active minutes marked), wrapped across rows.
+  FREQUENCY_PRESETS.forEach((minutes, i) => {
+    if (i > 0 && i % FREQ_PER_ROW === 0) kb.row();
     kb.text(markFreq(t.btn_freq(minutes), minutes), `fq:${monitorId}:${minutes}`);
-  }
+  });
 
   return kb
     .row()
@@ -247,9 +301,10 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
       .text(markSeller(t.btn_both, 'both'), `esv:${id}:both`)
       .row();
   }
-  for (const minutes of FREQUENCY_PRESETS) {
+  FREQUENCY_PRESETS.forEach((minutes, i) => {
+    if (i > 0 && i % FREQ_PER_ROW === 0) kb.row();
     kb.text(mark(minutes === activeMinutes, t.btn_freq(minutes)), `efq:${id}:${minutes}`);
-  }
+  });
   kb.row();
   // Filters that only make sense for a multi-result search.
   if (isSearch) {
