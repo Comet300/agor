@@ -13,7 +13,7 @@
  * scheduler/orchestrator) to deliver. Time is injected for determinism.
  */
 import type { IScrapedItem, Monitor, Notification } from '../contracts';
-import type { Store } from '../persistence';
+import type { ItemSnapshot, Store } from '../persistence';
 import type { PluginRegistry } from '../registry';
 import type { ScrapingEngine } from '../scraping/engine';
 import {
@@ -33,6 +33,26 @@ import { log } from '../logging/logger';
 
 /** Cap on the comparable pool loaded when rating a tracked item for became-a-deal. */
 const RATING_POOL_CAP = 200;
+
+/** Consecutive cycles a search item must be absent before it's declared dropped. */
+const SEARCH_ABSENT_THRESHOLD = 2;
+
+/** Reconstruct a minimal {@link IScrapedItem} from a stored snapshot for rendering. */
+function snapshotToItem(s: ItemSnapshot): IScrapedItem {
+  const item: IScrapedItem = {
+    id: s.itemId,
+    title: s.title ?? s.itemId,
+    price: s.lastPrice,
+    currency: s.currency,
+    url: s.url ?? '',
+    isPrivateOwner: s.sellerPrivate ?? false,
+    inStock: s.inStock,
+  };
+  if (s.location) item.location = s.location;
+  if (s.imageUrl) item.imageUrl = s.imageUrl;
+  if (s.postedAt !== undefined) item.postedAt = s.postedAt;
+  return item;
+}
 
 /** Dependencies a cycle run needs; nothing is read globally. */
 interface CycleDeps {
@@ -126,6 +146,9 @@ export class MonitorCycle {
       return { notifications: [], ok: false, status: outcome.status, itemsActive: 0, newItems: 0, blocked: outcome.blocked };
     }
 
+    // Ids known BEFORE this cycle — drives both delta (new) and de-listing (gone).
+    const knownBefore = this.deps.store.items.knownIds(monitor.id);
+
     // The pipeline does the heavy lifting: normalize -> exclude -> seller filter
     // (=> active) -> delta vs known ids -> dedup -> benchmark/deal-tag.
     const out = runPipeline({
@@ -133,7 +156,7 @@ export class MonitorCycle {
       plugin,
       mapping: 'search',
       filters: monitor.filters,
-      historicalIds: this.deps.store.items.knownIds(monitor.id),
+      historicalIds: knownBefore,
       minSample: this.deps.minSample,
       dedup: this.deps.dedupFor?.(monitor.chatId),
       now: at,
@@ -183,6 +206,14 @@ export class MonitorCycle {
       }
     }
 
+    // Re-listing: an active item that was previously stamped de-listed has come
+    // back. Detect BEFORE the upsert (which clears the de-list state) and alert.
+    for (const item of out.active) {
+      if (this.deps.store.items.delistState(monitor.id, item.id)?.delistedAt != null) {
+        notifications.push({ kind: 're_listed', chatId: monitor.chatId, item });
+      }
+    }
+
     // Persist every active item AND log its price (store-on-change, so an
     // unchanged price is a no-op). This gives search-collected items a full price
     // trajectory — not just the new ones — so /history and market insight work
@@ -203,6 +234,24 @@ export class MonitorCycle {
 
     // Feed the fair-value models with this batch's attributes (v2).
     this.feedValuation(out.active, at);
+
+    // De-listing: items known before but absent this cycle accrue a miss; those
+    // crossing the grace threshold are stamped de-listed and rolled up into one
+    // `listings_dropped` summary (with a few sample titles).
+    const activeIds = new Set(out.active.map((i) => i.id));
+    const absentIds = [...knownBefore].filter((id) => !activeIds.has(id));
+    const crossed = this.deps.store.items.markAbsent(monitor.id, absentIds, at, SEARCH_ABSENT_THRESHOLD);
+    if (crossed.length > 0) {
+      const titles = crossed
+        .map((id) => this.deps.store.items.getSnapshot(monitor.id, id)?.title)
+        .filter((t): t is string => Boolean(t))
+        .slice(0, 5);
+      notifications.push({
+        kind: 'listings_dropped',
+        chatId: monitor.chatId,
+        dropped: { monitorId: monitor.id, vendor: monitor.vendor, count: crossed.length, titles },
+      });
+    }
 
     this.logPoll(monitor, at, {
       ok: true,
@@ -228,6 +277,23 @@ export class MonitorCycle {
     const at = this.now();
     const outcome = await this.deps.engine.scrapeProduct(plugin, monitor.url, at);
     if (!outcome.ok) {
+      // A client 404/410 on a product page means the listing was removed → de-list
+      // it once (threshold 1) and alert. A block / transient error is NOT a delist.
+      if (!outcome.blocked && (outcome.status === 404 || outcome.status === 410)) {
+        const snap = this.deps.store.items.browseByMonitor(monitor.id, 1, 0)[0];
+        if (snap && this.deps.store.items.markAbsent(monitor.id, [snap.itemId], at, 1).length > 0) {
+          this.logPoll(monitor, at, { ok: true, status: outcome.status, itemsActive: 0, newItems: 0, notifications: 1 });
+          return {
+            notifications: [{
+              kind: 'item_delisted',
+              chatId: monitor.chatId,
+              item: snapshotToItem(snap),
+              delist: { reason: 'product_gone', lastSeenPrice: snap.lastPrice },
+            }],
+            ok: true, status: outcome.status, itemsActive: 0, newItems: 0,
+          };
+        }
+      }
       this.logPoll(monitor, at, { ok: false, status: outcome.status, reason: outcome.blocked ? 'blocked' : 'scrape_failed' });
       return { notifications: [], ok: false, status: outcome.status, itemsActive: 0, newItems: 0, blocked: outcome.blocked };
     }
@@ -266,18 +332,34 @@ export class MonitorCycle {
 
     const notifications: Notification[] = [];
 
-    // Price drop: a strictly lower price than what we last recorded.
-    if (prevPrice !== undefined && item.price < prevPrice) {
-      notifications.push({
-        kind: 'price_drop',
-        chatId: monitor.chatId,
-        item,
-        priceDrop: {
-          previousPrice: prevPrice,
-          currentPrice: item.price,
-          savings: prevPrice - item.price,
-        },
-      });
+    // Re-listing: this product was stamped de-listed (a prior 404) and is back.
+    // Detect before the upsert clears the de-list state.
+    if (this.deps.store.items.delistState(monitor.id, item.id)?.delistedAt != null) {
+      notifications.push({ kind: 're_listed', chatId: monitor.chatId, item });
+    }
+
+    // Price move. A TRACKED watch alerts on any change (up or down) via
+    // price_change; a regular product watch alerts only on a drop (price_drop).
+    if (prevPrice !== undefined && item.price !== prevPrice) {
+      if (monitor.origin === 'tracked') {
+        notifications.push({
+          kind: 'price_change',
+          chatId: monitor.chatId,
+          item,
+          priceChange: {
+            previousPrice: prevPrice,
+            currentPrice: item.price,
+            direction: item.price < prevPrice ? 'down' : 'up',
+          },
+        });
+      } else if (item.price < prevPrice) {
+        notifications.push({
+          kind: 'price_drop',
+          chatId: monitor.chatId,
+          item,
+          priceDrop: { previousPrice: prevPrice, currentPrice: item.price, savings: prevPrice - item.price },
+        });
+      }
     }
 
     // Back in stock: a false -> true stock transition (needs a prior snapshot).

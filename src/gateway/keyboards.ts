@@ -72,7 +72,10 @@ export function quickActionsKeyboard(item: EnrichedItem, lang: Lang): InlineKeyb
  * Call and Price-history no longer make sense (the listing is gone).
  */
 export function openOnlyKeyboard(item: EnrichedItem, lang: Lang): InlineKeyboard {
-  return new InlineKeyboard().url(tr(lang).btn_open, item.url);
+  const kb = new InlineKeyboard();
+  // Telegram rejects an empty-url button; a de-listed legacy item may lack a url.
+  if (item.url) kb.url(tr(lang).btn_open, item.url);
+  return kb;
 }
 
 /**
