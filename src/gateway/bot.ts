@@ -513,6 +513,41 @@ export function buildBot(
     }
   });
 
+  bot.command('rate', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const url = (ctx.match ?? '').trim();
+      if (!url) {
+        await ctx.reply(tr(lang).rate_usage);
+        return;
+      }
+      // Live scrape → throttle like /check.
+      if (checkCooldownMs > 0 && checkCooldown.has(chatId)) {
+        await ctx.reply(tr(lang).check_rate_limited);
+        return;
+      }
+      if (checkCooldownMs > 0) checkCooldown.set(chatId, true);
+
+      const preview = await orchestrator.previewItem(url);
+      if (!preview.ok) {
+        await ctx.reply(preview.reason === 'scrape_failed' ? tr(lang).rate_failed : tr(lang).rate_unsupported);
+        return;
+      }
+      const it = preview.item;
+      const rating = ratePrice(
+        { itemId: it.id, title: it.title, price: it.price, currency: it.currency, ...(it.url ? { url: it.url } : {}) },
+        store.items.browse(chatId, BROWSE_WINDOW, 0),
+      );
+      const line = rating.tag !== 'unknown' && rating.percentile !== undefined
+        ? tr(lang).price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n })
+        : tr(lang).rate_no_comps;
+      await ctx.reply(`${tr(lang).rate_result({ title: it.title, price: formatMoney(it.price, it.currency) })}\n${line}`);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
   bot.command('cheaper', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);

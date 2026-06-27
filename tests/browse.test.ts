@@ -291,6 +291,20 @@ describe('/browse carousel', () => {
     expect(h.sent.at(-1)!.text).toMatch(/great deal|cheaper than/i);
   });
 
+  it('/rate scrapes a pasted link and replies with its price + a verdict', async () => {
+    await cmd(h.bot, '/rate https://synth.test/somecar');
+    const out = h.sent.at(-1)!;
+    expect(out.text).toMatch(/Tracked/); // scraped item title (harness productBody)
+    expect(out.text).toMatch(/100/);     // its price
+  });
+
+  it('/rate rejects a missing or unsupported link', async () => {
+    await cmd(h.bot, '/rate');
+    expect(h.sent.at(-1)!.text).toMatch(/usage: \/rate/i);
+    await cmd(h.bot, '/rate not-a-url');
+    expect(h.sent.at(-1)!.text).toMatch(/unsupported|invalid/i);
+  });
+
   it('/history sends a price chart with a summary caption', async () => {
     const m = h.store.monitors.create({ type: 'product', chatId: USER, vendor: 'synth', url: 'https://synth.test/h',
       filters: { sellerVisibility: 'both', exclusionKeywords: [] }, intervalMs: 60_000, nextDueAt: 0, origin: 'tracked' });

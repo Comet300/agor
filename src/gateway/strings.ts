@@ -67,6 +67,11 @@ export interface Catalog {
   export_caption: (rows: number) => string;
   /** Reply when there's nothing to export. */
   export_empty: string;
+  rate_usage: string;
+  rate_unsupported: string;
+  rate_failed: string;
+  rate_no_comps: string;
+  rate_result: (p: { title: string; price: string }) => string;
   history_usage: string;
   history_not_found: string;
   /** Caption/text summary under a /history price chart. */
@@ -286,6 +291,8 @@ const ro: Catalog = {
     '• /browse — răsfoiește anunțurile colectate; apasă „📌 Urmărește” ca să urmărești un anunț.\n' +
     '• /edit <id> — modifică frecvența, vânzătorul sau cuvintele excluse ale unei urmăriri.\n' +
     '• /stats — rezumatul urmăririlor · /export — anunțurile colectate ca CSV.\n' +
+    '• /rate <link> — evaluează prețul unui anunț fără să-l urmărești.\n' +
+    '• /history <id> — grafic de preț pentru o urmărire.\n' +
     '• /cheaper <id> — echivalente mai ieftine pentru un produs urmărit.\n' +
     '• Redirecționează (forward) un anunț ca să-l urmărești automat.\n' +
     '• /remove <id> — oprește o urmărire.\n' +
@@ -316,6 +323,11 @@ const ro: Catalog = {
     (vendors ? `• Site-uri: ${vendors}` : ''),
   export_caption: (rows) => `📄 ${rows} anunț${rows === 1 ? '' : 'uri'} exportate.`,
   export_empty: 'Niciun anunț de exportat încă.',
+  rate_usage: 'Folosire: /rate <link>',
+  rate_unsupported: 'Site neacceptat sau link invalid.',
+  rate_failed: 'Nu am putut citi anunțul (site blocat sau indisponibil).',
+  rate_no_comps: 'Nu am încă destule anunțuri similare ca să-l evaluez.',
+  rate_result: ({ title, price }) => `🏷️ ${title}\n💰 ${price}`,
   history_usage: 'Folosire: /history <id>',
   history_not_found: 'Urmărirea nu există, nu îți aparține sau nu are istoric de preț.',
   history_summary: ({ title, first, last, low, cuts, points, days }) =>
@@ -530,6 +542,8 @@ const en: Catalog = {
     '• /browse — browse collected listings; tap “📌 Track” to watch an item.\n' +
     '• /edit <id> — change a watch’s frequency, seller filter or exclusion keywords.\n' +
     '• /stats — summary of your watches · /export — collected listings as CSV.\n' +
+    '• /rate <url> — rate a listing’s price without tracking it.\n' +
+    '• /history <id> — price chart for a watch.\n' +
     '• /cheaper <id> — cheaper equivalents for a tracked product.\n' +
     '• Forward a listing message to track it automatically.\n' +
     '• /remove <id> — stop a watch.\n' +
@@ -560,6 +574,11 @@ const en: Catalog = {
     (vendors ? `• Sites: ${vendors}` : ''),
   export_caption: (rows) => `📄 Exported ${rows} listing${rows === 1 ? '' : 's'}.`,
   export_empty: 'Nothing to export yet.',
+  rate_usage: 'Usage: /rate <url>',
+  rate_unsupported: 'Unsupported site or invalid link.',
+  rate_failed: 'Could not read that listing (site blocked or down).',
+  rate_no_comps: 'Not enough similar listings collected yet to rate it.',
+  rate_result: ({ title, price }) => `🏷️ ${title}\n💰 ${price}`,
   history_usage: 'Usage: /history <id>',
   history_not_found: 'That watch does not exist, is not yours, or has no price history.',
   history_summary: ({ title, first, last, low, cuts, points, days }) =>
@@ -775,6 +794,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'check', description: 'Verifică o urmărire acum (/check <id>)' },
     { command: 'edit', description: 'Modifică o urmărire (/edit <id>)' },
     { command: 'stats', description: 'Rezumatul urmăririlor tale' },
+    { command: 'rate', description: 'Evaluează prețul unui link (/rate <link>)' },
     { command: 'history', description: 'Grafic preț pentru o urmărire (/history <id>)' },
     { command: 'export', description: 'Exportă anunțurile colectate (CSV)' },
     { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
@@ -790,6 +810,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'check', description: 'Check a watch now (/check <id>)' },
     { command: 'edit', description: 'Edit a watch (/edit <id>)' },
     { command: 'stats', description: 'Summary of your watches' },
+    { command: 'rate', description: 'Rate a link’s price (/rate <url>)' },
     { command: 'history', description: 'Price chart for a watch (/history <id>)' },
     { command: 'export', description: 'Export collected listings (CSV)' },
     { command: 'remove', description: 'Stop a watch (/remove <id>)' },
