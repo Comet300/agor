@@ -9,12 +9,12 @@
 
 import type { WatchHealth } from '../contracts';
 
-export type Lang = 'ro' | 'en';
+export type Lang = 'ro' | 'en' | 'de' | 'fr' | 'it' | 'es';
 
-export const LANGS: readonly Lang[] = ['ro', 'en'];
+export const LANGS: readonly Lang[] = ['ro', 'en', 'de', 'fr', 'it', 'es'];
 
 export function isLang(v: unknown): v is Lang {
-  return v === 'ro' || v === 'en';
+  return (LANGS as readonly string[]).includes(v as string);
 }
 
 /**
@@ -331,7 +331,7 @@ const ro: Catalog = {
     '• /cheaper <id> — echivalente mai ieftine pentru un produs urmărit.\n' +
     '• Redirecționează (forward) un anunț ca să-l urmărești automat.\n' +
     '• /remove <id> — oprește o urmărire.\n' +
-    '• /lang ro|en — schimbă limba.\n' +
+    '• /lang ro|en|de|fr|it|es — schimbă limba.\n' +
     '• Apasă „Istoric preț” pe orice alertă pentru un grafic.',
   track_usage: 'Folosire: /track <link>',
   track_error: 'Nu am putut înregistra urmărirea. Te rog încearcă din nou.',
@@ -382,9 +382,9 @@ const ro: Catalog = {
   edit_card: ({ id, vendor, type, minutes, label, paused }) =>
     `✏️ Editezi urmărirea #${id} · ${label ? `„${label}” (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ pe pauză' : ''}\n` +
     `Verificare la fiecare ${minutes} min. Ajustează mai jos:`,
-  lang_current: (n) => `Limba curentă: ${n}. Schimbă cu /lang ro|en.`,
+  lang_current: (n) => `Limba curentă: ${n}. Schimbă cu /lang ro|en|de|fr|it|es.`,
   lang_set: (n) => `Limba a fost setată: ${n}.`,
-  lang_usage: 'Folosire: /lang ro|en',
+  lang_usage: 'Folosire: /lang ro|en|de|fr|it|es',
   lang_name: 'Română',
   unknown_command: 'Comandă necunoscută. Încearcă /help.',
   send_link_hint: 'Trimite-mi un link de anunț pentru urmărire, sau /help.',
@@ -613,7 +613,7 @@ const en: Catalog = {
     '• /cheaper <id> — cheaper equivalents for a tracked product.\n' +
     '• Forward a listing message to track it automatically.\n' +
     '• /remove <id> — stop a watch.\n' +
-    '• /lang ro|en — change language.\n' +
+    '• /lang ro|en|de|fr|it|es — change language.\n' +
     '• Tap “Price history” on any alert for a chart.',
   track_usage: 'Usage: /track <url>',
   track_error: 'Sorry — I could not register that watch. Please try again.',
@@ -664,9 +664,9 @@ const en: Catalog = {
   edit_card: ({ id, vendor, type, minutes, label, paused }) =>
     `✏️ Editing watch #${id} · ${label ? `“${label}” (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ paused' : ''}\n` +
     `Checks every ${minutes} min. Adjust below:`,
-  lang_current: (n) => `Current language: ${n}. Change with /lang ro|en.`,
+  lang_current: (n) => `Current language: ${n}. Change with /lang ro|en|de|fr|it|es.`,
   lang_set: (n) => `Language set to ${n}.`,
-  lang_usage: 'Usage: /lang ro|en',
+  lang_usage: 'Usage: /lang ro|en|de|fr|it|es',
   lang_name: 'English',
   unknown_command: 'Unknown command. Try /help.',
   send_link_hint: 'Send me a listing link to watch, or /help.',
@@ -873,6 +873,1114 @@ const en: Catalog = {
     `${at} · ${action} · target ${targetId} · by ${actorId}`,
 };
 
+const de: Catalog = {
+  start_welcome:
+    'Willkommen bei agor! 👋\n\n' +
+    'Schicke mir einen Marktplatz-Such- oder Produktlink (OLX, AutoVit, Storia…) ' +
+    'und ich beobachte ihn auf neue Anzeigen, Preissenkungen und Bestandsänderungen.\n\n' +
+    'Tippe /help für die vollständige Befehlsliste.',
+  help_body:
+    'So benutzt du agor:\n\n' +
+    '• Schicke einen beliebigen http(s)-Anzeigenlink oder nutze /track <url>, um eine Beobachtung zu starten.\n' +
+    '• Nach dem Registrieren kannst du Verkäufertyp, Häufigkeit und Ausschluss-Stichwörter einstellen und dann auf „Start“ tippen.\n' +
+    '• /list — alle Beobachtungen in diesem Chat anzeigen.\n' +
+    '• /browse — gesammelte Anzeigen durchstöbern; tippe „📌 Verfolgen“, um eine Anzeige zu beobachten.\n' +
+    '• /edit <id> — Häufigkeit, Verkäuferfilter oder Ausschluss-Stichwörter einer Beobachtung ändern.\n' +
+    '• /stats — Übersicht deiner Beobachtungen · /export — gesammelte Anzeigen als CSV.\n' +
+    '• /rate <url> — den Preis einer Anzeige bewerten, ohne sie zu verfolgen.\n' +
+    '• /history <id> — Preisdiagramm für eine Beobachtung.\n' +
+    '• /cheaper <id> — günstigere Alternativen für ein verfolgtes Produkt.\n' +
+    '• Leite eine Anzeigen-Nachricht weiter, um sie automatisch zu verfolgen.\n' +
+    '• /remove <id> — eine Beobachtung stoppen.\n' +
+    '• /lang ro|en|de|fr|it|es — Sprache ändern.\n' +
+    '• Tippe bei jeder Benachrichtigung auf „Preisverlauf“ für ein Diagramm.',
+  track_usage: 'Verwendung: /track <url>',
+  track_error: 'Entschuldigung — diese Beobachtung konnte nicht registriert werden. Bitte versuche es erneut.',
+  list_empty: 'Noch keine Beobachtungen. Schicke einen Anzeigenlink, um eine zu erstellen.',
+  list_intro: 'Deine Beobachtungen:',
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked, priceRange, specs }) =>
+    `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `„${label}“ (${vendor})` : vendor} · ${type}` +
+    (type === 'search' ? ` · Verkäufer=${seller}` : '') +
+    (type === 'search' && dealsOnly ? ' · nur Schnäppchen' : '') +
+    (type === 'search' && priceRange ? ` · Preis ${priceRange}` : '') +
+    (type === 'search' && specs ? ` · ${specs}` : '') +
+    (type === 'search' && required ? ` · erfordert: ${required}` : '') +
+    (type === 'search' && exclusions ? ` · ausgeschlossen: ${exclusions}` : '') +
+    (type === 'search' && blocked > 0 ? ` · blockiert: ${blocked}` : '') +
+    `\n${url}`,
+  remove_usage: 'Verwendung: /remove <id>',
+  remove_done: (id) => `Beobachtung #${id} gestoppt.`,
+  remove_not_found: 'Diese Beobachtung existiert nicht oder gehört dir nicht.',
+  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+    `📊 Übersicht\n` +
+    `• Beobachtungen: ${watches} (${search} Suchen, ${product} Produkte)\n` +
+    `• Verfolgt (📌): ${tracked} · pausiert (⏸): ${paused}\n` +
+    `• Gesammelte Anzeigen: ${items}\n` +
+    (vendors ? `• Seiten: ${vendors}` : ''),
+  export_caption: (rows) => `📄 ${rows} Anzeige${rows === 1 ? '' : 'n'} exportiert.`,
+  export_empty: 'Noch nichts zum Exportieren.',
+  rate_usage: 'Verwendung: /rate <url>',
+  rate_unsupported: 'Nicht unterstützte Seite oder ungültiger Link.',
+  rate_failed: 'Diese Anzeige konnte nicht gelesen werden (Seite blockiert oder nicht erreichbar).',
+  rate_no_comps: 'Noch nicht genügend ähnliche Anzeigen gesammelt, um sie zu bewerten.',
+  rate_result: ({ title, price }) => `🏷️ ${title}\n💰 ${price}`,
+  history_usage: 'Verwendung: /history <id>',
+  history_not_found: 'Diese Beobachtung existiert nicht, gehört dir nicht oder hat keinen Preisverlauf.',
+  history_summary: ({ title, first, last, low, cuts, points, days }) =>
+    `📈 ${title}\nVon ${first} → jetzt ${last}\nTief ${low} · ${cuts} Senkung${cuts === 1 ? '' : 'en'} · ${points} Punkte · ${days}T`,
+  cheaper_usage: 'Verwendung: /cheaper <id> (id einer Produktbeobachtung)',
+  cheaper_not_found: 'Diese Beobachtung existiert nicht, gehört dir nicht oder hat noch keine Anzeige.',
+  cheaper_none: 'Keine günstigeren Alternativen in deinen gesammelten Anzeigen.',
+  cheaper_intro: (title) => `🔎 Günstiger, ähnlich wie „${title}“:`,
+  cheaper_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
+  edit_usage: 'Verwendung: /edit <id>',
+  edit_not_found: 'Diese Beobachtung existiert nicht oder gehört dir nicht.',
+  rename_prompt: 'Schicke einen Namen für diese Beobachtung (oder „-“ zum Löschen).',
+  rename_done: (label) => `Bezeichnung gesetzt: „${label}“.`,
+  rename_cleared: 'Bezeichnung gelöscht.',
+  edit_card: ({ id, vendor, type, minutes, label, paused }) =>
+    `✏️ Beobachtung #${id} bearbeiten · ${label ? `„${label}“ (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ pausiert' : ''}\n` +
+    `Prüft alle ${minutes} Min. Unten anpassen:`,
+  lang_current: (n) => `Aktuelle Sprache: ${n}. Ändern mit /lang ro|en|de|fr|it|es.`,
+  lang_set: (n) => `Sprache auf ${n} gesetzt.`,
+  lang_usage: 'Verwendung: /lang ro|en|de|fr|it|es',
+  lang_name: 'Deutsch',
+  unknown_command: 'Unbekannter Befehl. Versuche /help.',
+  send_link_hint: 'Schicke mir einen Anzeigenlink zum Beobachten oder /help.',
+  generic_error: 'Entschuldigung — etwas ist schiefgelaufen. Bitte versuche es erneut.',
+  check_usage: 'Verwendung: /check <id>',
+  check_ok: ({ items, new: n }) =>
+    `✅ Geprüft: ${items} Anzeige${items === 1 ? '' : 'n'} gefunden, ${n} neu.`,
+  check_failed: '⚠️ Prüfung fehlgeschlagen — die Seite hat nicht geantwortet oder scheint blockiert.',
+  check_not_found: 'Diese Beobachtung existiert nicht oder gehört dir nicht.',
+  quota_reached: (limit) =>
+    `Du hast das Limit von ${limit} Beobachtungen erreicht. Entferne eine (/remove <id>), bevor du eine weitere hinzufügst.`,
+  check_rate_limited: 'Zu schnell — warte ein paar Sekunden, bevor du erneut prüfst.',
+  url_rate_limited: 'Zu schnell — warte ein paar Sekunden, bevor du einen weiteren Link hinzufügst.',
+  watch_failing: (h) =>
+    `⚠️ Beobachtung #${h.monitorId} (${h.vendor}) scheint blockiert oder findet nichts (${h.consecutiveFailures} fehlgeschlagene Prüfungen in Folge). Ich melde mich, wenn sie sich erholt.`,
+  watch_recovered: (h) => `✅ Beobachtung #${h.monitorId} (${h.vendor}) funktioniert wieder.`,
+  price_change: ({ title, oldPrice, newPrice, direction }) =>
+    `${direction === 'down' ? '📉' : '📈'} Preis geändert bei ${title}: ${oldPrice} → ${newPrice}`,
+  delisted_title: '🗑️ Anzeige entfernt',
+  delisted_reason_product_gone: 'Die Anzeigenseite existiert nicht mehr (sie wurde gelöscht).',
+  delisted_reason_search_dropped: 'Die Anzeige ist aus den verfolgten Ergebnissen verschwunden.',
+  delisted_last_price: (price) => `Zuletzt gesehener Preis: ${price}`,
+  listings_dropped_title: (count, vendor) =>
+    `🗑️ ${count} ${count === 1 ? 'Anzeige entfernt' : 'Anzeigen entfernt'} bei ${vendor}`,
+  re_listed_title: '♻️ Anzeige wieder da',
+
+  reg_watching: (v) => `✅ Beobachte ${v}`,
+  reg_baseline: (c) => `📦 Ausgangsbestand: ${c} Anzeige${c === 1 ? '' : 'n'} erfasst.`,
+  reg_tune_prompt: 'Stelle die Beobachtung ein und starte dann die Überwachung:',
+
+  btn_private: '👤 Privat',
+  btn_company: '🏢 Gewerblich',
+  btn_both: '👥 Beide',
+  btn_exclusion: '🚫 Ausschluss-Stichwörter',
+  btn_start: '▶️ Start',
+  btn_done: '✅ Fertig',
+  btn_remove: '🗑 Entfernen',
+  btn_deals_only: '🔥 Nur Schnäppchen',
+  btn_required: '✅ Pflichtwörter',
+  btn_block: '⛔ Verkäufer blockieren',
+  btn_price_range: '💶 Preisspanne',
+  btn_specs: '📐 Eckdaten',
+  btn_rename: '✏️ Umbenennen',
+  btn_pause: '⏸ Pausieren',
+  btn_resume: '▶️ Fortsetzen',
+  btn_edit: '✏️ Bearbeiten',
+  btn_target: '🎯 Zielpreis',
+  btn_type: '✏️ Typ',
+  picker_choose_watch: 'Welche Beobachtung?',
+  picker_choose_user: 'Welcher Nutzer?',
+  picker_block_prompt: 'Welchen Verkäufer blockieren? (tippen; erneut tippen zum Entsperren)',
+  picker_exclude_prompt: 'Welche Wörter ausschließen? (tippen; erneut tippen zum Entfernen)',
+  picker_require_prompt: 'Welche Wörter erfordern? (tippen; erneut tippen zum Entfernen)',
+  btn_open: '🔗 Öffnen',
+  btn_call: '📞 Anrufen',
+  btn_price_history: '📊 Preisverlauf',
+  btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
+  btn_prev: '◀️ Zurück',
+  btn_next: 'Weiter ▶️',
+  btn_track: '📌 Verfolgen',
+  btn_save: '⭐ Merken',
+  btn_saved: '⭐ Gemerkt',
+  btn_dismiss: '🚫 Verwerfen',
+  cb_saved: 'Zu deiner Merkliste hinzugefügt.',
+  cb_unsaved: 'Von deiner Merkliste entfernt.',
+  cb_dismissed: 'Anzeige ausgeblendet.',
+  saved_empty: 'Noch nichts gemerkt. Tippe ⭐ Merken in /browse.',
+  saved_intro: '⭐ Gemerkte Anzeigen:',
+  saved_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
+  btn_jump: '🔢 Springe zu #',
+  btn_switch: '🔀 Wechseln',
+  btn_browse_all: '📂 Alle Anzeigen',
+  browse_in_stock: '🟢 verfügbar',
+  browse_out_of_stock: '🔴 nicht verfügbar',
+  price_rating: ({ tag, percentile, n, suspicious }) => {
+    if (suspicious) return `⚠️ Zu günstig — prüfen (weit unter ${n} ähnlichen)`;
+    if (tag === 'great_deal') return `🟢 Top-Angebot — günstiger als ${Math.round((1 - percentile) * 100)}% von ${n} ähnlichen`;
+    if (tag === 'overpriced') return `🔴 Über Marktwert — teurer als ${Math.round(percentile * 100)}% von ${n} ähnlichen`;
+    if (tag === 'fair_price') return `🟡 Fairer Preis — etwa marktüblich (${n} ähnliche)`;
+    return '';
+  },
+  fair_value_line: ({ fair, deltaAbs, under }) =>
+    `💡 Gesch. fair ≈ ${fair} (${deltaAbs} ${under ? 'darunter' : 'darüber'})`,
+  fair_value_under: ({ fair, pct }) => `🔥 ${pct}% unter Schätzwert (≈ ${fair})`,
+  browse_position: (n, total) => `Anzeige ${n} von ${total}`,
+  browse_empty: 'Noch keine Anzeigen gesammelt. Füge eine Beobachtung mit einem Link hinzu und komm dann zurück.',
+  browse_track_done: (title) => `📌 Verfolge jetzt „${title}“. Ich benachrichtige dich bei Preisänderungen und Entfernung.`,
+  browse_track_exists: 'Du verfolgst diese Anzeige bereits.',
+  browse_gone: 'Diese Anzeige ist nicht mehr verfügbar.',
+  browse_scope_prompt: 'Was möchtest du durchstöbern?',
+  browse_jump_prompt: (total) => `Schicke eine Zahl von 1 bis ${total}, um zu dieser Anzeige zu springen.`,
+  browse_jump_invalid: (total) => `Bitte schicke eine Zahl von 1 bis ${total}.`,
+
+  cb_seller_set: (v) => `Verkäuferfilter: ${v}`,
+  cb_monitoring_started: 'Überwachung gestartet',
+  cb_watch_gone: 'Diese Beobachtung existiert nicht mehr.',
+  cb_unknown_option: 'Unbekannte Option.',
+  cb_setting_error: 'Diese Einstellung konnte nicht aktualisiert werden.',
+  cb_removed: 'Beobachtung entfernt.',
+  cb_freq_set: (m) => `Häufigkeit: ${m} Min`,
+  cb_edit_done: 'Änderungen gespeichert.',
+  cb_paused: 'Beobachtung pausiert.',
+  cb_resumed: 'Beobachtung fortgesetzt.',
+  cb_deals_on: 'Nur Schnäppchen: an.',
+  cb_deals_off: 'Nur Schnäppchen: aus.',
+  exclusion_prompt: 'Schicke eine kommagetrennte Liste von Stichwörtern zum Ausschließen (z. B. beschädigt, Teile, Bastler).',
+  exclusion_set: (kw) => `Ausgeschlossen: ${kw}`,
+  exclusion_cleared: 'Alle Ausschluss-Stichwörter gelöscht.',
+  required_prompt: 'Schicke kommagetrennte Pflicht-Stichwörter (eine Anzeige muss mindestens eines enthalten). „-“ löscht sie.',
+  required_set: (kw) => `Erforderlich: ${kw}`,
+  required_cleared: 'Alle Pflicht-Stichwörter gelöscht.',
+  price_range_prompt: 'Schicke eine Preisspanne: min-max (z. B. 5000-15000, 5000-, -15000). „-“ löscht sie.',
+  price_range_set: ({ min, max }) => `Preisspanne: ${min ?? '0'}–${max ?? '∞'}`,
+  attr_range_prompt: 'Schicke Eckdaten, z. B. year>=2019, km<=120000, area>=60 (year/km/area/rooms/power). „-“ löscht sie.',
+  attr_range_set: (text) => `Eckdaten: ${text}`,
+  range_cleared: 'Filter gelöscht.',
+  target_prompt: 'Schicke den Zielpreis (nur Zahl, in der Währung der Anzeige). Ich melde mich, wenn er darauf fällt. „-“ löscht ihn.',
+  target_set: (price) => `Zielpreis gesetzt: ${price}`,
+  target_cleared: 'Zielpreis gelöscht.',
+  target_invalid: 'Schicke eine gültige Zahl (z. B. 12000).',
+  target_hit_title: '🎯 Zielpreis erreicht!',
+  target_hit_line: (target) => `Ziel: ${target}`,
+  became_deal_title: '🔥 Gerade zum Top-Angebot geworden!',
+  insight_line: ({ days, cuts, low }) => {
+    const parts: string[] = [];
+    if (days !== undefined) parts.push(`📅 seit ${days}T inseriert`);
+    if (cuts > 0) parts.push(`📉 ${cuts} Senkung${cuts === 1 ? '' : 'en'}`);
+    if (low) parts.push(`Tief ${low}`);
+    return parts.join(' · ');
+  },
+  block_prompt: 'Schicke einen Verkäufernamen oder eine Telefonnummer zum Blockieren. „-“ leert die Liste.',
+  block_added_seller: (name) => `Verkäufer blockiert: ${name}`,
+  block_added_phone: (phone) => `Telefonnummer blockiert: ${phone}`,
+  block_cleared: 'Liste blockierter Verkäufer geleert.',
+  price_history_insufficient: 'Noch nicht genügend Preisverlauf.',
+  price_history_error: 'Der Preisverlauf konnte nicht erstellt werden.',
+
+  seller_private: '👤 Privatverkäufer',
+  seller_company: '🏢 Gewerblich',
+  specs_line: (s) => `📋 ${s}`,
+  posted_line: (d) => `🕒 Inseriert: ${d}`,
+  badge_great_deal: '🔥 Top-Angebot',
+  badge_fair_price: '📊 Fairer Marktpreis',
+  badge_overpriced: '📈 Überteuert',
+  also_on: (s) => `Auch auf: ${s}`,
+  price_drop: ({ title, oldPrice, newPrice, savings }) =>
+    `📉 Preissenkung bei ${title}: ${oldPrice} → ${newPrice} (spare ${savings})`,
+  back_in_stock_title: '🟢 WIEDER VERFÜGBAR',
+
+  access_denied: 'Du hast keinen Zugang zu diesem Bot. Nutze /request_access, um ihn anzufragen.',
+  access_request_intro: 'Lass uns Zugang anfragen. ',
+  access_ask_name: 'Wie heißt du? (Vor- und Nachname)',
+  access_ask_email: 'Wie lautet deine E-Mail-Adresse?',
+  access_email_invalid: 'Diese E-Mail sieht ungültig aus. Bitte schicke eine korrekte Adresse.',
+  access_request_sent: '✅ Deine Anfrage wurde gesendet. Ich melde mich, wenn ein Admin entscheidet.',
+  access_request_pending: 'Du hast bereits eine offene Anfrage. Ich melde mich, wenn sie entschieden ist.',
+  access_granted_user: '🎉 Dir wurde Zugang gewährt! Schicke mir einen Anzeigenlink zum Starten.',
+  access_denied_user: '⛔ Deine Zugangsanfrage wurde abgelehnt. Du kannst es in 7 Tagen erneut anfragen.',
+  access_first_admin:
+    '👑 Du bist dabei und du bist der Admin (erster Nutzer). Verwalte Zugänge mit /users, /allow, /deny.',
+  access_request_too_soon: (days) =>
+    `Deine Anfrage wurde kürzlich abgelehnt. Du kannst sie in ${days} Tag${days === 1 ? '' : 'en'} erneut stellen.`,
+  access_admin_new_request: ({ id, name, email }) =>
+    `🔔 Neue Zugangsanfrage:\n${name} · ${email}\nChat-ID: ${id}`,
+  access_admin_only: 'Dieser Befehl ist nur für Admins verfügbar.',
+  access_allow_usage: 'Verwendung: /allow <chat_id>',
+  access_deny_usage: 'Verwendung: /deny <chat_id>',
+  access_allow_done: ({ id, name }) => `✅ Zugang gewährt für ${name || id} (${id}).`,
+  access_deny_done: ({ id, name }) => `⛔ Zugang abgelehnt für ${name || id} (${id}).`,
+  access_user_not_found: 'Kein Nutzer mit dieser Chat-ID.',
+  access_users_intro: 'Nutzer:',
+  access_users_item: ({ id, status, isAdmin, name, email }) =>
+    `${id} · ${status}${isAdmin ? ' · Admin' : ''} · ${name || '—'} · ${email || '—'}`,
+  access_users_empty: 'Noch keine Nutzer erfasst.',
+  access_userinfo_usage: 'Verwendung: /userinfo <chat_id>',
+  access_userinfo: ({ id, status, isAdmin, name, email }) =>
+    `Nutzer ${id}\nStatus: ${status}${isAdmin ? ' (Admin)' : ''}\nName: ${name || '—'}\nE-Mail: ${email || '—'}`,
+  access_setname_usage: 'Verwendung: /setname <chat_id> <name>',
+  access_setemail_usage: 'Verwendung: /setemail <chat_id> <email>',
+  access_setname_prompt: ({ id }) => `Schicke den Namen für Nutzer ${id}.`,
+  access_setemail_prompt: ({ id }) => `Schicke die E-Mail für Nutzer ${id}.`,
+  access_setname_done: ({ id, name }) => `✅ Name aktualisiert für ${id}: ${name}`,
+  access_setemail_done: ({ id, email }) => `✅ E-Mail aktualisiert für ${id}: ${email}`,
+  access_promote_usage: 'Verwendung: /promote <chat_id>',
+  access_demote_usage: 'Verwendung: /demote <chat_id>',
+  access_promote_done: ({ id }) => `👑 ${id} ist jetzt Admin.`,
+  access_demote_done: ({ id }) => `${id} ist nicht mehr Admin.`,
+  access_demote_last_admin: 'Du kannst den letzten Admin nicht entfernen.',
+  access_promoted_user: '👑 Du wurdest zum Admin gemacht. Verwalte Zugänge mit /users.',
+  access_demoted_user: 'Deine Admin-Rechte wurden entfernt.',
+  btn_allow: '✅ Erlauben',
+  btn_deny: '⛔ Ablehnen',
+  cb_allow_done: ({ id }) => `Zugang gewährt für ${id}.`,
+  cb_deny_done: ({ id }) => `Zugang abgelehnt für ${id}.`,
+  confirm_remove: (id) => `Beobachtung #${id} stoppen? Das kann nicht rückgängig gemacht werden.`,
+  confirm_deny: ({ id, name }) => `Zugang ablehnen für ${name || id} (${id})?`,
+  confirm_demote: (id) => `Admin-Rechte von ${id} entfernen?`,
+  btn_confirm: '✅ Ja, bestätigen',
+  btn_cancel: '✖️ Abbrechen',
+  cb_cancelled: 'Abgebrochen.',
+  audit_intro: 'Zugangsprotokoll (kürzlich):',
+  audit_empty: 'Noch keine Zugangsentscheidungen erfasst.',
+  audit_item: ({ action, targetId, actorId, at }) =>
+    `${at} · ${action} · Ziel ${targetId} · von ${actorId}`,
+};
+
+const it: Catalog = {
+  start_welcome:
+    'Benvenuto su agor! 👋\n\n' +
+    'Inviami un link di ricerca o di prodotto da un marketplace (OLX, AutoVit, Storia…) ' +
+    'e lo monitorerò per nuovi annunci, cali di prezzo e variazioni di disponibilità.\n\n' +
+    'Scrivi /help per la lista completa dei comandi.',
+  help_body:
+    'Come usare agor:\n\n' +
+    '• Invia un link http(s) di un annuncio, oppure usa /track <url>, per avviare un monitoraggio.\n' +
+    '• Dopo la registrazione, regola il tipo di venditore, la frequenza e le parole da escludere, poi tocca „Avvia“.\n' +
+    '• /list — mostra tutti i monitoraggi di questa chat.\n' +
+    '• /browse — sfoglia gli annunci raccolti; tocca „📌 Monitora“ per seguire un elemento.\n' +
+    '• /edit <id> — cambia la frequenza di un monitoraggio, il filtro venditore o le parole da escludere.\n' +
+    '• /stats — riepilogo dei tuoi monitoraggi · /export — annunci raccolti in CSV.\n' +
+    '• /rate <url> — valuta il prezzo di un annuncio senza monitorarlo.\n' +
+    '• /history <id> — grafico dei prezzi di un monitoraggio.\n' +
+    '• /cheaper <id> — equivalenti più economici per un prodotto monitorato.\n' +
+    '• Inoltra il messaggio di un annuncio per monitorarlo automaticamente.\n' +
+    '• /remove <id> — interrompi un monitoraggio.\n' +
+    '• /lang ro|en|de|fr|it|es — cambia lingua.\n' +
+    '• Tocca „Cronologia prezzi“ su qualsiasi avviso per un grafico.',
+  track_usage: 'Uso: /track <url>',
+  track_error: 'Spiacente — non sono riuscito a registrare il monitoraggio. Riprova.',
+  list_empty: 'Nessun monitoraggio. Invia il link di un annuncio per crearne uno.',
+  list_intro: 'I tuoi monitoraggi:',
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked, priceRange, specs }) =>
+    `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `„${label}“ (${vendor})` : vendor} · ${type}` +
+    (type === 'search' ? ` · venditore=${seller}` : '') +
+    (type === 'search' && dealsOnly ? ' · solo affari' : '') +
+    (type === 'search' && priceRange ? ` · prezzo ${priceRange}` : '') +
+    (type === 'search' && specs ? ` · ${specs}` : '') +
+    (type === 'search' && required ? ` · richiede: ${required}` : '') +
+    (type === 'search' && exclusions ? ` · esclusi: ${exclusions}` : '') +
+    (type === 'search' && blocked > 0 ? ` · bloccati: ${blocked}` : '') +
+    `\n${url}`,
+  remove_usage: 'Uso: /remove <id>',
+  remove_done: (id) => `Monitoraggio #${id} interrotto.`,
+  remove_not_found: 'Quel monitoraggio non esiste o non è tuo.',
+  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+    `📊 Riepilogo\n` +
+    `• Monitoraggi: ${watches} (${search} ricerche, ${product} prodotti)\n` +
+    `• Monitorati (📌): ${tracked} · in pausa (⏸): ${paused}\n` +
+    `• Annunci raccolti: ${items}\n` +
+    (vendors ? `• Siti: ${vendors}` : ''),
+  export_caption: (rows) => `📄 Esportati ${rows} ${rows === 1 ? 'annuncio' : 'annunci'}.`,
+  export_empty: 'Niente da esportare per ora.',
+  rate_usage: 'Uso: /rate <url>',
+  rate_unsupported: 'Sito non supportato o link non valido.',
+  rate_failed: 'Impossibile leggere questo annuncio (sito bloccato o non raggiungibile).',
+  rate_no_comps: 'Non ci sono ancora abbastanza annunci simili raccolti per valutarlo.',
+  rate_result: ({ title, price }) => `🏷️ ${title}\n💰 ${price}`,
+  history_usage: 'Uso: /history <id>',
+  history_not_found: 'Quel monitoraggio non esiste, non è tuo o non ha una cronologia prezzi.',
+  history_summary: ({ title, first, last, low, cuts, points, days }) =>
+    `📈 ${title}\nDa ${first} → ora ${last}\nMin ${low} · ${cuts} ${cuts === 1 ? 'taglio' : 'tagli'} · ${points} punti · ${days}g`,
+  cheaper_usage: 'Uso: /cheaper <id> (id di un monitoraggio prodotto)',
+  cheaper_not_found: 'Quel monitoraggio non esiste, non è tuo o non ha ancora un annuncio.',
+  cheaper_none: 'Nessun equivalente più economico tra gli annunci raccolti.',
+  cheaper_intro: (title) => `🔎 Più economici, simili a „${title}“:`,
+  cheaper_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
+  edit_usage: 'Uso: /edit <id>',
+  edit_not_found: 'Quel monitoraggio non esiste o non è tuo.',
+  rename_prompt: 'Invia un nome per questo monitoraggio (oppure „-“ per rimuoverlo).',
+  rename_done: (label) => `Etichetta impostata: „${label}“.`,
+  rename_cleared: 'Etichetta rimossa.',
+  edit_card: ({ id, vendor, type, minutes, label, paused }) =>
+    `✏️ Modifica monitoraggio #${id} · ${label ? `„${label}“ (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ in pausa' : ''}\n` +
+    `Controlla ogni ${minutes} min. Regola qui sotto:`,
+  lang_current: (n) => `Lingua attuale: ${n}. Cambia con /lang ro|en|de|fr|it|es.`,
+  lang_set: (n) => `Lingua impostata su ${n}.`,
+  lang_usage: 'Uso: /lang ro|en|de|fr|it|es',
+  lang_name: 'Italiano',
+  unknown_command: 'Comando sconosciuto. Prova /help.',
+  send_link_hint: 'Inviami il link di un annuncio da monitorare, oppure /help.',
+  generic_error: 'Spiacente — qualcosa è andato storto. Riprova.',
+  check_usage: 'Uso: /check <id>',
+  check_ok: ({ items, new: n }) =>
+    `✅ Controllato: ${items} ${items === 1 ? 'annuncio trovato' : 'annunci trovati'}, ${n} nuovi.`,
+  check_failed: '⚠️ Controllo fallito — il sito non ha risposto o sembra bloccato.',
+  check_not_found: 'Quel monitoraggio non esiste o non è tuo.',
+  quota_reached: (limit) =>
+    `Hai raggiunto il limite di ${limit} monitoraggi. Rimuovine uno (/remove <id>) prima di aggiungerne un altro.`,
+  check_rate_limited: 'Troppo veloce — attendi qualche secondo prima di controllare di nuovo.',
+  url_rate_limited: 'Troppo veloce — attendi qualche secondo prima di aggiungere un altro link.',
+  watch_failing: (h) =>
+    `⚠️ Il monitoraggio #${h.monitorId} (${h.vendor}) sembra bloccato o non trova nulla (${h.consecutiveFailures} controlli falliti di seguito). Ti avviserò quando si ripristina.`,
+  watch_recovered: (h) => `✅ Il monitoraggio #${h.monitorId} (${h.vendor}) funziona di nuovo.`,
+  price_change: ({ title, oldPrice, newPrice, direction }) =>
+    `${direction === 'down' ? '📉' : '📈'} Prezzo cambiato per ${title}: ${oldPrice} → ${newPrice}`,
+  delisted_title: '🗑️ Annuncio rimosso',
+  delisted_reason_product_gone: 'La pagina del prodotto non esiste più (è stata eliminata).',
+  delisted_reason_search_dropped: 'Questo annuncio è uscito dai risultati monitorati.',
+  delisted_last_price: (price) => `Ultimo prezzo visto: ${price}`,
+  listings_dropped_title: (count, vendor) =>
+    `🗑️ ${count} ${count === 1 ? 'annuncio rimosso' : 'annunci rimossi'} da ${vendor}`,
+  re_listed_title: '♻️ Annuncio ricomparso',
+
+  reg_watching: (v) => `✅ Sto monitorando ${v}`,
+  reg_baseline: (c) => `📦 Base: ${c} ${c === 1 ? 'annuncio registrato' : 'annunci registrati'}.`,
+  reg_tune_prompt: 'Regola il monitoraggio, poi avvia il controllo:',
+
+  btn_private: '👤 Privato',
+  btn_company: '🏢 Azienda',
+  btn_both: '👥 Entrambi',
+  btn_exclusion: '🚫 Parole da escludere',
+  btn_start: '▶️ Avvia',
+  btn_done: '✅ Fatto',
+  btn_remove: '🗑 Rimuovi',
+  btn_deals_only: '🔥 Solo affari',
+  btn_required: '✅ Parole obbligatorie',
+  btn_block: '⛔ Blocca venditore',
+  btn_price_range: '💶 Fascia di prezzo',
+  btn_specs: '📐 Caratteristiche',
+  btn_rename: '✏️ Rinomina',
+  btn_pause: '⏸ Pausa',
+  btn_resume: '▶️ Riprendi',
+  btn_edit: '✏️ Modifica',
+  btn_target: '🎯 Prezzo obiettivo',
+  btn_type: '✏️ Tipo',
+  picker_choose_watch: 'Quale monitoraggio?',
+  picker_choose_user: 'Quale utente?',
+  picker_block_prompt: 'Quale venditore bloccare? (tocca; tocca di nuovo per sbloccare)',
+  picker_exclude_prompt: 'Quali parole escludere? (tocca; tocca di nuovo per rimuovere)',
+  picker_require_prompt: 'Quali parole richiedere? (tocca; tocca di nuovo per rimuovere)',
+  btn_open: '🔗 Apri',
+  btn_call: '📞 Chiama',
+  btn_price_history: '📊 Cronologia prezzi',
+  btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
+  btn_prev: '◀️ Indietro',
+  btn_next: 'Avanti ▶️',
+  btn_track: '📌 Monitora',
+  btn_save: '⭐ Salva',
+  btn_saved: '⭐ Salvato',
+  btn_dismiss: '🚫 Ignora',
+  cb_saved: 'Salvato nella tua lista.',
+  cb_unsaved: 'Rimosso dalla tua lista.',
+  cb_dismissed: 'Annuncio nascosto.',
+  saved_empty: 'Niente salvato per ora. Tocca ⭐ Salva in /browse.',
+  saved_intro: '⭐ Annunci salvati:',
+  saved_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
+  btn_jump: '🔢 Vai al #',
+  btn_switch: '🔀 Cambia',
+  btn_browse_all: '📂 Tutti gli annunci',
+  browse_in_stock: '🟢 disponibile',
+  browse_out_of_stock: '🔴 non disponibile',
+  price_rating: ({ tag, percentile, n, suspicious }) => {
+    if (suspicious) return `⚠️ Troppo economico — verifica (molto sotto ${n} simili)`;
+    if (tag === 'great_deal') return `🟢 Ottimo affare — più economico del ${Math.round((1 - percentile) * 100)}% di ${n} simili`;
+    if (tag === 'overpriced') return `🔴 Sopra mercato — più caro del ${Math.round(percentile * 100)}% di ${n} simili`;
+    if (tag === 'fair_price') return `🟡 Prezzo equo — in linea con il mercato (${n} simili)`;
+    return '';
+  },
+  fair_value_line: ({ fair, deltaAbs, under }) =>
+    `💡 Equo stimato ≈ ${fair} (${deltaAbs} ${under ? 'sotto' : 'sopra'})`,
+  fair_value_under: ({ fair, pct }) => `🔥 ${pct}% sotto il previsto (≈ ${fair})`,
+  browse_position: (n, total) => `elemento ${n} di ${total}`,
+  browse_empty: 'Nessun elemento raccolto per ora. Aggiungi un monitoraggio con un link, poi torna qui.',
+  browse_track_done: (title) => `📌 Ora monitoro „${title}“. Ti avviserò sui cambi di prezzo e sulle rimozioni.`,
+  browse_track_exists: 'Stai già monitorando questo elemento.',
+  browse_gone: 'Questo elemento non è più disponibile.',
+  browse_scope_prompt: 'Cosa vuoi sfogliare?',
+  browse_jump_prompt: (total) => `Invia un numero da 1 a ${total} per saltare a quella posizione.`,
+  browse_jump_invalid: (total) => `Invia un numero da 1 a ${total}.`,
+
+  cb_seller_set: (v) => `Filtro venditore: ${v}`,
+  cb_monitoring_started: 'Monitoraggio avviato',
+  cb_watch_gone: 'Quel monitoraggio non esiste più.',
+  cb_unknown_option: 'Opzione sconosciuta.',
+  cb_setting_error: 'Impossibile aggiornare questa impostazione.',
+  cb_removed: 'Monitoraggio rimosso.',
+  cb_freq_set: (m) => `Frequenza: ${m} min`,
+  cb_edit_done: 'Modifiche salvate.',
+  cb_paused: 'Monitoraggio in pausa.',
+  cb_resumed: 'Monitoraggio ripreso.',
+  cb_deals_on: 'Solo affari: attivo.',
+  cb_deals_off: 'Solo affari: disattivo.',
+  exclusion_prompt: 'Invia una lista di parole separate da virgola da escludere (es. danneggiato, ricambi, incidentato).',
+  exclusion_set: (kw) => `Escludo: ${kw}`,
+  exclusion_cleared: 'Tutte le parole da escludere rimosse.',
+  required_prompt: 'Invia le parole obbligatorie separate da virgola (un annuncio deve contenerne almeno una). „-“ le rimuove.',
+  required_set: (kw) => `Richiedo: ${kw}`,
+  required_cleared: 'Tutte le parole obbligatorie rimosse.',
+  price_range_prompt: 'Invia una fascia di prezzo: min-max (es. 5000-15000, 5000-, -15000). „-“ la rimuove.',
+  price_range_set: ({ min, max }) => `Fascia di prezzo: ${min ?? '0'}–${max ?? '∞'}`,
+  attr_range_prompt: 'Invia le caratteristiche, es. year>=2019, km<=120000, area>=60 (year/km/area/rooms/power). „-“ le rimuove.',
+  attr_range_set: (text) => `Caratteristiche: ${text}`,
+  range_cleared: 'Filtro rimosso.',
+  target_prompt: 'Invia il prezzo obiettivo (solo numero, nella stessa valuta). Ti avviserò quando scende a quel valore. „-“ lo rimuove.',
+  target_set: (price) => `Prezzo obiettivo impostato: ${price}`,
+  target_cleared: 'Prezzo obiettivo rimosso.',
+  target_invalid: 'Invia un numero valido (es. 12000).',
+  target_hit_title: '🎯 Prezzo obiettivo raggiunto!',
+  target_hit_line: (target) => `Obiettivo: ${target}`,
+  became_deal_title: '🔥 Ora è un ottimo affare!',
+  insight_line: ({ days, cuts, low }) => {
+    const parts: string[] = [];
+    if (days !== undefined) parts.push(`📅 online da ${days}g`);
+    if (cuts > 0) parts.push(`📉 ${cuts} ${cuts === 1 ? 'taglio' : 'tagli'}`);
+    if (low) parts.push(`min ${low}`);
+    return parts.join(' · ');
+  },
+  block_prompt: 'Invia il nome di un venditore o un numero di telefono da bloccare. „-“ svuota la lista.',
+  block_added_seller: (name) => `Venditore bloccato: ${name}`,
+  block_added_phone: (phone) => `Numero bloccato: ${phone}`,
+  block_cleared: 'Lista dei venditori bloccati svuotata.',
+  price_history_insufficient: 'Cronologia prezzi ancora insufficiente.',
+  price_history_error: 'Impossibile generare la cronologia prezzi.',
+
+  seller_private: '👤 Venditore privato',
+  seller_company: '🏢 Azienda',
+  specs_line: (s) => `📋 ${s}`,
+  posted_line: (d) => `🕒 Pubblicato: ${d}`,
+  badge_great_deal: '🔥 Ottimo affare',
+  badge_fair_price: '📊 Prezzo di mercato equo',
+  badge_overpriced: '📈 Sopra mercato',
+  also_on: (s) => `Anche su: ${s}`,
+  price_drop: ({ title, oldPrice, newPrice, savings }) =>
+    `📉 Calo di prezzo su ${title}: ${oldPrice} → ${newPrice} (risparmi ${savings})`,
+  back_in_stock_title: '🟢 DI NUOVO DISPONIBILE',
+
+  access_denied: 'Non hai accesso a questo bot. Usa /request_access per richiederlo.',
+  access_request_intro: 'Procediamo con la richiesta di accesso. ',
+  access_ask_name: 'Come ti chiami? (nome e cognome)',
+  access_ask_email: 'Qual è il tuo indirizzo email?',
+  access_email_invalid: 'Questa email non sembra valida. Invia un indirizzo corretto.',
+  access_request_sent: '✅ La tua richiesta è stata inviata. Ti avviserò quando un admin deciderà.',
+  access_request_pending: 'Hai già una richiesta in attesa. Ti avviserò quando verrà decisa.',
+  access_granted_user: '🎉 Accesso concesso! Inviami il link di un annuncio per iniziare.',
+  access_denied_user: '⛔ La tua richiesta di accesso è stata rifiutata. Puoi richiederlo di nuovo tra 7 giorni.',
+  access_first_admin:
+    '👑 Sei dentro e sei il primo amministratore. Gestisci gli accessi con /users, /allow, /deny.',
+  access_request_too_soon: (days) =>
+    `La tua richiesta è stata rifiutata di recente. Puoi richiederlo di nuovo tra ${days} ${days === 1 ? 'giorno' : 'giorni'}.`,
+  access_admin_new_request: ({ id, name, email }) =>
+    `🔔 Nuova richiesta di accesso:\n${name} · ${email}\nchat id: ${id}`,
+  access_admin_only: 'Questo comando è disponibile solo per gli amministratori.',
+  access_allow_usage: 'Uso: /allow <chat_id>',
+  access_deny_usage: 'Uso: /deny <chat_id>',
+  access_allow_done: ({ id, name }) => `✅ Accesso concesso a ${name || id} (${id}).`,
+  access_deny_done: ({ id, name }) => `⛔ Accesso rifiutato a ${name || id} (${id}).`,
+  access_user_not_found: 'Nessun utente con quel chat id.',
+  access_users_intro: 'Utenti:',
+  access_users_item: ({ id, status, isAdmin, name, email }) =>
+    `${id} · ${status}${isAdmin ? ' · admin' : ''} · ${name || '—'} · ${email || '—'}`,
+  access_users_empty: 'Nessun utente registrato per ora.',
+  access_userinfo_usage: 'Uso: /userinfo <chat_id>',
+  access_userinfo: ({ id, status, isAdmin, name, email }) =>
+    `Utente ${id}\nstato: ${status}${isAdmin ? ' (admin)' : ''}\nnome: ${name || '—'}\nemail: ${email || '—'}`,
+  access_setname_usage: 'Uso: /setname <chat_id> <name>',
+  access_setemail_usage: 'Uso: /setemail <chat_id> <email>',
+  access_setname_prompt: ({ id }) => `Invia il nome per utente ${id}.`,
+  access_setemail_prompt: ({ id }) => `Invia un indirizzo email per utente ${id}.`,
+  access_setname_done: ({ id, name }) => `✅ Nome aggiornato per ${id}: ${name}`,
+  access_setemail_done: ({ id, email }) => `✅ Email aggiornata per ${id}: ${email}`,
+  access_promote_usage: 'Uso: /promote <chat_id>',
+  access_demote_usage: 'Uso: /demote <chat_id>',
+  access_promote_done: ({ id }) => `👑 ${id} è ora un amministratore.`,
+  access_demote_done: ({ id }) => `${id} non è più un amministratore.`,
+  access_demote_last_admin: 'Deve restare almeno un amministratore.',
+  access_promoted_user: '👑 Sei stato nominato amministratore. Gestisci gli accessi con /users.',
+  access_demoted_user: 'I tuoi diritti di amministratore sono stati rimossi.',
+  btn_allow: '✅ Consenti',
+  btn_deny: '⛔ Rifiuta',
+  cb_allow_done: ({ id }) => `Accesso concesso a ${id}.`,
+  cb_deny_done: ({ id }) => `Accesso rifiutato a ${id}.`,
+  confirm_remove: (id) => `Interrompere il monitoraggio #${id}? Non si può annullare.`,
+  confirm_deny: ({ id, name }) => `Rifiutare la richiesta di ${name || id} (${id})?`,
+  confirm_demote: (id) => `Rimuovere i diritti di amministratore da ${id}?`,
+  btn_confirm: '✅ Sì, conferma',
+  btn_cancel: '✖️ Annulla',
+  cb_cancelled: 'Annullato.',
+  audit_intro: 'Registro accessi (recenti):',
+  audit_empty: 'Nessuna decisione di accesso registrata per ora.',
+  audit_item: ({ action, targetId, actorId, at }) =>
+    `${at} · ${action} · target ${targetId} · da ${actorId}`,
+};
+
+const es: Catalog = {
+  start_welcome:
+    '¡Bienvenido a agor! 👋\n\n' +
+    'Envíame un enlace de búsqueda o de producto de un marketplace (OLX, AutoVit, Storia…) ' +
+    'y lo vigilaré para detectar nuevos anuncios, bajadas de precio y cambios de stock.\n\n' +
+    'Escribe /help para ver la lista completa de comandos.',
+  help_body:
+    'Cómo usar agor:\n\n' +
+    '• Envía cualquier enlace http(s) de un anuncio, o usa /track <url>, para iniciar un seguimiento.\n' +
+    '• Tras registrarlo, ajusta el tipo de vendedor, la frecuencia y las palabras de exclusión, luego pulsa „Iniciar“.\n' +
+    '• /list — muestra todos los seguimientos de este chat.\n' +
+    '• /browse — explora los anuncios recopilados; pulsa „📌 Seguir“ para vigilar un artículo.\n' +
+    '• /edit <id> — cambia la frecuencia, el filtro de vendedor o las palabras de exclusión de un seguimiento.\n' +
+    '• /stats — resumen de tus seguimientos · /export — anuncios recopilados en CSV.\n' +
+    '• /rate <url> — evalúa el precio de un anuncio sin seguirlo.\n' +
+    '• /history <id> — gráfico de precios de un seguimiento.\n' +
+    '• /cheaper <id> — equivalentes más baratos de un producto seguido.\n' +
+    '• Reenvía el mensaje de un anuncio para seguirlo automáticamente.\n' +
+    '• /remove <id> — detiene un seguimiento.\n' +
+    '• /lang ro|en|de|fr|it|es — cambia el idioma.\n' +
+    '• Pulsa „Historial de precios“ en cualquier alerta para ver un gráfico.',
+  track_usage: 'Uso: /track <url>',
+  track_error: 'Lo siento — no pude registrar ese seguimiento. Inténtalo de nuevo.',
+  list_empty: 'Aún no hay seguimientos. Envía un enlace de anuncio para crear uno.',
+  list_intro: 'Tus seguimientos:',
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked, priceRange, specs }) =>
+    `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `„${label}“ (${vendor})` : vendor} · ${type}` +
+    (type === 'search' ? ` · vendedor=${seller}` : '') +
+    (type === 'search' && dealsOnly ? ' · solo chollos' : '') +
+    (type === 'search' && priceRange ? ` · precio ${priceRange}` : '') +
+    (type === 'search' && specs ? ` · ${specs}` : '') +
+    (type === 'search' && required ? ` · requiere: ${required}` : '') +
+    (type === 'search' && exclusions ? ` · excluido: ${exclusions}` : '') +
+    (type === 'search' && blocked > 0 ? ` · bloqueados: ${blocked}` : '') +
+    `\n${url}`,
+  remove_usage: 'Uso: /remove <id>',
+  remove_done: (id) => `Seguimiento #${id} detenido.`,
+  remove_not_found: 'Ese seguimiento no existe o no es tuyo.',
+  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+    `📊 Resumen\n` +
+    `• Seguimientos: ${watches} (${search} búsquedas, ${product} productos)\n` +
+    `• Seguidos (📌): ${tracked} · pausados (⏸): ${paused}\n` +
+    `• Anuncios recopilados: ${items}\n` +
+    (vendors ? `• Sitios: ${vendors}` : ''),
+  export_caption: (rows) => `📄 Exportado${rows === 1 ? '' : 's'} ${rows} anuncio${rows === 1 ? '' : 's'}.`,
+  export_empty: 'Aún no hay nada que exportar.',
+  rate_usage: 'Uso: /rate <url>',
+  rate_unsupported: 'Sitio no compatible o enlace no válido.',
+  rate_failed: 'No pude leer ese anuncio (sitio bloqueado o caído).',
+  rate_no_comps: 'Aún no hay suficientes anuncios similares recopilados para evaluarlo.',
+  rate_result: ({ title, price }) => `🏷️ ${title}\n💰 ${price}`,
+  history_usage: 'Uso: /history <id>',
+  history_not_found: 'Ese seguimiento no existe, no es tuyo, o no tiene historial de precios.',
+  history_summary: ({ title, first, last, low, cuts, points, days }) =>
+    `📈 ${title}\nDe ${first} → ahora ${last}\nMínimo ${low} · ${cuts} bajada${cuts === 1 ? '' : 's'} · ${points} puntos · ${days}d`,
+  cheaper_usage: 'Uso: /cheaper <id> (id de un seguimiento de producto)',
+  cheaper_not_found: 'Ese seguimiento no existe, no es tuyo, o aún no tiene anuncio.',
+  cheaper_none: 'No hay equivalentes más baratos en tus anuncios recopilados.',
+  cheaper_intro: (title) => `🔎 Más baratos, similares a „${title}“:`,
+  cheaper_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
+  edit_usage: 'Uso: /edit <id>',
+  edit_not_found: 'Ese seguimiento no existe o no es tuyo.',
+  rename_prompt: 'Envía un nombre para este seguimiento (o „-“ para borrarlo).',
+  rename_done: (label) => `Etiqueta establecida: „${label}“.`,
+  rename_cleared: 'Etiqueta borrada.',
+  edit_card: ({ id, vendor, type, minutes, label, paused }) =>
+    `✏️ Editando seguimiento #${id} · ${label ? `„${label}“ (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ pausado' : ''}\n` +
+    `Comprueba cada ${minutes} min. Ajusta abajo:`,
+  lang_current: (n) => `Idioma actual: ${n}. Cambiar con /lang ro|en|de|fr|it|es.`,
+  lang_set: (n) => `Idioma establecido en ${n}.`,
+  lang_usage: 'Uso: /lang ro|en|de|fr|it|es',
+  lang_name: 'Español',
+  unknown_command: 'Comando desconocido. Prueba /help.',
+  send_link_hint: 'Envíame un enlace de anuncio para vigilarlo, o /help.',
+  generic_error: 'Lo siento — algo salió mal. Inténtalo de nuevo.',
+  check_usage: 'Uso: /check <id>',
+  check_ok: ({ items, new: n }) =>
+    `✅ Comprobado: ${items} anuncio${items === 1 ? '' : 's'} encontrado${items === 1 ? '' : 's'}, ${n} nuevo${n === 1 ? '' : 's'}.`,
+  check_failed: '⚠️ La comprobación falló — el sitio no respondió o parece bloqueado.',
+  check_not_found: 'Ese seguimiento no existe o no es tuyo.',
+  quota_reached: (limit) =>
+    `Has alcanzado el límite de ${limit} seguimientos. Elimina uno (/remove <id>) antes de añadir otro.`,
+  check_rate_limited: 'Demasiado rápido — espera unos segundos antes de volver a comprobar.',
+  url_rate_limited: 'Demasiado rápido — espera unos segundos antes de añadir otro enlace.',
+  watch_failing: (h) =>
+    `⚠️ El seguimiento #${h.monitorId} (${h.vendor}) parece bloqueado o no encuentra nada (${h.consecutiveFailures} comprobaciones fallidas seguidas). Te avisaré cuando se recupere.`,
+  watch_recovered: (h) => `✅ El seguimiento #${h.monitorId} (${h.vendor}) vuelve a funcionar.`,
+  price_change: ({ title, oldPrice, newPrice, direction }) =>
+    `${direction === 'down' ? '📉' : '📈'} Cambio de precio en ${title}: ${oldPrice} → ${newPrice}`,
+  delisted_title: '🗑️ Anuncio eliminado',
+  delisted_reason_product_gone: 'La página del anuncio ya no existe (fue eliminada).',
+  delisted_reason_search_dropped: 'El anuncio desapareció de los resultados seguidos.',
+  delisted_last_price: (price) => `Último precio visto: ${price}`,
+  listings_dropped_title: (count, vendor) =>
+    `🗑️ ${count} ${count === 1 ? 'anuncio desaparecido' : 'anuncios desaparecidos'} de ${vendor}`,
+  re_listed_title: '♻️ Anuncio reaparecido',
+
+  reg_watching: (v) => `✅ Vigilando ${v}`,
+  reg_baseline: (c) => `📦 Base inicial: ${c} anuncio${c === 1 ? '' : 's'} registrado${c === 1 ? '' : 's'}.`,
+  reg_tune_prompt: 'Ajusta el seguimiento y luego inicia la monitorización:',
+
+  btn_private: '👤 Particular',
+  btn_company: '🏢 Empresa',
+  btn_both: '👥 Ambos',
+  btn_exclusion: '🚫 Palabras de exclusión',
+  btn_start: '▶️ Iniciar',
+  btn_done: '✅ Hecho',
+  btn_remove: '🗑 Eliminar',
+  btn_deals_only: '🔥 Solo chollos',
+  btn_required: '✅ Palabras obligatorias',
+  btn_block: '⛔ Bloquear vendedor',
+  btn_price_range: '💶 Rango de precio',
+  btn_specs: '📐 Características',
+  btn_rename: '✏️ Renombrar',
+  btn_pause: '⏸ Pausar',
+  btn_resume: '▶️ Reanudar',
+  btn_edit: '✏️ Editar',
+  btn_target: '🎯 Precio objetivo',
+  btn_type: '✏️ Tipo',
+  picker_choose_watch: '¿Qué seguimiento?',
+  picker_choose_user: '¿Qué usuario?',
+  picker_block_prompt: '¿Qué vendedor bloquear? (pulsa; pulsa de nuevo para desbloquear)',
+  picker_exclude_prompt: '¿Qué palabras excluir? (pulsa; pulsa de nuevo para quitar)',
+  picker_require_prompt: '¿Qué palabras exigir? (pulsa; pulsa de nuevo para quitar)',
+  btn_open: '🔗 Abrir',
+  btn_call: '📞 Llamar',
+  btn_price_history: '📊 Historial de precios',
+  btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
+  btn_prev: '◀️ Anterior',
+  btn_next: 'Siguiente ▶️',
+  btn_track: '📌 Seguir',
+  btn_save: '⭐ Guardar',
+  btn_saved: '⭐ Guardado',
+  btn_dismiss: '🚫 Descartar',
+  cb_saved: 'Guardado en tu lista.',
+  cb_unsaved: 'Quitado de tu lista.',
+  cb_dismissed: 'Anuncio oculto.',
+  saved_empty: 'Aún no has guardado nada. Pulsa ⭐ Guardar en /browse.',
+  saved_intro: '⭐ Anuncios guardados:',
+  saved_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
+  btn_jump: '🔢 Ir al #',
+  btn_switch: '🔀 Cambiar',
+  btn_browse_all: '📂 Todos los anuncios',
+  browse_in_stock: '🟢 disponible',
+  browse_out_of_stock: '🔴 no disponible',
+  price_rating: ({ tag, percentile, n, suspicious }) => {
+    if (suspicious) return `⚠️ Demasiado barato — verifica (muy por debajo de ${n} similares)`;
+    if (tag === 'great_deal') return `🟢 Gran chollo — más barato que el ${Math.round((1 - percentile) * 100)}% de ${n} similares`;
+    if (tag === 'overpriced') return `🔴 Por encima del mercado — más caro que el ${Math.round(percentile * 100)}% de ${n} similares`;
+    if (tag === 'fair_price') return `🟡 Precio justo — en torno al precio habitual (${n} similares)`;
+    return '';
+  },
+  fair_value_line: ({ fair, deltaAbs, under }) =>
+    `💡 Valor justo est. ≈ ${fair} (${deltaAbs} ${under ? 'por debajo' : 'por encima'})`,
+  fair_value_under: ({ fair, pct }) => `🔥 ${pct}% por debajo de lo previsto (≈ ${fair})`,
+  browse_position: (n, total) => `artículo ${n} de ${total}`,
+  browse_empty: 'Aún no hay artículos recopilados. Añade un seguimiento con un enlace y vuelve.',
+  browse_track_done: (title) => `📌 Ahora siguiendo "${title}". Te avisaré de cambios de precio y de su eliminación.`,
+  browse_track_exists: 'Ya estás siguiendo este artículo.',
+  browse_gone: 'Este artículo ya no está disponible.',
+  browse_scope_prompt: '¿Qué te gustaría explorar?',
+  browse_jump_prompt: (total) => `Envía un número del 1 al ${total} para saltar a ese artículo.`,
+  browse_jump_invalid: (total) => `Por favor, envía un número del 1 al ${total}.`,
+
+  cb_seller_set: (v) => `Filtro de vendedor: ${v}`,
+  cb_monitoring_started: 'Monitorización iniciada',
+  cb_watch_gone: 'Ese seguimiento ya no existe.',
+  cb_unknown_option: 'Opción desconocida.',
+  cb_setting_error: 'No se pudo actualizar ese ajuste.',
+  cb_removed: 'Seguimiento eliminado.',
+  cb_freq_set: (m) => `Frecuencia: ${m} min`,
+  cb_edit_done: 'Cambios guardados.',
+  cb_paused: 'Seguimiento pausado.',
+  cb_resumed: 'Seguimiento reanudado.',
+  cb_deals_on: 'Solo chollos: activado.',
+  cb_deals_off: 'Solo chollos: desactivado.',
+  exclusion_prompt: 'Envía una lista de palabras clave separadas por comas para excluir (p. ej. dañado, piezas, siniestro).',
+  exclusion_set: (kw) => `Excluyendo: ${kw}`,
+  exclusion_cleared: 'Se borraron todas las palabras de exclusión.',
+  required_prompt: 'Envía palabras clave obligatorias separadas por comas (un anuncio debe contener al menos una). „-“ las borra.',
+  required_set: (kw) => `Exigiendo: ${kw}`,
+  required_cleared: 'Se borraron todas las palabras obligatorias.',
+  price_range_prompt: 'Envía un rango de precio: mín-máx (p. ej. 5000-15000, 5000-, -15000). „-“ lo borra.',
+  price_range_set: ({ min, max }) => `Rango de precio: ${min ?? '0'}–${max ?? '∞'}`,
+  attr_range_prompt: 'Envía características, p. ej. year>=2019, km<=120000, area>=60 (year/km/area/rooms/power). „-“ las borra.',
+  attr_range_set: (text) => `Características: ${text}`,
+  range_cleared: 'Filtro borrado.',
+  target_prompt: 'Envía el precio objetivo (solo el número, en la moneda del anuncio). Te avisaré cuando baje hasta él. „-“ lo borra.',
+  target_set: (price) => `Precio objetivo establecido: ${price}`,
+  target_cleared: 'Precio objetivo borrado.',
+  target_invalid: 'Envía un número válido (p. ej. 12000).',
+  target_hit_title: '🎯 ¡Precio objetivo alcanzado!',
+  target_hit_line: (target) => `Objetivo: ${target}`,
+  became_deal_title: '🔥 ¡Acaba de convertirse en un gran chollo!',
+  insight_line: ({ days, cuts, low }) => {
+    const parts: string[] = [];
+    if (days !== undefined) parts.push(`📅 publicado hace ${days}d`);
+    if (cuts > 0) parts.push(`📉 ${cuts} bajada${cuts === 1 ? '' : 's'}`);
+    if (low) parts.push(`mínimo ${low}`);
+    return parts.join(' · ');
+  },
+  block_prompt: 'Envía un nombre de vendedor o un número de teléfono para bloquear. „-“ vacía la lista.',
+  block_added_seller: (name) => `Vendedor bloqueado: ${name}`,
+  block_added_phone: (phone) => `Teléfono bloqueado: ${phone}`,
+  block_cleared: 'Lista de vendedores bloqueados vaciada.',
+  price_history_insufficient: 'Aún no hay suficiente historial de precios.',
+  price_history_error: 'No se pudo generar el historial de precios.',
+
+  seller_private: '👤 Vendedor particular',
+  seller_company: '🏢 Empresa',
+  specs_line: (s) => `📋 ${s}`,
+  posted_line: (d) => `🕒 Publicado: ${d}`,
+  badge_great_deal: '🔥 Gran chollo',
+  badge_fair_price: '📊 Precio justo de mercado',
+  badge_overpriced: '📈 Sobreprecio',
+  also_on: (s) => `También en: ${s}`,
+  price_drop: ({ title, oldPrice, newPrice, savings }) =>
+    `📉 Bajada de precio en ${title}: ${oldPrice} → ${newPrice} (ahorra ${savings})`,
+  back_in_stock_title: '🟢 DE NUEVO EN STOCK',
+
+  access_denied: 'No tienes acceso a este bot. Usa /request_access para solicitarlo.',
+  access_request_intro: 'Vamos a solicitar acceso. ',
+  access_ask_name: '¿Cómo te llamas? (nombre y apellido)',
+  access_ask_email: '¿Cuál es tu dirección de correo electrónico?',
+  access_email_invalid: 'Ese correo no parece válido. Por favor, envía una dirección correcta.',
+  access_request_sent: '✅ Tu solicitud se envió. Te avisaré cuando un administrador decida.',
+  access_request_pending: 'Ya tienes una solicitud pendiente. Te avisaré cuando se decida.',
+  access_granted_user: '🎉 ¡Se te ha concedido acceso! Envíame un enlace de anuncio para empezar.',
+  access_denied_user: '⛔ Tu solicitud de acceso fue rechazada. Puedes volver a solicitarlo en 7 días.',
+  access_first_admin:
+    '👑 Estás dentro, y eres el administrador (primer usuario). Gestiona el acceso con /users, /allow, /deny.',
+  access_request_too_soon: (days) =>
+    `Tu solicitud fue rechazada recientemente. Puedes volver a solicitarlo en ${days} día${days === 1 ? '' : 's'}.`,
+  access_admin_new_request: ({ id, name, email }) =>
+    `🔔 Nueva solicitud de acceso:\n${name} · ${email}\nid de chat: ${id}`,
+  access_admin_only: 'Ese comando solo está disponible para administradores.',
+  access_allow_usage: 'Uso: /allow <chat_id>',
+  access_deny_usage: 'Uso: /deny <chat_id>',
+  access_allow_done: ({ id, name }) => `✅ Acceso concedido a ${name || id} (${id}).`,
+  access_deny_done: ({ id, name }) => `⛔ Acceso rechazado a ${name || id} (${id}).`,
+  access_user_not_found: 'No hay ningún usuario con ese id de chat.',
+  access_users_intro: 'Usuarios:',
+  access_users_item: ({ id, status, isAdmin, name, email }) =>
+    `${id} · ${status}${isAdmin ? ' · admin' : ''} · ${name || '—'} · ${email || '—'}`,
+  access_users_empty: 'Aún no hay usuarios registrados.',
+  access_userinfo_usage: 'Uso: /userinfo <chat_id>',
+  access_userinfo: ({ id, status, isAdmin, name, email }) =>
+    `Usuario ${id}\nestado: ${status}${isAdmin ? ' (admin)' : ''}\nnombre: ${name || '—'}\ncorreo: ${email || '—'}`,
+  access_setname_usage: 'Uso: /setname <chat_id> <name>',
+  access_setemail_usage: 'Uso: /setemail <chat_id> <email>',
+  access_setname_prompt: ({ id }) => `Envía el nombre para el usuario ${id}.`,
+  access_setemail_prompt: ({ id }) => `Envía el correo para el usuario ${id}.`,
+  access_setname_done: ({ id, name }) => `✅ Nombre actualizado para ${id}: ${name}`,
+  access_setemail_done: ({ id, email }) => `✅ Correo actualizado para ${id}: ${email}`,
+  access_promote_usage: 'Uso: /promote <chat_id>',
+  access_demote_usage: 'Uso: /demote <chat_id>',
+  access_promote_done: ({ id }) => `👑 ${id} ahora es administrador.`,
+  access_demote_done: ({ id }) => `${id} ya no es administrador.`,
+  access_demote_last_admin: 'No puedes quitar al último administrador.',
+  access_promoted_user: '👑 Se te ha hecho administrador. Gestiona el acceso con /users.',
+  access_demoted_user: 'Se te han retirado los derechos de administrador.',
+  btn_allow: '✅ Permitir',
+  btn_deny: '⛔ Denegar',
+  cb_allow_done: ({ id }) => `Acceso concedido a ${id}.`,
+  cb_deny_done: ({ id }) => `Acceso rechazado a ${id}.`,
+  confirm_remove: (id) => `¿Detener el seguimiento #${id}? Esto no se puede deshacer.`,
+  confirm_deny: ({ id, name }) => `¿Denegar el acceso a ${name || id} (${id})?`,
+  confirm_demote: (id) => `¿Quitar los derechos de administrador a ${id}?`,
+  btn_confirm: '✅ Sí, confirmar',
+  btn_cancel: '✖️ Cancelar',
+  cb_cancelled: 'Cancelado.',
+  audit_intro: 'Registro de acceso (reciente):',
+  audit_empty: 'Aún no hay decisiones de acceso registradas.',
+  audit_item: ({ action, targetId, actorId, at }) =>
+    `${at} · ${action} · objetivo ${targetId} · por ${actorId}`,
+};
+
+const fr: Catalog = {
+  start_welcome:
+    'Bienvenue sur agor ! 👋\n\n' +
+    'Envoyez-moi un lien de recherche ou d’annonce (OLX, AutoVit, Storia…) ' +
+    'et je la surveillerai pour les nouvelles annonces, baisses de prix et changements de stock.\n\n' +
+    'Tapez /help pour la liste complète des commandes.',
+  help_body:
+    'Comment utiliser agor :\n\n' +
+    '• Envoyez un lien d’annonce http(s), ou utilisez /track <url>, pour lancer un suivi.\n' +
+    '• Après l’enregistrement, réglez le type de vendeur, la fréquence et les mots-clés exclus, puis tapez “Démarrer”.\n' +
+    '• /list — affiche tous les suivis de ce chat.\n' +
+    '• /browse — parcourez les annonces collectées ; tapez “📌 Suivre” pour surveiller une annonce.\n' +
+    '• /edit <id> — modifiez la fréquence d’un suivi, le filtre vendeur ou les mots-clés exclus.\n' +
+    '• /stats — résumé de vos suivis · /export — annonces collectées au format CSV.\n' +
+    '• /rate <url> — évaluez le prix d’une annonce sans la suivre.\n' +
+    '• /history <id> — graphique de prix d’un suivi.\n' +
+    '• /cheaper <id> — équivalents moins chers pour un produit suivi.\n' +
+    '• Transférez un message d’annonce pour la suivre automatiquement.\n' +
+    '• /remove <id> — arrête un suivi.\n' +
+    '• /lang ro|en|de|fr|it|es — change la langue.\n' +
+    '• Tapez “Historique des prix” sur une alerte pour un graphique.',
+  track_usage: 'Utilisation : /track <url>',
+  track_error: 'Désolé — je n’ai pas pu enregistrer ce suivi. Veuillez réessayer.',
+  list_empty: 'Aucun suivi pour l’instant. Envoyez un lien d’annonce pour en créer un.',
+  list_intro: 'Vos suivis :',
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked, priceRange, specs }) =>
+    `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `“${label}” (${vendor})` : vendor} · ${type}` +
+    (type === 'search' ? ` · vendeur=${seller}` : '') +
+    (type === 'search' && dealsOnly ? ' · bonnes affaires' : '') +
+    (type === 'search' && priceRange ? ` · prix ${priceRange}` : '') +
+    (type === 'search' && specs ? ` · ${specs}` : '') +
+    (type === 'search' && required ? ` · requis : ${required}` : '') +
+    (type === 'search' && exclusions ? ` · exclus : ${exclusions}` : '') +
+    (type === 'search' && blocked > 0 ? ` · bloqués : ${blocked}` : '') +
+    `\n${url}`,
+  remove_usage: 'Utilisation : /remove <id>',
+  remove_done: (id) => `Suivi #${id} arrêté.`,
+  remove_not_found: 'Ce suivi n’existe pas ou ne vous appartient pas.',
+  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+    `📊 Résumé\n` +
+    `• Suivis : ${watches} (${search} recherches, ${product} produits)\n` +
+    `• Épinglés (📌) : ${tracked} · en pause (⏸) : ${paused}\n` +
+    `• Annonces collectées : ${items}\n` +
+    (vendors ? `• Sites : ${vendors}` : ''),
+  export_caption: (rows) => `📄 Export de ${rows} annonce${rows === 1 ? '' : 's'}.`,
+  export_empty: 'Rien à exporter pour l’instant.',
+  rate_usage: 'Utilisation : /rate <url>',
+  rate_unsupported: 'Site non pris en charge ou lien invalide.',
+  rate_failed: 'Impossible de lire cette annonce (site bloqué ou indisponible).',
+  rate_no_comps: 'Pas encore assez d’annonces similaires collectées pour l’évaluer.',
+  rate_result: ({ title, price }) => `🏷️ ${title}\n💰 ${price}`,
+  history_usage: 'Utilisation : /history <id>',
+  history_not_found: 'Ce suivi n’existe pas, ne vous appartient pas, ou n’a pas d’historique de prix.',
+  history_summary: ({ title, first, last, low, cuts, points, days }) =>
+    `📈 ${title}\nDe ${first} → maintenant ${last}\nMin ${low} · ${cuts} baisse${cuts === 1 ? '' : 's'} · ${points} points · ${days}j`,
+  cheaper_usage: 'Utilisation : /cheaper <id> (id d’un suivi de produit)',
+  cheaper_not_found: 'Ce suivi n’existe pas, ne vous appartient pas, ou n’a pas encore d’annonce.',
+  cheaper_none: 'Aucun équivalent moins cher dans vos annonces collectées.',
+  cheaper_intro: (title) => `🔎 Moins cher, similaire à “${title}” :`,
+  cheaper_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
+  edit_usage: 'Utilisation : /edit <id>',
+  edit_not_found: 'Ce suivi n’existe pas ou ne vous appartient pas.',
+  rename_prompt: 'Envoyez un nom pour ce suivi (ou “-” pour l’effacer).',
+  rename_done: (label) => `Étiquette définie : “${label}”.`,
+  rename_cleared: 'Étiquette effacée.',
+  edit_card: ({ id, vendor, type, minutes, label, paused }) =>
+    `✏️ Modification du suivi #${id} · ${label ? `“${label}” (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ en pause' : ''}\n` +
+    `Vérifie toutes les ${minutes} min. Ajustez ci-dessous :`,
+  lang_current: (n) => `Langue actuelle : ${n}. Changer avec /lang ro|en|de|fr|it|es.`,
+  lang_set: (n) => `Langue définie sur ${n}.`,
+  lang_usage: 'Utilisation : /lang ro|en|de|fr|it|es',
+  lang_name: 'Français',
+  unknown_command: 'Commande inconnue. Essayez /help.',
+  send_link_hint: 'Envoyez-moi un lien d’annonce à surveiller, ou /help.',
+  generic_error: 'Désolé — une erreur est survenue. Veuillez réessayer.',
+  check_usage: 'Utilisation : /check <id>',
+  check_ok: ({ items, new: n }) =>
+    `✅ Vérifié : ${items} annonce${items === 1 ? '' : 's'} trouvée${items === 1 ? '' : 's'}, ${n} nouvelle${n === 1 ? '' : 's'}.`,
+  check_failed: '⚠️ Échec de la vérification — le site n’a pas répondu ou semble bloqué.',
+  check_not_found: 'Ce suivi n’existe pas ou ne vous appartient pas.',
+  quota_reached: (limit) =>
+    `Vous avez atteint la limite de ${limit} suivis. Supprimez-en un (/remove <id>) avant d’en ajouter un autre.`,
+  check_rate_limited: 'Trop rapide — attendez quelques secondes avant de revérifier.',
+  url_rate_limited: 'Trop rapide — attendez quelques secondes avant d’ajouter un autre lien.',
+  watch_failing: (h) =>
+    `⚠️ Le suivi #${h.monitorId} (${h.vendor}) semble bloqué ou ne trouve rien (${h.consecutiveFailures} échecs consécutifs). Je vous préviendrai quand il sera rétabli.`,
+  watch_recovered: (h) => `✅ Le suivi #${h.monitorId} (${h.vendor}) fonctionne à nouveau.`,
+  price_change: ({ title, oldPrice, newPrice, direction }) =>
+    `${direction === 'down' ? '📉' : '📈'} Prix modifié sur ${title} : ${oldPrice} → ${newPrice}`,
+  delisted_title: '🗑️ Annonce supprimée',
+  delisted_reason_product_gone: 'La page de l’annonce n’existe plus (elle a été supprimée).',
+  delisted_reason_search_dropped: 'L’annonce a disparu des résultats suivis.',
+  delisted_last_price: (price) => `Dernier prix vu : ${price}`,
+  listings_dropped_title: (count, vendor) =>
+    `🗑️ ${count} ${count === 1 ? 'annonce disparue' : 'annonces disparues'} sur ${vendor}`,
+  re_listed_title: '♻️ Annonce réapparue',
+
+  reg_watching: (v) => `✅ Surveillance de ${v}`,
+  reg_baseline: (c) => `📦 Référence : ${c} annonce${c === 1 ? '' : 's'} enregistrée${c === 1 ? '' : 's'}.`,
+  reg_tune_prompt: 'Réglez le suivi, puis démarrez la surveillance :',
+
+  btn_private: '👤 Particulier',
+  btn_company: '🏢 Professionnel',
+  btn_both: '👥 Les deux',
+  btn_exclusion: '🚫 Mots-clés exclus',
+  btn_start: '▶️ Démarrer',
+  btn_done: '✅ Terminé',
+  btn_remove: '🗑 Supprimer',
+  btn_deals_only: '🔥 Bonnes affaires',
+  btn_required: '✅ Mots requis',
+  btn_block: '⛔ Bloquer le vendeur',
+  btn_price_range: '💶 Fourchette de prix',
+  btn_specs: '📐 Caractéristiques',
+  btn_rename: '✏️ Renommer',
+  btn_pause: '⏸ Pause',
+  btn_resume: '▶️ Reprendre',
+  btn_edit: '✏️ Modifier',
+  btn_target: '🎯 Prix cible',
+  btn_type: '✏️ Type',
+  picker_choose_watch: 'Quel suivi ?',
+  picker_choose_user: 'Quel utilisateur ?',
+  picker_block_prompt: 'Bloquer quel vendeur ? (tapez ; tapez à nouveau pour débloquer)',
+  picker_exclude_prompt: 'Exclure quels mots ? (tapez ; tapez à nouveau pour retirer)',
+  picker_require_prompt: 'Exiger quels mots ? (tapez ; tapez à nouveau pour retirer)',
+  btn_open: '🔗 Ouvrir',
+  btn_call: '📞 Appeler',
+  btn_price_history: '📊 Historique des prix',
+  btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
+  btn_prev: '◀️ Préc.',
+  btn_next: 'Suiv. ▶️',
+  btn_track: '📌 Suivre',
+  btn_save: '⭐ Enregistrer',
+  btn_saved: '⭐ Enregistré',
+  btn_dismiss: '🚫 Ignorer',
+  cb_saved: 'Ajouté à votre sélection.',
+  cb_unsaved: 'Retiré de votre sélection.',
+  cb_dismissed: 'Annonce masquée.',
+  saved_empty: 'Rien d’enregistré pour l’instant. Tapez ⭐ Enregistrer dans /browse.',
+  saved_intro: '⭐ Annonces enregistrées :',
+  saved_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
+  btn_jump: '🔢 Aller au #',
+  btn_switch: '🔀 Changer',
+  btn_browse_all: '📂 Toutes les annonces',
+  browse_in_stock: '🟢 disponible',
+  browse_out_of_stock: '🔴 indisponible',
+  price_rating: ({ tag, percentile, n, suspicious }) => {
+    if (suspicious) return `⚠️ Trop bas — à vérifier (bien en dessous de ${n} similaires)`;
+    if (tag === 'great_deal') return `🟢 Bonne affaire — moins cher que ${Math.round((1 - percentile) * 100)}% de ${n} similaires`;
+    if (tag === 'overpriced') return `🔴 Au-dessus du marché — plus cher que ${Math.round(percentile * 100)}% de ${n} similaires`;
+    if (tag === 'fair_price') return `🟡 Prix correct — proche du tarif courant (${n} similaires)`;
+    return '';
+  },
+  fair_value_line: ({ fair, deltaAbs, under }) =>
+    `💡 Prix juste estimé ≈ ${fair} (${deltaAbs} ${under ? 'en dessous' : 'au-dessus'})`,
+  fair_value_under: ({ fair, pct }) => `🔥 ${pct}% sous le prix prévu (≈ ${fair})`,
+  browse_position: (n, total) => `annonce ${n} sur ${total}`,
+  browse_empty: 'Aucune annonce collectée pour l’instant. Ajoutez un suivi avec un lien, puis revenez.',
+  browse_track_done: (title) => `📌 Suivi de "${title}" activé. Je vous alerterai en cas de changement de prix ou de retrait.`,
+  browse_track_exists: 'Vous suivez déjà cette annonce.',
+  browse_gone: 'Cette annonce n’est plus disponible.',
+  browse_scope_prompt: 'Que souhaitez-vous parcourir ?',
+  browse_jump_prompt: (total) => `Envoyez un nombre de 1 à ${total} pour aller à cette annonce.`,
+  browse_jump_invalid: (total) => `Veuillez envoyer un nombre de 1 à ${total}.`,
+
+  cb_seller_set: (v) => `Filtre vendeur : ${v}`,
+  cb_monitoring_started: 'Surveillance démarrée',
+  cb_watch_gone: 'Ce suivi n’existe plus.',
+  cb_unknown_option: 'Option inconnue.',
+  cb_setting_error: 'Impossible de mettre à jour ce réglage.',
+  cb_removed: 'Suivi supprimé.',
+  cb_freq_set: (m) => `Fréquence : ${m} min`,
+  cb_edit_done: 'Modifications enregistrées.',
+  cb_paused: 'Suivi mis en pause.',
+  cb_resumed: 'Suivi repris.',
+  cb_deals_on: 'Bonnes affaires : activé.',
+  cb_deals_off: 'Bonnes affaires : désactivé.',
+  exclusion_prompt: 'Envoyez une liste de mots-clés à exclure, séparés par des virgules (ex. : endommagé, pièces, épave).',
+  exclusion_set: (kw) => `Exclus : ${kw}`,
+  exclusion_cleared: 'Tous les mots-clés exclus ont été effacés.',
+  required_prompt: 'Envoyez des mots-clés requis séparés par des virgules (une annonce doit en contenir au moins un). “-” les efface.',
+  required_set: (kw) => `Requis : ${kw}`,
+  required_cleared: 'Tous les mots-clés requis ont été effacés.',
+  price_range_prompt: 'Envoyez une fourchette de prix : min-max (ex. : 5000-15000, 5000-, -15000). “-” l’efface.',
+  price_range_set: ({ min, max }) => `Fourchette de prix : ${min ?? '0'}–${max ?? '∞'}`,
+  attr_range_prompt: 'Envoyez des caractéristiques, ex. : year>=2019, km<=120000, area>=60 (year/km/area/rooms/power). “-” les efface.',
+  attr_range_set: (text) => `Caractéristiques : ${text}`,
+  range_cleared: 'Filtre effacé.',
+  target_prompt: 'Envoyez le prix cible (nombre uniquement, dans la devise de l’annonce). Je vous alerterai quand il l’atteindra. “-” l’efface.',
+  target_set: (price) => `Prix cible défini : ${price}`,
+  target_cleared: 'Prix cible effacé.',
+  target_invalid: 'Envoyez un nombre valide (ex. : 12000).',
+  target_hit_title: '🎯 Prix cible atteint !',
+  target_hit_line: (target) => `Cible : ${target}`,
+  became_deal_title: '🔥 Vient de devenir une bonne affaire !',
+  insight_line: ({ days, cuts, low }) => {
+    const parts: string[] = [];
+    if (days !== undefined) parts.push(`📅 en ligne ${days}j`);
+    if (cuts > 0) parts.push(`📉 ${cuts} baisse${cuts === 1 ? '' : 's'}`);
+    if (low) parts.push(`min ${low}`);
+    return parts.join(' · ');
+  },
+  block_prompt: 'Envoyez un nom de vendeur ou un numéro de téléphone à bloquer. “-” vide la liste.',
+  block_added_seller: (name) => `Vendeur bloqué : ${name}`,
+  block_added_phone: (phone) => `Téléphone bloqué : ${phone}`,
+  block_cleared: 'Liste des vendeurs bloqués vidée.',
+  price_history_insufficient: 'Pas encore assez d’historique de prix.',
+  price_history_error: 'Impossible d’afficher l’historique des prix.',
+
+  seller_private: '👤 Vendeur particulier',
+  seller_company: '🏢 Professionnel',
+  specs_line: (s) => `📋 ${s}`,
+  posted_line: (d) => `🕒 Publié : ${d}`,
+  badge_great_deal: '🔥 Bonne affaire',
+  badge_fair_price: '📊 Prix du marché',
+  badge_overpriced: '📈 Surévalué',
+  also_on: (s) => `Aussi sur : ${s}`,
+  price_drop: ({ title, oldPrice, newPrice, savings }) =>
+    `📉 Baisse de prix sur ${title} : ${oldPrice} → ${newPrice} (économie ${savings})`,
+  back_in_stock_title: '🟢 DE RETOUR EN STOCK',
+
+  access_denied: 'Vous n’avez pas accès à ce bot. Utilisez /request_access pour le demander.',
+  access_request_intro: 'Demandons l’accès. ',
+  access_ask_name: 'Quel est votre nom ? (prénom et nom)',
+  access_ask_email: 'Quelle est votre adresse e-mail ?',
+  access_email_invalid: 'Cette adresse e-mail ne semble pas valide. Veuillez envoyer une adresse correcte.',
+  access_request_sent: '✅ Votre demande a été envoyée. Je vous préviendrai dès qu’un administrateur aura décidé.',
+  access_request_pending: 'Vous avez déjà une demande en attente. Je vous préviendrai dès qu’elle sera traitée.',
+  access_granted_user: '🎉 L’accès vous a été accordé ! Envoyez-moi un lien d’annonce pour commencer.',
+  access_denied_user: '⛔ Votre demande d’accès a été refusée. Vous pourrez redemander dans 7 jours.',
+  access_first_admin:
+    '👑 Vous êtes admis, et vous êtes l’administrateur (premier utilisateur). Gérez les accès avec /users, /allow, /deny.',
+  access_request_too_soon: (days) =>
+    `Votre demande a été refusée récemment. Vous pourrez redemander dans ${days} jour${days === 1 ? '' : 's'}.`,
+  access_admin_new_request: ({ id, name, email }) =>
+    `🔔 Nouvelle demande d’accès :\n${name} · ${email}\nid du chat : ${id}`,
+  access_admin_only: 'Cette commande est réservée aux administrateurs.',
+  access_allow_usage: 'Utilisation : /allow <chat_id>',
+  access_deny_usage: 'Utilisation : /deny <chat_id>',
+  access_allow_done: ({ id, name }) => `✅ Accès accordé pour ${name || id} (${id}).`,
+  access_deny_done: ({ id, name }) => `⛔ Accès refusé pour ${name || id} (${id}).`,
+  access_user_not_found: 'Aucun utilisateur avec cet id de chat.',
+  access_users_intro: 'Utilisateurs :',
+  access_users_item: ({ id, status, isAdmin, name, email }) =>
+    `${id} · ${status}${isAdmin ? ' · admin' : ''} · ${name || '—'} · ${email || '—'}`,
+  access_users_empty: 'Aucun utilisateur enregistré pour l’instant.',
+  access_userinfo_usage: 'Utilisation : /userinfo <chat_id>',
+  access_userinfo: ({ id, status, isAdmin, name, email }) =>
+    `Utilisateur ${id}\nstatut : ${status}${isAdmin ? ' (admin)' : ''}\nnom : ${name || '—'}\ne-mail : ${email || '—'}`,
+  access_setname_usage: 'Utilisation : /setname <chat_id> <name>',
+  access_setemail_usage: 'Utilisation : /setemail <chat_id> <email>',
+  access_setname_prompt: ({ id }) => `Envoyez le nom de l’utilisateur ${id}.`,
+  access_setemail_prompt: ({ id }) => `Envoyez l’e-mail de l’utilisateur ${id}.`,
+  access_setname_done: ({ id, name }) => `✅ Nom mis à jour pour ${id} : ${name}`,
+  access_setemail_done: ({ id, email }) => `✅ E-mail mis à jour pour ${id} : ${email}`,
+  access_promote_usage: 'Utilisation : /promote <chat_id>',
+  access_demote_usage: 'Utilisation : /demote <chat_id>',
+  access_promote_done: ({ id }) => `👑 ${id} est désormais administrateur.`,
+  access_demote_done: ({ id }) => `${id} n’est plus administrateur.`,
+  access_demote_last_admin: 'Vous ne pouvez pas retirer le dernier administrateur.',
+  access_promoted_user: '👑 Vous avez été nommé administrateur. Gérez les accès avec /users.',
+  access_demoted_user: 'Vos droits d’administrateur ont été retirés.',
+  btn_allow: '✅ Autoriser',
+  btn_deny: '⛔ Refuser',
+  cb_allow_done: ({ id }) => `Accès accordé pour ${id}.`,
+  cb_deny_done: ({ id }) => `Accès refusé pour ${id}.`,
+  confirm_remove: (id) => `Arrêter le suivi #${id} ? Cette action est irréversible.`,
+  confirm_deny: ({ id, name }) => `Refuser l’accès pour ${name || id} (${id}) ?`,
+  confirm_demote: (id) => `Retirer les droits d’administrateur à ${id} ?`,
+  btn_confirm: '✅ Oui, confirmer',
+  btn_cancel: '✖️ Annuler',
+  cb_cancelled: 'Annulé.',
+  audit_intro: 'Journal d’accès (récent) :',
+  audit_empty: 'Aucune décision d’accès enregistrée pour l’instant.',
+  audit_item: ({ action, targetId, actorId, at }) =>
+    `${at} · ${action} · cible ${targetId} · par ${actorId}`,
+};
+
 /**
  * The Telegram command menu (the `/` autocomplete) per language, registered via
  * setMyCommands. Command tokens are shared; only descriptions are localized.
@@ -896,7 +2004,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'history', description: 'Grafic preț pentru o urmărire (/history <id>)' },
     { command: 'export', description: 'Exportă anunțurile colectate (CSV)' },
     { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
-    { command: 'lang', description: 'Schimbă limba (/lang ro|en)' },
+    { command: 'lang', description: 'Schimbă limba (/lang ro|en|de|fr|it|es)' },
     { command: 'request_access', description: 'Cere acces la bot' },
     { command: 'help', description: 'Cum se folosește botul' },
   ],
@@ -913,14 +2021,82 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'history', description: 'Price chart for a watch (/history <id>)' },
     { command: 'export', description: 'Export collected listings (CSV)' },
     { command: 'remove', description: 'Stop a watch (/remove <id>)' },
-    { command: 'lang', description: 'Change language (/lang ro|en)' },
+    { command: 'lang', description: 'Change language (/lang ro|en|de|fr|it|es)' },
     { command: 'request_access', description: 'Request access to the bot' },
     { command: 'help', description: 'How to use the bot' },
+  ],
+  de: [
+    { command: 'start', description: 'Bot starten' },
+    { command: 'track', description: 'Einen Anzeigenlink beobachten' },
+    { command: 'list', description: 'Beobachtungen dieses Chats anzeigen' },
+    { command: 'browse', description: 'Gesammelte Anzeigen durchstöbern' },
+    { command: 'saved', description: 'Deine gemerkten Anzeigen (⭐)' },
+    { command: 'check', description: 'Eine Beobachtung jetzt prüfen (/check <id>)' },
+    { command: 'edit', description: 'Eine Beobachtung bearbeiten (/edit <id>)' },
+    { command: 'stats', description: 'Übersicht deiner Beobachtungen' },
+    { command: 'rate', description: 'Den Preis eines Links bewerten (/rate <url>)' },
+    { command: 'history', description: 'Preisdiagramm für eine Beobachtung (/history <id>)' },
+    { command: 'export', description: 'Gesammelte Anzeigen exportieren (CSV)' },
+    { command: 'remove', description: 'Eine Beobachtung stoppen (/remove <id>)' },
+    { command: 'lang', description: 'Sprache ändern (/lang ro|en|de|fr|it|es)' },
+    { command: 'request_access', description: 'Zugang zum Bot anfragen' },
+    { command: 'help', description: 'So benutzt du den Bot' },
+  ],
+  fr: [
+    { command: 'start', description: 'Démarrer le bot' },
+    { command: 'track', description: 'Surveiller un lien d’annonce' },
+    { command: 'list', description: 'Afficher les suivis de ce chat' },
+    { command: 'browse', description: 'Parcourir les annonces collectées' },
+    { command: 'saved', description: 'Vos annonces enregistrées (⭐)' },
+    { command: 'check', description: 'Vérifier un suivi maintenant (/check <id>)' },
+    { command: 'edit', description: 'Modifier un suivi (/edit <id>)' },
+    { command: 'stats', description: 'Résumé de vos suivis' },
+    { command: 'rate', description: 'Évaluer le prix d’un lien (/rate <url>)' },
+    { command: 'history', description: 'Graphique de prix d’un suivi (/history <id>)' },
+    { command: 'export', description: 'Exporter les annonces collectées (CSV)' },
+    { command: 'remove', description: 'Arrêter un suivi (/remove <id>)' },
+    { command: 'lang', description: 'Changer la langue (/lang ro|en|de|fr|it|es)' },
+    { command: 'request_access', description: 'Demander l’accès au bot' },
+    { command: 'help', description: 'Comment utiliser le bot' },
+  ],
+  it: [
+    { command: 'start', description: 'Avvia il bot' },
+    { command: 'track', description: 'Monitora il link di un annuncio' },
+    { command: 'list', description: 'Mostra i monitoraggi di questa chat' },
+    { command: 'browse', description: 'Sfoglia gli annunci raccolti' },
+    { command: 'saved', description: 'I tuoi annunci salvati (⭐)' },
+    { command: 'check', description: 'Controlla ora un monitoraggio (/check <id>)' },
+    { command: 'edit', description: 'Modifica un monitoraggio (/edit <id>)' },
+    { command: 'stats', description: 'Riepilogo dei tuoi monitoraggi' },
+    { command: 'rate', description: 'Valuta il prezzo di un link (/rate <url>)' },
+    { command: 'history', description: 'Grafico dei prezzi di un monitoraggio (/history <id>)' },
+    { command: 'export', description: 'Esporta gli annunci raccolti (CSV)' },
+    { command: 'remove', description: 'Interrompi un monitoraggio (/remove <id>)' },
+    { command: 'lang', description: 'Cambia lingua (/lang ro|en|de|fr|it|es)' },
+    { command: 'request_access', description: 'Richiedi accesso al bot' },
+    { command: 'help', description: 'Come usare il bot' },
+  ],
+  es: [
+    { command: 'start', description: 'Iniciar el bot' },
+    { command: 'track', description: 'Vigilar un enlace de anuncio' },
+    { command: 'list', description: 'Mostrar los seguimientos de este chat' },
+    { command: 'browse', description: 'Explorar los anuncios recopilados' },
+    { command: 'saved', description: 'Tus anuncios guardados (⭐)' },
+    { command: 'check', description: 'Comprobar un seguimiento ahora (/check <id>)' },
+    { command: 'edit', description: 'Editar un seguimiento (/edit <id>)' },
+    { command: 'stats', description: 'Resumen de tus seguimientos' },
+    { command: 'rate', description: 'Evaluar el precio de un enlace (/rate <url>)' },
+    { command: 'history', description: 'Gráfico de precios de un seguimiento (/history <id>)' },
+    { command: 'export', description: 'Exportar los anuncios recopilados (CSV)' },
+    { command: 'remove', description: 'Detener un seguimiento (/remove <id>)' },
+    { command: 'lang', description: 'Cambiar idioma (/lang ro|en|de|fr|it|es)' },
+    { command: 'request_access', description: 'Solicitar acceso al bot' },
+    { command: 'help', description: 'Cómo usar el bot' },
   ],
 };
 
 /** All catalogs, keyed by language. */
-export const messages: Record<Lang, Catalog> = { ro, en };
+export const messages: Record<Lang, Catalog> = { ro, en, de, fr, it, es };
 
 /** Convenience accessor: the catalog for `lang`. */
 export function tr(lang: Lang): Catalog {

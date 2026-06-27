@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { messages, tr, commandMenu } from '../src/gateway/strings';
+import { messages, tr, commandMenu, LANGS } from '../src/gateway/strings';
 import { resolveLang, DEFAULT_LANG } from '../src/gateway/lang';
 import { registrationKeyboard } from '../src/gateway/keyboards';
 import { classifyMessage } from '../src/gateway/bot';
@@ -8,8 +8,11 @@ import { ChatPrefsRepo } from '../src/persistence/chatPrefs';
 import { openDb } from '../src/persistence/db';
 
 describe('catalog completeness', () => {
-  it('ro and en expose exactly the same set of keys', () => {
-    expect(Object.keys(messages.ro).sort()).toEqual(Object.keys(messages.en).sort());
+  it('every language exposes exactly the same set of keys as Romanian', () => {
+    const roKeys = Object.keys(messages.ro).sort();
+    for (const lang of LANGS) {
+      expect(Object.keys(messages[lang]).sort()).toEqual(roKeys);
+    }
   });
 });
 
@@ -45,12 +48,13 @@ describe('resolveLang (Romanian-first)', () => {
 });
 
 describe('command menu', () => {
-  it('ro and en expose the same command set, each with a description', () => {
-    const ro = commandMenu.ro.map((c) => c.command).sort();
-    const en = commandMenu.en.map((c) => c.command).sort();
-    expect(ro).toEqual(en);
-    for (const c of [...commandMenu.ro, ...commandMenu.en]) {
-      expect(c.description.length).toBeGreaterThan(0);
+  it('every language exposes the same command set, each with a description', () => {
+    const roCmds = commandMenu.ro.map((c) => c.command).sort();
+    for (const lang of LANGS) {
+      expect(commandMenu[lang].map((c) => c.command).sort()).toEqual(roCmds);
+      for (const c of commandMenu[lang]) {
+        expect(c.description.length).toBeGreaterThan(0);
+      }
     }
   });
 });

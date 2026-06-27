@@ -10,6 +10,7 @@
  */
 
 import type { IScrapedItem } from '../contracts/index';
+import type { Lang } from '../gateway/strings';
 import { roundToNearest5 } from '../util/money';
 
 /**
@@ -40,12 +41,20 @@ export function offerAnchor(price: number): number {
 }
 
 /** Localized copy templates for the negotiation draft. */
-const TEMPLATES = {
-  ro: (title: string, anchor: number, currency: string) =>
+const TEMPLATES: Record<Lang, (title: string, anchor: number, currency: string) => string> = {
+  ro: (title, anchor, currency) =>
     `Bună ziua! Sunt interesat de "${title}". Aș oferi ${anchor} ${currency}. Este disponibil?`,
-  en: (title: string, anchor: number, currency: string) =>
+  en: (title, anchor, currency) =>
     `Hello! I'm interested in "${title}". I'd offer ${anchor} ${currency}. Is it still available?`,
-} as const;
+  de: (title, anchor, currency) =>
+    `Hallo! Ich interessiere mich für "${title}". Ich würde ${anchor} ${currency} bieten. Ist es noch verfügbar?`,
+  fr: (title, anchor, currency) =>
+    `Bonjour ! Je suis intéressé par "${title}". Je proposerais ${anchor} ${currency}. Est-il toujours disponible ?`,
+  it: (title, anchor, currency) =>
+    `Salve! Sono interessato a "${title}". Offrirei ${anchor} ${currency}. È ancora disponibile?`,
+  es: (title, anchor, currency) =>
+    `¡Hola! Me interesa "${title}". Ofrecería ${anchor} ${currency}. ¿Sigue disponible?`,
+};
 
 /**
  * Draft a natural, copy-paste ready negotiation message for an item.
@@ -57,7 +66,7 @@ const TEMPLATES = {
  * @param item  The scraped listing to negotiate on.
  * @param lang  Output language; defaults to Romanian (`'ro'`).
  */
-export function draftOffer(item: IScrapedItem, lang: 'ro' | 'en' = 'ro'): string {
+export function draftOffer(item: IScrapedItem, lang: Lang = 'ro'): string {
   const anchor = offerAnchor(item.price);
   // Sanitize the title for the single-line code span: a code span cannot span
   // lines (newlines break it) and a bare backtick would close it early. Collapse
