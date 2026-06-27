@@ -464,6 +464,9 @@ describe("10.2 product registration + price-drop detection", () => {
       currentPrice: 850,
       savings: 150,
     });
+    // The alert carries market insight: one price cut so far, lowest 850.
+    expect(drop[0]!.insight?.priceCuts).toBe(1);
+    expect(drop[0]!.insight?.lowestPrice).toBe(850);
 
     // ── Cycle 2: price rises 850 -> 900 -> no notification (still recorded). ──
     h.setNow(3_000);

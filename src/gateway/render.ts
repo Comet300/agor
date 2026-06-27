@@ -19,6 +19,7 @@ import type { ItemSnapshot } from '../persistence';
 import type { InlineKeyboard } from 'grammy';
 import { formatMoney } from '../util/money';
 import { draftOffer } from '../features/contactOffer';
+import { hasInsight } from '../features/marketInsight';
 import {
   quickActionsKeyboard,
   registrationKeyboard,
@@ -165,10 +166,26 @@ function renderBackInStock(item: EnrichedItem, lang: Lang): RenderedMessage {
 }
 
 /**
- * Render any {@link Notification} into a ready-to-send message. Dispatches on
- * the notification kind; every branch attaches the same quick-action keyboard.
+ * Render any {@link Notification} into a ready-to-send message. Dispatches on the
+ * kind, then appends a market-insight line (time-on-market / price cuts) when the
+ * notification carries one (product alerts).
  */
 export function renderNotification(n: Notification, lang: Lang): RenderedMessage {
+  const msg = renderByKind(n, lang);
+  if (n.insight && hasInsight(n.insight)) {
+    const low = n.insight.lowestPrice !== undefined && n.item
+      ? formatMoney(n.insight.lowestPrice, n.item.currency)
+      : '';
+    msg.text += '\n' + tr(lang).insight_line({
+      cuts: n.insight.priceCuts,
+      low,
+      ...(n.insight.daysOnMarket !== undefined ? { days: n.insight.daysOnMarket } : {}),
+    });
+  }
+  return msg;
+}
+
+function renderByKind(n: Notification, lang: Lang): RenderedMessage {
   switch (n.kind) {
     case 'new_listing':
       return renderNewListing(n.item!, lang);

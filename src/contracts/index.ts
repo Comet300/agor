@@ -269,6 +269,16 @@ export interface TargetHitInfo {
   currentPrice: number;
 }
 
+/** Negotiation-relevant signals derived from a listing's age + price history. */
+export interface MarketInsight {
+  /** Whole days since the listing was posted (omitted when postedAt is unknown). */
+  daysOnMarket?: number;
+  /** Count of consecutive price decreases across the recorded history. */
+  priceCuts: number;
+  /** Lowest price ever observed (omitted when there is no history). */
+  lowestPrice?: number;
+}
+
 /** Why an item is considered gone. */
 export type DelistReason =
   /** A product page returned a client error (404/410). */
@@ -319,6 +329,8 @@ export interface Notification {
   priceChange?: PriceChangeInfo;
   /** Present only for target_hit notifications. */
   target?: TargetHitInfo;
+  /** Optional market insight (time-on-market, price cuts) for a product alert. */
+  insight?: MarketInsight;
   /** Present only for item_delisted notifications. */
   delist?: DelistInfo;
   /** Present only for listings_dropped (search de-listing roll-up). */
