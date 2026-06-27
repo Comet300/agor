@@ -24,6 +24,7 @@ import {
   enrichWithBenchmark,
   DedupBuffer,
   collapseDuplicates,
+  vinOf,
   runPipeline,
 } from '../src/pipeline';
 
@@ -714,6 +715,40 @@ describe('dedup', () => {
     // A prune past the window removes it from the store too.
     second.prune(120_000);
     expect(rows.size).toBe(0);
+  });
+
+  it('collapses two listings sharing a VIN despite differing title/price', () => {
+    const vin = 'WBA3A5C50EK123456';
+    const x = {
+      ...item({ id: 'x', vendor: 'V1', url: 'https://v1/x', title: 'BMW 320d', price: 10000, location: 'Cluj' }),
+      attributes: { vin },
+    } as EnrichedItem;
+    const y = {
+      ...item({ id: 'y', vendor: 'V2', url: 'https://v2/y', title: 'Bmw Seria 3 320', price: 10800, location: 'Bucuresti' }),
+      attributes: { 'Serie sasiu': vin },
+    } as EnrichedItem;
+    const buffer = new DedupBuffer(60_000);
+    const out = collapseDuplicates([x, y], buffer, 1_000);
+    // Same VIN => same physical car => collapse, even though title/price/location differ.
+    expect(out.items.map((i) => i.id)).toEqual(['x']);
+    expect(out.items[0]!.alternativeSources).toEqual([{ vendor: 'V2', url: 'https://v2/y' }]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// vinOf
+// ────────────────────────────────────────────────────────────────────────────
+describe('vinOf', () => {
+  it('extracts a VIN from an attribute value or the description (uppercased)', () => {
+    expect(vinOf({ attributes: { 'Serie sasiu': 'TSMZ93BE30E345535' } })).toBe('TSMZ93BE30E345535');
+    expect(vinOf({ description: 'masina impecabila, vin wba3a5c50ek123456, fara accident' })).toBe('WBA3A5C50EK123456');
+  });
+
+  it('rejects 17-char tokens that are not VIN-shaped', () => {
+    expect(vinOf({ attributes: { x: 'AAAAAAAAAAAAAAAAA' } })).toBeUndefined(); // all letters, no digit
+    expect(vinOf({ attributes: { x: '12345678901234567' } })).toBeUndefined(); // all digits, no letter
+    expect(vinOf({ description: 'pret 1000, suna acum' })).toBeUndefined(); // nothing VIN-like
+    expect(vinOf({})).toBeUndefined(); // no attributes / description
   });
 });
 

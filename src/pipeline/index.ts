@@ -125,4 +125,5 @@ export {
   type PricedSample,
 } from './benchmarking';
 export { DedupBuffer, collapseDuplicates } from './dedup';
+export { vinOf } from './vin';
 export type { DedupEntry, CrossPost, CollapseResult, AlternativeSource } from './dedup';
