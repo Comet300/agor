@@ -20,6 +20,7 @@ import type { InlineKeyboard } from 'grammy';
 import { formatMoney } from '../util/money';
 import { draftOffer } from '../features/contactOffer';
 import { hasInsight } from '../features/marketInsight';
+import type { PriceRating } from '../features/priceRating';
 import {
   quickActionsKeyboard,
   registrationKeyboard,
@@ -355,12 +356,19 @@ export function renderBrowseCard(
   total: number,
   lang: Lang,
   canSwitch = false,
+  rating?: PriceRating,
 ): BrowseView {
   const t = tr(lang);
   const lines: string[] = [];
   lines.push(`🏷️ ${snap.title ?? snap.itemId}`);
   const stock = snap.inStock ? t.browse_in_stock : t.browse_out_of_stock;
   lines.push(`💰 ${formatMoney(snap.lastPrice, snap.currency)} · ${stock}`);
+
+  // Price rating vs comparable collected listings (omitted when unknown).
+  if (rating && rating.tag !== 'unknown' && rating.percentile !== undefined) {
+    const line = t.price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n });
+    if (line) lines.push(line);
+  }
 
   const specs = snapshotSpecs(snap);
   if (specs) lines.push(t.specs_line(specs));

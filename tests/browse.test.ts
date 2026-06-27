@@ -277,6 +277,20 @@ describe('/browse carousel', () => {
     expect(h.sent.at(-1)!.text).toContain('item 1 of 2');
   });
 
+  it('shows a price rating on the card when enough comparables exist', async () => {
+    // Six same-model listings; the newest (shown first) is the cheapest → great deal.
+    seedItems([
+      item({ id: 'a', title: 'Toyota Corolla Hybrid 2016', price: 20000, currency: 'EUR', url: 'https://synth.test/a' }),
+      item({ id: 'b', title: 'Toyota Corolla Hybrid 2017', price: 19000, currency: 'EUR', url: 'https://synth.test/b' }),
+      item({ id: 'c', title: 'Toyota Corolla Hybrid 2018', price: 21000, currency: 'EUR', url: 'https://synth.test/c' }),
+      item({ id: 'd', title: 'Toyota Corolla Hybrid 2019', price: 22000, currency: 'EUR', url: 'https://synth.test/d' }),
+      item({ id: 'e', title: 'Toyota Corolla Hybrid 2020', price: 18000, currency: 'EUR', url: 'https://synth.test/e' }),
+      item({ id: 'f', title: 'Toyota Corolla Hybrid 2021', price: 12000, currency: 'EUR', url: 'https://synth.test/f' }),
+    ]);
+    await cmd(h.bot, '/browse');
+    expect(h.sent.at(-1)!.text).toMatch(/great deal|cheaper than/i);
+  });
+
   it('br: with no open session prompts a fresh browse', async () => {
     // A brand-new chat that never ran /browse — a different id so no module-global
     // session from earlier cases leaks in. Allow it and tap a stale-looking nav.

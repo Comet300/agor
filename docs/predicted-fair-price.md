@@ -1,94 +1,103 @@
-# Design: Predicted Fair Price (plan only — not yet implemented)
+# Price rating & fair-price — design
 
-## Goal
+## TL;DR
 
-Move beyond the current median benchmark (a single number across a search's
-active listings) to a **per-listing predicted fair price** that accounts for the
-attributes that actually drive value — for cars: year, mileage (km), fuel, power,
-transmission. Then express each listing as a delta vs its own prediction
-("≈ €1,800 under predicted") and a confidence band.
+We **rate** a price (great/fair/overpriced vs comparables), we don't predict an
+exact number. Rating is robust at low sample sizes, category-agnostic, and
+honest about asking-vs-sold. A point fair-price estimate is a later *sharpener*
+that rides on accumulated per-category slope weights — not the foundation.
 
-This sharpens the existing `dealTag` (`great_deal` / `fair_price` / `overpriced`),
-which today compares price to the raw median and so calls a high-mileage 2014 car
-"a great deal" just because it's below the median of a sample dominated by newer
-cars.
+**Shipped (v1):** category-agnostic comparable **percentile rating**
+(`src/features/priceRating.ts`), surfaced on browse cards and `/cheaper`.
 
-## Why now is the right substrate
+## Why rating, not prediction
 
-The pieces already exist:
+- **Low-n reality:** a category/segment often has 1–5 comparables. Regression on
+  5 points is underdetermined (n < k) or wildly overfit. A *percentile of* a
+  small comp set is still honest; a fitted price isn't.
+- **Asking ≠ sold:** we only observe asking prices + delisting, never the
+  transaction. "Cheaper than 85% of similar asks" is defensible; a predicted
+  sale price is not.
+- **Multi-category:** cars `{year,km,power}`, property `{area,rooms,floor}`,
+  fashion `{brand,condition}` share no feature space. A rating engine keyed on a
+  *comparable set* generalizes; a single regressor can't.
 
-- `IScrapedItem.attributes` carries `{ year, km, fuel, power, … }` as display
-  strings (per-vendor `attributes` manifest maps).
-- `items` rows persist the latest snapshot incl. `attributes_json`.
-- `price_history` gives realized price trajectories.
-- The benchmark stage (`src/pipeline/benchmarking.ts`) is already the place a
-  per-listing expected price is computed and attached as `EnrichedItem.benchmark`.
+## v1 — comparable percentile rating (shipped)
 
-## Approach (staged)
+Universal comparable key = **same currency + similar title**. Every listing in
+every category has a title, price, currency, so this works everywhere with zero
+per-category schema.
 
-### Stage 0 — Attribute normalization (prerequisite)
-Attributes are display strings ("145.000 km", "2.016", "Diesel"). Add a pure
-`parseAttributes(attributes)` → `{ year?: number; km?: number; fuel?: string;
-powerKw?: number }` with locale-aware number parsing (the `.`/`,`/space handling
-we already do for prices) and a small fuel synonym map (ro/en). Lives in
-`src/pipeline/attributes.ts`, fully unit-tested. **No model yet** — this alone
-enables attribute *range filters* (a separately-scoped feature) and feeds the
-predictor.
+```
+comps = collected items, same currency, not the target,
+        title-token overlap >= threshold
+widen: threshold from tight (3 shared significant tokens) down to 1
+       until >= MIN_COMPS comparables (else → unknown)
+median + percentile of comp prices
+tag:  pctile <= .15 great_deal · >= .85 overpriced · else fair_price
+confidence: comp count x how tight a threshold gathered them
+```
 
-### Stage 1 — Per-search heuristic regression (ship first)
-Per search cycle we already hold the full active sample. Fit a cheap model on
-that sample alone (no cross-run state, no storage):
+- Robust: percentile + median, so scam under-prices / outliers don't swing it.
+- Honest: `unknown` (no verdict) when comps are too thin.
+- Pi-trivial: filter + sort, no fit, no storage beyond the `items` we keep.
 
-- Log-linear OLS: `ln(price) ~ 1 + year + km` (+ fuel as a categorical offset
-  when enough samples per class). Closed-form normal equations, ~10 lines, no
-  dependency.
-- Predict each listing's price from its own attributes; `residual = price −
-  predicted`. Surface `predictedPrice` + `residualPct` on `EnrichedItem`.
-- Guardrails: require `n >= MIN_SAMPLE_FOR_MODEL` (e.g. 12) and a sane R²; else
-  fall back to today's median benchmark and emit nothing new. Drop listings with
-  missing year/km from the fit (but still score them via the median fallback).
+Surfaced: a line on the browse card ("🟢 Great deal — cheaper than 88% of 24
+similar") and atop `/cheaper`.
 
-This is self-contained, explainable, and needs **zero new storage** — the same
-shape as the current benchmark, just attribute-aware.
+## v2 — attribute refinement + slope weights (future)
 
-### Stage 2 — Cross-run / cross-vendor model (later)
-Accumulate `(attributes, price, soldOrDelisted, daysOnMarket)` into a training
-table and fit a periodic, more expressive model (gradient-boosted trees) offline,
-shipped as coefficients/threshold tables the bot loads. Enables predictions even
-on a single-item product watch (where there's no live sample) and powers the
-"cheaper-equivalent" and "is this a scam (too far below predicted)" features with
-real backing. This is a meaningful infra step (training pipeline, model
-artifacts, versioning) and should be its own project.
+Sharpens v1 from "similar title" to "similar spec", and adds a point estimate.
 
-## Surfacing
+### Prereqs
+- **Attribute normalization:** `"145.000 km"→145000`, `"2.016"→2016`,
+  `"65 m²"→65`, unit detection. Also unlocks attribute *range filters*.
+- **Category inference:** vendor + URL path prior, confirmed by attribute
+  signature (year+km → car; area+rooms → property).
 
-- **Deal tag v2**: derive from `residualPct` vs predicted instead of vs median.
-- **Card line**: "💡 ≈ €1,800 under predicted (€16,800)" on new-listing/browse
-  cards when a confident prediction exists.
-- **Deals-only filter**: reuse — "below predicted" replaces "below median".
-- **Scam flag**: `residualPct < −X%` AND new/low-rep seller → caution note.
+### Slope/level split (the core idea)
+- **Slopes** (per-km depreciation, €/m²) are stable across segments → fit ONCE
+  per `(category, currency)` on the pooled data (large n).
+- **Level** (this model/locality baseline) is the sparse part → comes from the
+  few comps, never a local fit.
 
-## Risks / open questions
+### Self-building slope weights — incremental, drift-aware
+Per `(category, currency)` keep normal-equation accumulators:
+```
+A = XᵀX   b = Xᵀy   n     // update O(k²) per tracked listing, ~100 floats/category
+w = solve(A + λI, b)       // ridge; λ mandatory for sparse/collinear segments
+A ← ρ·A + x·xᵀ ;  b ← ρ·b + x·y     // forgetting factor ρ≈0.99 → tracks market drift
+```
+No raw-row refit, no big storage, Pi-tiny. Cold start → seed sane priors (car
+~15%/yr, ~€0.04/km), let data override as `A` fills.
 
-- **Sparse attributes**: many listings omit km or year; the model must degrade to
-  the median fallback per-listing, not fail the whole cycle.
-- **Mixed currencies**: fit per currency bucket (we already bucket for the median).
-- **Category generality**: the year/km model is car-shaped. For property
-  (`area`, `rooms`) the feature set differs — Stage 1 should pick the feature set
-  by the attributes actually present, or be gated to vendors/categories we trust.
-- **Explainability**: keep it a transparent linear model in Stage 1 so "why is
-  this a deal" stays answerable.
+### Hedonic adjustment (valuation at n=1–5)
+Don't regress the comps — adjust them to the target's spec with global slopes,
+then median:
+```
+fair = median over comps of [ comp_price + Σ w_f·(target_f − comp_f) ]
+```
+Slopes carry the curve; comps carry the level. Works at n=1.
 
-## Test plan (when built)
+### Confidence ladder
+| Comps after widening | Action |
+|---|---|
+| many, tight band | high — adjusted median + CI |
+| ≥ MIN_COMPS | medium |
+| < MIN_COMPS even region-wide | low / suppress (no fake number) |
+| slopes not trained yet | raw comp median, lowest confidence |
 
-- `parseAttributes`: locale number parsing, fuel synonyms, missing fields.
-- Regression: known synthetic sample → expected coefficients within tolerance;
-  fallback when `n < MIN_SAMPLE`; missing-attribute listings scored via fallback.
-- End-to-end cycle: a sample where a high-km cheap car is NOT tagged a great deal
-  once attribute-aware (the regression test that proves the upgrade over median).
+## v3 — outcome calibration (later)
 
-## Scope boundary
+Use delist-after-stable-price as a sold proxy to calibrate which residuals
+actually convert, and to flag scams (`price ≪ predicted` + new/low-rep seller).
+Real ML (trees) only if ever needed, trained **offline**, shipped as coefficient
+tables the Pi evaluates — training is the expensive part, evaluation is free.
 
-Stage 0 + Stage 1 are a single shippable PR (pure pipeline + rendering, no
-storage). Stage 2 is explicitly out of scope until there's demand and a training
-pipeline. This document is the plan; no code ships with it.
+## Honesty / risks
+
+- Tracking bias: weights from OUR tracks ≠ whole market. Slopes survive it;
+  **levels skew** → that's why level stays comp-driven.
+- Property needs a locality bucket from free-text `location` (it dominates price).
+- Cars need title → make/model parse before slopes mean anything.
+- Always per-category AND per-currency. Never mix.

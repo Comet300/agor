@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { marketInsight } from '../src/features/marketInsight';
 import { findCheaperEquivalents, titleTokens } from '../src/features/cheaperFinder';
+import { ratePrice } from '../src/features/priceRating';
 import type { PricePoint } from '../src/contracts';
 import type { ItemSnapshot } from '../src/persistence';
 
@@ -63,5 +64,46 @@ describe('cheaperFinder', () => {
       snap({ itemId: 'u', title: 'Toyota Corolla Hybrid', lastPrice: 14000, currency: 'EUR', url: 'https://x/t' }), // same url
     ];
     expect(findCheaperEquivalents(target, candidates)).toHaveLength(0);
+  });
+});
+
+describe('ratePrice (category-agnostic comparable percentile)', () => {
+  function corollas(prices: number[], currency = 'EUR') {
+    return prices.map((p, i) => snap({ itemId: `c${i}`, title: `Toyota Corolla Hybrid 20${10 + i}`, lastPrice: p, currency, url: `https://x/c${i}` }));
+  }
+  const target = (price: number, currency = 'EUR') => ({ itemId: 't', title: 'Toyota Corolla Hybrid 2021', price, currency });
+
+  it('great_deal when cheaper than most comparables', () => {
+    const r = ratePrice(target(9000), corollas([12000, 13000, 14000, 15000, 16000, 17000]));
+    expect(r.tag).toBe('great_deal');
+    expect(r.percentile).toBe(0); // below all comps
+    expect(r.n).toBe(6);
+  });
+
+  it('overpriced when pricier than most comparables', () => {
+    expect(ratePrice(target(25000), corollas([12000, 13000, 14000, 15000, 16000, 17000])).tag).toBe('overpriced');
+  });
+
+  it('fair_price in the middle of the pack', () => {
+    expect(ratePrice(target(14500), corollas([12000, 13000, 14000, 15000, 16000, 17000])).tag).toBe('fair_price');
+  });
+
+  it('unknown when there are too few comparables', () => {
+    const r = ratePrice(target(14000), corollas([13000, 15000]));
+    expect(r.tag).toBe('unknown');
+    expect(r.confidence).toBe('none');
+  });
+
+  it('ignores other-currency listings when gathering comps', () => {
+    const mixed = [...corollas([12000, 13000], 'EUR'), ...corollas([100, 200, 300, 400, 500], 'RON')];
+    expect(ratePrice(target(14000, 'EUR'), mixed).tag).toBe('unknown'); // only 2 EUR comps
+  });
+
+  it('works for a NON-car category (phones) via title similarity + widening', () => {
+    const phones = [11, 12, 13, 14, 15].map((g, i) =>
+      snap({ itemId: `p${i}`, title: `iPhone 13 Pro ${256}GB unit ${g}`, lastPrice: 3000 + i * 100, currency: 'RON', url: `https://x/p${i}` }));
+    const r = ratePrice({ itemId: 't', title: 'iPhone 13 Pro 256GB', price: 2500, currency: 'RON' }, phones);
+    expect(r.tag).toBe('great_deal'); // cheapest of the iPhone comps
+    expect(r.n).toBe(5);
   });
 });

@@ -151,6 +151,8 @@ export interface Catalog {
   btn_browse_all: string;
   browse_in_stock: string;
   browse_out_of_stock: string;
+  /** One-line price rating vs comparable listings; '' for an unknown verdict. */
+  price_rating: (p: { tag: 'great_deal' | 'fair_price' | 'overpriced' | 'unknown'; percentile: number; n: number }) => string;
   browse_position: (n: number, total: number) => string;
   browse_empty: string;
   browse_track_done: (title: string) => string;
@@ -383,6 +385,12 @@ const ro: Catalog = {
   btn_browse_all: '📂 Toate anunțurile',
   browse_in_stock: '🟢 disponibil',
   browse_out_of_stock: '🔴 indisponibil',
+  price_rating: ({ tag, percentile, n }) => {
+    if (tag === 'great_deal') return `🟢 Ofertă bună — mai ieftin ca ${Math.round((1 - percentile) * 100)}% din ${n} similare`;
+    if (tag === 'overpriced') return `🔴 Peste piață — mai scump ca ${Math.round(percentile * 100)}% din ${n} similare`;
+    if (tag === 'fair_price') return `🟡 Preț corect — în jurul mediei (${n} similare)`;
+    return '';
+  },
   browse_position: (n, total) => `articolul ${n} din ${total}`,
   browse_empty: 'Niciun anunț colectat încă. Adaugă o urmărire cu un link, apoi revino.',
   browse_track_done: (title) => `📌 Urmăresc acum „${title}". Te anunț la schimbări de preț și la eliminare.`,
@@ -617,6 +625,12 @@ const en: Catalog = {
   btn_browse_all: '📂 All listings',
   browse_in_stock: '🟢 available',
   browse_out_of_stock: '🔴 unavailable',
+  price_rating: ({ tag, percentile, n }) => {
+    if (tag === 'great_deal') return `🟢 Great deal — cheaper than ${Math.round((1 - percentile) * 100)}% of ${n} similar`;
+    if (tag === 'overpriced') return `🔴 Above market — pricier than ${Math.round(percentile * 100)}% of ${n} similar`;
+    if (tag === 'fair_price') return `🟡 Fair price — around the going rate (${n} similar)`;
+    return '';
+  },
   browse_position: (n, total) => `item ${n} of ${total}`,
   browse_empty: 'No items collected yet. Add a watch with a link, then come back.',
   browse_track_done: (title) => `📌 Now tracking "${title}". I'll alert you on price changes and de-listing.`,

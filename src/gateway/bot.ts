@@ -31,6 +31,7 @@ import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBro
 import { toCsv } from '../util/csv';
 import { formatMoney } from '../util/money';
 import { findCheaperEquivalents } from '../features/cheaperFinder';
+import { ratePrice } from '../features/priceRating';
 import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
@@ -485,18 +486,21 @@ export function buildBot(
         await ctx.reply(tr(lang).cheaper_not_found);
         return;
       }
-      const matches = findCheaperEquivalents(
-        { itemId: snap.itemId, title: snap.title ?? snap.itemId, price: snap.lastPrice, currency: snap.currency, ...(snap.url ? { url: snap.url } : {}) },
-        store.items.browse(chatId, BROWSE_WINDOW, 0),
-      );
+      const pool = store.items.browse(chatId, BROWSE_WINDOW, 0);
+      const target = { itemId: snap.itemId, title: snap.title ?? snap.itemId, price: snap.lastPrice, currency: snap.currency, ...(snap.url ? { url: snap.url } : {}) };
+      const rating = ratePrice(target, pool);
+      const ratingLine = rating.tag !== 'unknown' && rating.percentile !== undefined
+        ? tr(lang).price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n }) + '\n'
+        : '';
+      const matches = findCheaperEquivalents(target, pool);
       if (matches.length === 0) {
-        await ctx.reply(tr(lang).cheaper_none);
+        await ctx.reply(ratingLine + tr(lang).cheaper_none);
         return;
       }
       const lines = matches.map((m) =>
         tr(lang).cheaper_item({ title: m.title, price: formatMoney(m.price, m.currency), url: m.url ?? '' }),
       );
-      await replyChunked((t) => ctx.reply(t), `${tr(lang).cheaper_intro(snap.title ?? snap.itemId)}\n\n${lines.join('\n\n')}`);
+      await replyChunked((t) => ctx.reply(t), `${ratingLine}${tr(lang).cheaper_intro(snap.title ?? snap.itemId)}\n\n${lines.join('\n\n')}`);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -523,7 +527,13 @@ export function buildBot(
     // Offer the scope "Switch" affordance only when there's more than one watch
     // to switch between (otherwise browse-all is the only scope).
     const canSwitch = store.monitors.listByChat(chatId).length > 1;
-    const view = renderBrowseCard(items[i]!, i, items.length, lang, canSwitch);
+    // Rate this item's price against the chat's collected pool (category-agnostic).
+    const snap = items[i]!;
+    const rating = ratePrice(
+      { itemId: snap.itemId, title: snap.title ?? snap.itemId, price: snap.lastPrice, currency: snap.currency, ...(snap.url ? { url: snap.url } : {}) },
+      store.items.browse(chatId, BROWSE_WINDOW, 0),
+    );
+    const view = renderBrowseCard(snap, i, items.length, lang, canSwitch, rating);
     const markup = view.keyboard ? { reply_markup: view.keyboard } : undefined;
     if (view.photoUrl) {
       try {
