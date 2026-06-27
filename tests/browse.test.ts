@@ -12,6 +12,7 @@ import { ProxyPool } from '../src/scraping/proxyPool';
 import { ScrapingEngine } from '../src/scraping/engine';
 import { loadConfig } from '../src/config';
 import type { IScrapedItem, IVendorPlugin } from '../src/contracts';
+import { emptyState, addObservation, featureVector } from '../src/features/fairValue';
 import type { Bot } from 'grammy';
 
 const USER = 7000;
@@ -289,6 +290,21 @@ describe('/browse carousel', () => {
     ]);
     await cmd(h.bot, '/browse');
     expect(h.sent.at(-1)!.text).toMatch(/great deal|cheaper than/i);
+  });
+
+  it('shows a model-predicted fair value on the card when the model is trained', async () => {
+    const now = Date.now();
+    const s = emptyState(3);
+    for (let year = 2016; year <= 2025; year++) {
+      for (const km of [50000, 100000, 150000]) {
+        const x = featureVector('car', { year, km }, now)!;
+        addObservation(s, x, 9 - 0.3 * x[1]! - 0.05 * x[2]!);
+      }
+    }
+    h.store.valuation.save('car', 'RON', s, now);
+    seedItems([item({ id: 'c1', title: 'Toyota Corolla', price: 90000, currency: 'RON', url: 'https://synth.test/c1', attributes: { year: '2018', km: '100000' } })]);
+    await cmd(h.bot, '/browse');
+    expect(h.sent.at(-1)!.text).toMatch(/fair ≈/i);
   });
 
   it('/rate scrapes a pasted link and replies with its price + a verdict', async () => {

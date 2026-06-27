@@ -33,6 +33,7 @@ import { formatMoney } from '../util/money';
 import { findCheaperEquivalents } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
+import { parseNumericAttrs, inferCategory, estimateFairValue } from '../features/fairValue';
 import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, type BrowseScope } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
@@ -615,7 +616,12 @@ export function buildBot(
       { itemId: snap.itemId, title: snap.title ?? snap.itemId, price: snap.lastPrice, currency: snap.currency, ...(snap.url ? { url: snap.url } : {}) },
       store.items.browse(chatId, BROWSE_WINDOW, 0),
     );
-    const view = renderBrowseCard(snap, i, items.length, lang, canSwitch, rating);
+    // Model-predicted fair value (v2): load the (category, currency) model.
+    const cat = inferCategory(parseNumericAttrs(snap.attributes));
+    const fairValue = cat
+      ? estimateFairValue(snap.attributes, snap.lastPrice, Date.now(), store.valuation.get(cat, snap.currency))
+      : null;
+    const view = renderBrowseCard(snap, i, items.length, lang, canSwitch, rating, fairValue);
     const markup = view.keyboard ? { reply_markup: view.keyboard } : undefined;
     if (view.photoUrl) {
       try {

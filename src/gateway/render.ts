@@ -21,6 +21,7 @@ import { formatMoney } from '../util/money';
 import { draftOffer } from '../features/contactOffer';
 import { hasInsight } from '../features/marketInsight';
 import type { PriceRating } from '../features/priceRating';
+import type { FairValue } from '../features/fairValue';
 import {
   quickActionsKeyboard,
   registrationKeyboard,
@@ -378,6 +379,7 @@ export function renderBrowseCard(
   lang: Lang,
   canSwitch = false,
   rating?: PriceRating,
+  fairValue?: FairValue | null,
 ): BrowseView {
   const t = tr(lang);
   const lines: string[] = [];
@@ -389,6 +391,15 @@ export function renderBrowseCard(
   if (rating && rating.tag !== 'unknown' && rating.percentile !== undefined) {
     const line = t.price_rating({ tag: rating.tag, percentile: rating.percentile, n: rating.n, suspicious: rating.suspicious });
     if (line) lines.push(line);
+  }
+
+  // Model-predicted fair value (v2), when a trained model could value it.
+  if (fairValue) {
+    lines.push(t.fair_value_line({
+      fair: formatMoney(fairValue.fair, snap.currency),
+      deltaAbs: formatMoney(Math.abs(fairValue.delta), snap.currency),
+      under: fairValue.delta < 0,
+    }));
   }
 
   const specs = snapshotSpecs(snap);

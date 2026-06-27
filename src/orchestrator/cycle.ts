@@ -12,7 +12,7 @@
  * dispatches anything itself — it returns the notifications for the caller (the
  * scheduler/orchestrator) to deliver. Time is injected for determinism.
  */
-import type { Monitor, Notification } from '../contracts';
+import type { IScrapedItem, Monitor, Notification } from '../contracts';
 import type { Store } from '../persistence';
 import type { PluginRegistry } from '../registry';
 import type { ScrapingEngine } from '../scraping/engine';
@@ -25,6 +25,10 @@ import {
 } from '../pipeline';
 import { marketInsight } from '../features/marketInsight';
 import { ratePrice } from '../features/priceRating';
+import {
+  parseNumericAttrs, inferCategory, featureVector, targetValue,
+  emptyState, addObservation, FEATURE_K, type RidgeState,
+} from '../features/fairValue';
 import { log } from '../logging/logger';
 
 /** Cap on the comparable pool loaded when rating a tracked item for became-a-deal. */
@@ -197,6 +201,9 @@ export class MonitorCycle {
       }
     });
 
+    // Feed the fair-value models with this batch's attributes (v2).
+    this.feedValuation(out.active, at);
+
     this.logPoll(monitor, at, {
       ok: true,
       status: outcome.status,
@@ -313,6 +320,9 @@ export class MonitorCycle {
       this.deps.store.items.upsert(monitor.id, item, at);
     });
 
+    // Feed the fair-value models with this listing's attributes (v2).
+    this.feedValuation([item], at);
+
     // Became-a-deal: rate the item against the chat's collected pool and alert
     // once when it crosses INTO a great deal (wasn't great last cycle). Runs after
     // the upsert so the pool is current; ratePrice excludes the item itself.
@@ -362,5 +372,36 @@ export class MonitorCycle {
       itemsActive: 1,
       newItems: notifications.length,
     };
+  }
+
+  /**
+   * Fold a batch of scraped items into the fair-value (v2) ridge accumulators,
+   * grouped by (category, currency): parse numeric attributes, infer the
+   * category, build the feature row, and accumulate `ln(price)` against it. One
+   * load + one save per group keeps DB churn low. Items with no usable category
+   * or a non-positive price are skipped.
+   */
+  private feedValuation(items: IScrapedItem[], at: number): void {
+    const updates = new Map<string, RidgeState>();
+    for (const item of items) {
+      if (item.price <= 0 || item.currency === '') continue;
+      const attrs = parseNumericAttrs(item.attributes);
+      const category = inferCategory(attrs);
+      if (!category) continue;
+      const x = featureVector(category, attrs, at);
+      if (!x) continue;
+      const key = `${category}|${item.currency}`;
+      let state = updates.get(key);
+      if (!state) {
+        state = this.deps.store.valuation.get(category, item.currency) ?? emptyState(FEATURE_K[category]);
+        updates.set(key, state);
+      }
+      if (state.k !== x.length) continue;
+      addObservation(state, x, targetValue(item.price));
+    }
+    for (const [key, state] of updates) {
+      const [category, currency] = key.split('|');
+      this.deps.store.valuation.save(category!, currency!, state, at);
+    }
   }
 }
