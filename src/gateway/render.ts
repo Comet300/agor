@@ -493,9 +493,10 @@ function attrRangeSummary(ranges?: Record<string, { min?: number; max?: number }
  * Render one /list watch as its own message: the watch line plus an inline action
  * row (Edit / Pause-Resume / Remove) so the user can manage it without typing ids.
  */
-export function renderListRow(monitor: Monitor, lang: Lang): RenderedMessage {
+export function renderListRow(monitor: Monitor, lang: Lang, trendBadge = ''): RenderedMessage {
+  const base = tr(lang).list_item(listItemParams(monitor));
   return {
-    text: tr(lang).list_item(listItemParams(monitor)),
+    text: trendBadge ? `${base}\n${trendBadge}` : base,
     keyboard: listRowKeyboard(monitor, lang),
   };
 }

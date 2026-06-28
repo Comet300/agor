@@ -28,6 +28,7 @@ import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput, phoneKey } from '../pipeline';
 import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard, renderListRow, renderPicker } from './render';
+import { computeTrend, renderTrendBadge } from '../features/trend';
 import { toCsv } from '../util/csv';
 import { formatMoney } from '../util/money';
 import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
@@ -463,8 +464,11 @@ export function buildBot(
       // Intro, then one message per watch carrying its inline action row
       // (Edit / Pause / Remove) so the user can manage it without typing ids.
       await ctx.reply(tr(lang).list_intro);
+      const now = Date.now();
       for (const m of monitors) {
-        const row = renderListRow(m, lang);
+        // Market trend is a per-search-query signal; a product watch tracks one item.
+        const badge = m.type === 'search' ? renderTrendBadge(computeTrend(store.priceHistory, m.id, now)) : '';
+        const row = renderListRow(m, lang, badge);
         await ctx.reply(row.text, row.keyboard ? { reply_markup: row.keyboard } : undefined);
       }
     } catch (err) {
