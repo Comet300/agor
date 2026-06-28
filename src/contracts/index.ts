@@ -174,6 +174,12 @@ export interface FilterConfig {
    * fires once (re-armed only if the price climbs back above the target).
    */
   targetPrice?: number;
+  /**
+   * Digest mode for a search watch: when set, new-listing alerts are NOT pinged
+   * in real time but batched and delivered as a ranked daily/weekly summary
+   * (best deals first, with market stats). Absent = real-time alerts.
+   */
+  digest?: 'daily' | 'weekly';
 }
 
 export interface Monitor {
@@ -257,7 +263,9 @@ export type NotificationKind =
   /** A tracked item's price reached the user's target (threshold crossing). */
   | 'target_hit'
   /** A tracked item just crossed INTO a great deal vs comparable listings. */
-  | 'became_deal';
+  | 'became_deal'
+  /** A batched daily/weekly summary of a digest-mode search watch's new listings. */
+  | 'digest';
 
 export interface PriceDropInfo {
   previousPrice: number;
@@ -382,4 +390,28 @@ export interface Notification {
   messageRef?: MessageRef;
   /** Present only for watch_failing / watch_recovered notices. */
   health?: WatchHealth;
+  /** Present only for digest notifications: the batched summary to render. */
+  digest?: DigestSummary;
+}
+
+/** A single batched listing inside a digest summary. */
+export interface DigestEntry {
+  itemId: string;
+  title: string;
+  price: number;
+  currency: string;
+  url: string;
+  /** Benchmark deal tag at enqueue time, if any. */
+  dealTag?: DealTag;
+  /** Fair-value delta fraction at enqueue time (negative = under), if computed. */
+  deltaPct?: number;
+}
+
+/** The payload for a `digest` notification: a watch's batched new listings. */
+export interface DigestSummary {
+  vendor: string;
+  /** 'daily' | 'weekly' — the window this digest covers. */
+  period: 'daily' | 'weekly';
+  /** The batched listings (unranked; the renderer ranks best-deals-first). */
+  entries: DigestEntry[];
 }

@@ -137,6 +137,8 @@ export class RegistrationService {
     if (status >= 400 && status < 500 && !outcome.blocked) {
       this.deps.store.monitors.delete(monitor.id);
       this.deps.store.watchSubscribers.removeAll(monitor.id); // keep deletion self-consistent
+      this.deps.store.digestQueue.removeAll(monitor.id);
+
 
       log('registration').debug(
         { vendor: plugin.vendor, url: scrubbed, status, chatId: input.chatId, event: 'REGISTER-REJECTED' },

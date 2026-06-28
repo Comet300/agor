@@ -14,7 +14,8 @@
  * code span). We keep formatting minimal and rely on emoji + plain text so the
  * output is robust regardless of parse mode.
  */
-import type { EnrichedItem, Monitor, Notification, DealTag, SellerVisibility, MarketInsight } from '../contracts';
+import type { EnrichedItem, Monitor, Notification, DealTag, SellerVisibility, MarketInsight, DigestSummary } from '../contracts';
+import { rankDigest, digestStats } from '../features/digest';
 import type { ItemSnapshot } from '../persistence';
 import type { InlineKeyboard } from 'grammy';
 import { formatMoney } from '../util/money';
@@ -174,6 +175,32 @@ function renderNewListing(item: EnrichedItem, lang: Lang, fairValue?: FairValue,
   return { text: lines.join('\n'), keyboard: quickActionsKeyboard(item, lang) };
 }
 
+/** Most listings shown in one digest message (the rest are summarized as "+N"). */
+const DIGEST_MAX_ROWS = 15;
+
+/** Render a digest: a ranked, best-deals-first summary of a watch's batched listings. */
+function renderDigest(summary: DigestSummary, lang: Lang): RenderedMessage {
+  const t = tr(lang);
+  const ranked = rankDigest(summary.entries);
+  const stats = digestStats(summary.entries);
+
+  const lines: string[] = [t.digest_intro({ count: stats.count, vendor: summary.vendor })];
+  if (stats.currency !== undefined && stats.median !== undefined && stats.min !== undefined && stats.max !== undefined) {
+    lines.push(t.digest_stats({
+      median: formatMoney(stats.median, stats.currency),
+      range: `${formatMoney(stats.min, stats.currency)}–${formatMoney(stats.max, stats.currency)}`,
+    }));
+  }
+  lines.push('');
+  ranked.slice(0, DIGEST_MAX_ROWS).forEach((e, i) => {
+    const badge = e.dealTag === 'great_deal' ? '🔥 ' : '';
+    lines.push(`${i + 1}. ${badge}${formatMoney(e.price, e.currency)} — ${e.title}`);
+    lines.push(e.url);
+  });
+  if (ranked.length > DIGEST_MAX_ROWS) lines.push(`… +${ranked.length - DIGEST_MAX_ROWS}`);
+  return { text: lines.join('\n') };
+}
+
 /** Render a price drop as a single-line delta with the savings. */
 function renderPriceDrop(
   item: EnrichedItem,
@@ -261,6 +288,8 @@ function renderByKind(n: Notification, lang: Lang): RenderedMessage {
       return renderTargetHit(n.item!, n.target, lang);
     case 'became_deal':
       return renderBecameDeal(n.item!, n.becameDeal, lang);
+    case 'digest':
+      return renderDigest(n.digest!, lang);
   }
 }
 

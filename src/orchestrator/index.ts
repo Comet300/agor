@@ -14,7 +14,8 @@
  * deterministic under test.
  */
 import type { AppConfig } from "../config";
-import type { MessageRef, Monitor, Notification, NotificationKind } from "../contracts";
+import type { MessageRef, Monitor, Notification, NotificationKind, DigestSummary } from "../contracts";
+import { DIGEST_PERIOD_MS } from "../features/digest";
 import type { Store } from "../persistence";
 import { maintainDb } from "../persistence";
 import type { PluginRegistry } from "../registry";
@@ -115,6 +116,7 @@ export class Orchestrator {
           auditRetentionDays: deps.config.auditRetentionDays,
         }),
       maintenanceIntervalTicks: deps.config.dbMaintenanceIntervalTicks,
+      onDigestFlush: async () => this.flushDigests(this.now()),
       now: this.now,
     });
   }
@@ -246,6 +248,20 @@ export class Orchestrator {
       const targets = ownerOnly(n.kind) ? [monitor.chatId] : [monitor.chatId, ...subscribers];
       for (const chatId of targets) {
         if (n.item && isDismissed(chatId, n.item.id)) continue;
+        // Digest mode: park new-listing alerts for a batched daily/weekly summary
+        // instead of pinging them in real time (other kinds still alert live).
+        if (n.kind === "new_listing" && monitor.filters.digest && n.item) {
+          this.deps.store.digestQueue.enqueue(monitor.id, chatId, {
+            itemId: n.item.id,
+            title: n.item.title,
+            price: n.item.price,
+            currency: n.item.currency,
+            url: n.item.url,
+            ...(n.item.dealTag ? { dealTag: n.item.dealTag } : {}),
+            ...(n.fairValue ? { deltaPct: n.fairValue.deltaPct } : {}),
+          }, this.now());
+          continue;
+        }
         // Re-target a copy for subscribers; the owner keeps the original object.
         const delivery: Notification = chatId === monitor.chatId ? n : { ...n, chatId };
         // Isolate each delivery: a single failing notify() (Telegram hiccup,
@@ -272,6 +288,40 @@ export class Orchestrator {
           dedup.refreshOriginal(sig, n.item);
         }
       }
+    }
+  }
+
+  /**
+   * Flush every digest-mode (watch, chat) group whose window has elapsed: render
+   * a ranked best-deals-first summary, deliver it, and clear the queue. A group
+   * whose watch lost its digest setting or was removed is dropped without sending.
+   * Idempotent and cheap to call every tick — `pending()` is one grouped query.
+   */
+  async flushDigests(now: number): Promise<void> {
+    for (const g of this.deps.store.digestQueue.pending()) {
+      const monitor = this.deps.store.monitors.get(g.monitorId);
+      const mode = monitor?.filters.digest;
+      if (!monitor || mode === undefined) {
+        this.deps.store.digestQueue.clear(g.monitorId, g.chatId); // stale → drop
+        continue;
+      }
+      if (now - g.oldest < DIGEST_PERIOD_MS[mode]) continue; // window not elapsed
+      const rows = this.deps.store.digestQueue.items(g.monitorId, g.chatId);
+      if (rows.length === 0) {
+        this.deps.store.digestQueue.clear(g.monitorId, g.chatId);
+        continue;
+      }
+      const digest: DigestSummary = { vendor: monitor.vendor, period: mode, entries: rows };
+      try {
+        await this.deps.notify({ kind: "digest", chatId: g.chatId, digest });
+      } catch (err) {
+        log("orchestrator").warn(
+          { chatId: g.chatId, err: (err as Error).message },
+          "digest delivery failed",
+        );
+        continue; // keep the queue; retry on a later tick
+      }
+      this.deps.store.digestQueue.clear(g.monitorId, g.chatId);
     }
   }
 

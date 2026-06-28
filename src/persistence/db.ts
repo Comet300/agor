@@ -174,6 +174,22 @@ export function migrate(db: DB): void {
       PRIMARY KEY (monitor_id, chat_id)
     );
 
+    -- Digest mode: new-listing alerts for a digest watch are queued here instead
+    -- of pinged in real time, then flushed as a ranked daily/weekly summary.
+    CREATE TABLE IF NOT EXISTS digest_queue (
+      monitor_id INTEGER NOT NULL,
+      chat_id    INTEGER NOT NULL,
+      item_id    TEXT NOT NULL,
+      title      TEXT,
+      price      REAL,
+      currency   TEXT,
+      url        TEXT,
+      deal_tag   TEXT,
+      delta_pct  REAL,
+      queued_at  INTEGER NOT NULL,
+      PRIMARY KEY (monitor_id, chat_id, item_id)
+    );
+
     -- Fair-value (v2): per (category, currency) ridge accumulators.
     CREATE TABLE IF NOT EXISTS valuation_models (
       category   TEXT,
