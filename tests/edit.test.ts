@@ -231,12 +231,24 @@ describe('/edit', () => {
     expect(h.store.monitors.get(m.id)!.filters.priceMin).toBeUndefined();
   });
 
-  it('ear sets attribute (spec) ranges from the next text reply', async () => {
+  it('ear → ✏️ type sets attribute (spec) ranges from the next text reply', async () => {
+    const m = mkMonitor(h.store, 'search');
+    await cmd(h.bot, `/edit ${m.id}`);
+    await tap(h.bot, `ear:${m.id}`); // opens the specs wizard (chooser)
+    await tap(h.bot, `ec:${m.id}:type`); // ✏️ escape → free-text prompt
+    await say(h.bot, 'year>=2019, km<=120000');
+    expect(h.store.monitors.get(m.id)!.filters.attrRanges).toEqual({ year: { min: 2019 }, km: { max: 120000 } });
+  });
+
+  it('ear → year preset sets a one-tap lower bound', async () => {
     const m = mkMonitor(h.store, 'search');
     await cmd(h.bot, `/edit ${m.id}`);
     await tap(h.bot, `ear:${m.id}`);
-    await say(h.bot, 'year>=2019, km<=120000');
-    expect(h.store.monitors.get(m.id)!.filters.attrRanges).toEqual({ year: { min: 2019 }, km: { max: 120000 } });
+    await tap(h.bot, `ec:${m.id}:year`); // pick the year attribute
+    await tap(h.bot, `ecp:${m.id}:year:2020`); // tap ≥2020
+    expect(h.store.monitors.get(m.id)!.filters.attrRanges).toEqual({ year: { min: 2020 } });
+    await tap(h.bot, `ecp:${m.id}:year:0`); // ✖️ clears it
+    expect(h.store.monitors.get(m.id)!.filters.attrRanges).toBeUndefined();
   });
 
   it('eb blocks a seller name or a phone, classifying by digit count', async () => {
