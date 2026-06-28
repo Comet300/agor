@@ -153,6 +153,7 @@ export interface Catalog {
   btn_remove: string;
   btn_deals_only: string;
   btn_digest: string;
+  btn_report: string;
   btn_required: string;
   btn_block: string;
   btn_price_range: string;
@@ -223,6 +224,7 @@ export interface Catalog {
   cb_deals_on: string;
   cb_deals_off: string;
   cb_digest_set: string;
+  cb_report_set: string;
   exclusion_prompt: string;
   exclusion_set: (keywords: string) => string;
   exclusion_cleared: string;
@@ -270,6 +272,11 @@ export interface Catalog {
   /** Digest summary header (count + vendor) and the market-stats line. */
   digest_intro: (a: { count: number; vendor: string }) => string;
   digest_stats: (a: { median: string; range: string }) => string;
+  /** Weekly market report header, stat lines, and best-deals section header. */
+  report_title: (vendor: string) => string;
+  report_inventory: (a: { count: number; delta: string }) => string;
+  report_velocity: (a: { n: number }) => string;
+  report_best: string;
 
   // ── Access control ────────────────────────────────────────────────────────
   access_denied: string; // shown to a non-allowed chat that tries to use the bot
@@ -446,6 +453,7 @@ const ro: Catalog = {
   btn_remove: '🗑 Șterge',
   btn_deals_only: '🔥 Doar oferte',
   btn_digest: '📰 Rezumat',
+  btn_report: '📅 Raport săptămânal',
   btn_required: '✅ Cuvinte necesare',
   btn_block: '⛔ Blochează vânzător',
   btn_price_range: '💶 Interval preț',
@@ -514,6 +522,7 @@ const ro: Catalog = {
   cb_deals_on: 'Doar oferte bune: pornit.',
   cb_deals_off: 'Doar oferte bune: oprit.',
   cb_digest_set: 'Mod rezumat actualizat.',
+  cb_report_set: 'Raport săptămânal actualizat.',
   exclusion_prompt: 'Trimite cuvintele de exclus, separate prin virgulă (ex.: lovit, piese, dube).',
   exclusion_set: (kw) => `Exclud: ${kw}`,
   exclusion_cleared: 'Toate cuvintele excluse au fost șterse.',
@@ -560,6 +569,10 @@ const ro: Catalog = {
   hot_lead_title: '🔥 OFERTĂ FIERBINTE — semnale multiple',
   digest_intro: ({ count, vendor }) => `📰 Rezumat — ${count} anunțuri noi pe ${vendor}`,
   digest_stats: ({ median, range }) => `Mediană ${median} · interval ${range}`,
+  report_title: (vendor) => `📅 Raport săptămânal — ${vendor}`,
+  report_inventory: ({ count, delta }) => `Anunțuri urmărite: ${count} (${delta} față de săptămâna trecută)`,
+  report_velocity: ({ n }) => `Anunțuri noi săptămâna aceasta: ${n}`,
+  report_best: 'Cele mai bune oferte:',
 
   access_denied:
     'Nu ai acces la acest bot. Folosește /request_access ca să ceri accesul.',
@@ -740,6 +753,7 @@ const en: Catalog = {
   btn_remove: '🗑 Remove',
   btn_deals_only: '🔥 Deals only',
   btn_digest: '📰 Digest',
+  btn_report: '📅 Weekly report',
   btn_required: '✅ Required words',
   btn_block: '⛔ Block seller',
   btn_price_range: '💶 Price range',
@@ -808,6 +822,7 @@ const en: Catalog = {
   cb_deals_on: 'Deals only: on.',
   cb_deals_off: 'Deals only: off.',
   cb_digest_set: 'Digest mode updated.',
+  cb_report_set: 'Weekly report updated.',
   exclusion_prompt: 'Send a comma-separated list of keywords to exclude (e.g. damaged, parts, salvage).',
   exclusion_set: (kw) => `Excluding: ${kw}`,
   exclusion_cleared: 'Cleared all exclusion keywords.',
@@ -854,6 +869,10 @@ const en: Catalog = {
   hot_lead_title: '🔥 HOT LEAD — multiple signals',
   digest_intro: ({ count, vendor }) => `📰 Digest — ${count} new listings on ${vendor}`,
   digest_stats: ({ median, range }) => `Median ${median} · range ${range}`,
+  report_title: (vendor) => `📅 Weekly report — ${vendor}`,
+  report_inventory: ({ count, delta }) => `Listings tracked: ${count} (${delta} vs last week)`,
+  report_velocity: ({ n }) => `New this week: ${n}`,
+  report_best: 'Best deals:',
 
   access_denied: 'You do not have access to this bot. Use /request_access to ask for it.',
   access_request_intro: "Let's request access. ",
@@ -1029,6 +1048,7 @@ const de: Catalog = {
   btn_remove: '🗑 Entfernen',
   btn_deals_only: '🔥 Nur Schnäppchen',
   btn_digest: '📰 Zusammenfassung',
+  btn_report: '📅 Wochenbericht',
   btn_required: '✅ Pflichtwörter',
   btn_block: '⛔ Verkäufer blockieren',
   btn_price_range: '💶 Preisspanne',
@@ -1097,6 +1117,7 @@ const de: Catalog = {
   cb_deals_on: 'Nur Schnäppchen: an.',
   cb_deals_off: 'Nur Schnäppchen: aus.',
   cb_digest_set: 'Zusammenfassungsmodus aktualisiert.',
+  cb_report_set: 'Wochenbericht aktualisiert.',
   exclusion_prompt: 'Schicke eine kommagetrennte Liste von Stichwörtern zum Ausschließen (z. B. beschädigt, Teile, Bastler).',
   exclusion_set: (kw) => `Ausgeschlossen: ${kw}`,
   exclusion_cleared: 'Alle Ausschluss-Stichwörter gelöscht.',
@@ -1143,6 +1164,10 @@ const de: Catalog = {
   hot_lead_title: '🔥 HEISSER TIPP — mehrere Signale',
   digest_intro: ({ count, vendor }) => `📰 Zusammenfassung — ${count} neue Anzeigen auf ${vendor}`,
   digest_stats: ({ median, range }) => `Median ${median} · Spanne ${range}`,
+  report_title: (vendor) => `📅 Wochenbericht — ${vendor}`,
+  report_inventory: ({ count, delta }) => `Beobachtete Anzeigen: ${count} (${delta} ggü. Vorwoche)`,
+  report_velocity: ({ n }) => `Neu diese Woche: ${n}`,
+  report_best: 'Top-Angebote:',
 
   access_denied: 'Du hast keinen Zugang zu diesem Bot. Nutze /request_access, um ihn anzufragen.',
   access_request_intro: 'Lass uns Zugang anfragen. ',
@@ -1318,6 +1343,7 @@ const it: Catalog = {
   btn_remove: '🗑 Rimuovi',
   btn_deals_only: '🔥 Solo affari',
   btn_digest: '📰 Riepilogo',
+  btn_report: '📅 Report settimanale',
   btn_required: '✅ Parole obbligatorie',
   btn_block: '⛔ Blocca venditore',
   btn_price_range: '💶 Fascia di prezzo',
@@ -1386,6 +1412,7 @@ const it: Catalog = {
   cb_deals_on: 'Solo affari: attivo.',
   cb_deals_off: 'Solo affari: disattivo.',
   cb_digest_set: 'Modalità riepilogo aggiornata.',
+  cb_report_set: 'Report settimanale aggiornato.',
   exclusion_prompt: 'Invia una lista di parole separate da virgola da escludere (es. danneggiato, ricambi, incidentato).',
   exclusion_set: (kw) => `Escludo: ${kw}`,
   exclusion_cleared: 'Tutte le parole da escludere rimosse.',
@@ -1432,6 +1459,10 @@ const it: Catalog = {
   hot_lead_title: '🔥 OCCASIONE CALDA — più segnali',
   digest_intro: ({ count, vendor }) => `📰 Riepilogo — ${count} nuovi annunci su ${vendor}`,
   digest_stats: ({ median, range }) => `Mediana ${median} · intervallo ${range}`,
+  report_title: (vendor) => `📅 Report settimanale — ${vendor}`,
+  report_inventory: ({ count, delta }) => `Annunci monitorati: ${count} (${delta} rispetto alla settimana scorsa)`,
+  report_velocity: ({ n }) => `Nuovi questa settimana: ${n}`,
+  report_best: 'Migliori offerte:',
 
   access_denied: 'Non hai accesso a questo bot. Usa /request_access per richiederlo.',
   access_request_intro: 'Procediamo con la richiesta di accesso. ',
@@ -1607,6 +1638,7 @@ const es: Catalog = {
   btn_remove: '🗑 Eliminar',
   btn_deals_only: '🔥 Solo chollos',
   btn_digest: '📰 Resumen',
+  btn_report: '📅 Informe semanal',
   btn_required: '✅ Palabras obligatorias',
   btn_block: '⛔ Bloquear vendedor',
   btn_price_range: '💶 Rango de precio',
@@ -1675,6 +1707,7 @@ const es: Catalog = {
   cb_deals_on: 'Solo chollos: activado.',
   cb_deals_off: 'Solo chollos: desactivado.',
   cb_digest_set: 'Modo resumen actualizado.',
+  cb_report_set: 'Informe semanal actualizado.',
   exclusion_prompt: 'Envía una lista de palabras clave separadas por comas para excluir (p. ej. dañado, piezas, siniestro).',
   exclusion_set: (kw) => `Excluyendo: ${kw}`,
   exclusion_cleared: 'Se borraron todas las palabras de exclusión.',
@@ -1721,6 +1754,10 @@ const es: Catalog = {
   hot_lead_title: '🔥 CHOLLO CALIENTE — varias señales',
   digest_intro: ({ count, vendor }) => `📰 Resumen — ${count} anuncios nuevos en ${vendor}`,
   digest_stats: ({ median, range }) => `Mediana ${median} · rango ${range}`,
+  report_title: (vendor) => `📅 Informe semanal — ${vendor}`,
+  report_inventory: ({ count, delta }) => `Anuncios seguidos: ${count} (${delta} frente a la semana pasada)`,
+  report_velocity: ({ n }) => `Nuevos esta semana: ${n}`,
+  report_best: 'Mejores ofertas:',
 
   access_denied: 'No tienes acceso a este bot. Usa /request_access para solicitarlo.',
   access_request_intro: 'Vamos a solicitar acceso. ',
@@ -1896,6 +1933,7 @@ const fr: Catalog = {
   btn_remove: '🗑 Supprimer',
   btn_deals_only: '🔥 Bonnes affaires',
   btn_digest: '📰 Résumé',
+  btn_report: '📅 Rapport hebdomadaire',
   btn_required: '✅ Mots requis',
   btn_block: '⛔ Bloquer le vendeur',
   btn_price_range: '💶 Fourchette de prix',
@@ -1964,6 +2002,7 @@ const fr: Catalog = {
   cb_deals_on: 'Bonnes affaires : activé.',
   cb_deals_off: 'Bonnes affaires : désactivé.',
   cb_digest_set: 'Mode résumé mis à jour.',
+  cb_report_set: 'Rapport hebdomadaire mis à jour.',
   exclusion_prompt: 'Envoyez une liste de mots-clés à exclure, séparés par des virgules (ex. : endommagé, pièces, épave).',
   exclusion_set: (kw) => `Exclus : ${kw}`,
   exclusion_cleared: 'Tous les mots-clés exclus ont été effacés.',
@@ -2010,6 +2049,10 @@ const fr: Catalog = {
   hot_lead_title: '🔥 BON PLAN — plusieurs signaux',
   digest_intro: ({ count, vendor }) => `📰 Résumé — ${count} nouvelles annonces sur ${vendor}`,
   digest_stats: ({ median, range }) => `Médiane ${median} · plage ${range}`,
+  report_title: (vendor) => `📅 Rapport hebdomadaire — ${vendor}`,
+  report_inventory: ({ count, delta }) => `Annonces suivies : ${count} (${delta} vs la semaine dernière)`,
+  report_velocity: ({ n }) => `Nouvelles cette semaine : ${n}`,
+  report_best: 'Meilleures affaires :',
 
   access_denied: 'Vous n’avez pas accès à ce bot. Utilisez /request_access pour le demander.',
   access_request_intro: 'Demandons l’accès. ',
@@ -2089,6 +2132,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'stats', description: 'Rezumatul urmăririlor tale' },
     { command: 'rate', description: 'Evaluează prețul unui link (/rate <link>)' },
     { command: 'history', description: 'Grafic preț pentru o urmărire (/history <id>)' },
+    { command: 'report', description: 'Raport săptămânal de piață (/report <id>)' },
     { command: 'export', description: 'Exportă anunțurile colectate (CSV)' },
     { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
     { command: 'share', description: 'Partajează o urmărire cu alt chat (/share <id>)' },
@@ -2109,6 +2153,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'stats', description: 'Summary of your watches' },
     { command: 'rate', description: 'Rate a link’s price (/rate <url>)' },
     { command: 'history', description: 'Price chart for a watch (/history <id>)' },
+    { command: 'report', description: 'Weekly market report (/report <id>)' },
     { command: 'export', description: 'Export collected listings (CSV)' },
     { command: 'remove', description: 'Stop a watch (/remove <id>)' },
     { command: 'share', description: 'Share a watch with another chat (/share <id>)' },
@@ -2129,6 +2174,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'stats', description: 'Übersicht deiner Beobachtungen' },
     { command: 'rate', description: 'Den Preis eines Links bewerten (/rate <url>)' },
     { command: 'history', description: 'Preisdiagramm für eine Beobachtung (/history <id>)' },
+    { command: 'report', description: 'Wöchentlicher Marktbericht (/report <id>)' },
     { command: 'export', description: 'Gesammelte Anzeigen exportieren (CSV)' },
     { command: 'remove', description: 'Eine Beobachtung stoppen (/remove <id>)' },
     { command: 'share', description: 'Eine Beobachtung mit einem anderen Chat teilen (/share <id>)' },
@@ -2149,6 +2195,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'stats', description: 'Résumé de vos suivis' },
     { command: 'rate', description: 'Évaluer le prix d’un lien (/rate <url>)' },
     { command: 'history', description: 'Graphique de prix d’un suivi (/history <id>)' },
+    { command: 'report', description: 'Rapport de marché hebdomadaire (/report <id>)' },
     { command: 'export', description: 'Exporter les annonces collectées (CSV)' },
     { command: 'remove', description: 'Arrêter un suivi (/remove <id>)' },
     { command: 'share', description: 'Partager un suivi avec un autre chat (/share <id>)' },
@@ -2169,6 +2216,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'stats', description: 'Riepilogo dei tuoi monitoraggi' },
     { command: 'rate', description: 'Valuta il prezzo di un link (/rate <url>)' },
     { command: 'history', description: 'Grafico dei prezzi di un monitoraggio (/history <id>)' },
+    { command: 'report', description: 'Report di mercato settimanale (/report <id>)' },
     { command: 'export', description: 'Esporta gli annunci raccolti (CSV)' },
     { command: 'remove', description: 'Interrompi un monitoraggio (/remove <id>)' },
     { command: 'share', description: 'Condividi un monitoraggio con un’altra chat (/share <id>)' },
@@ -2189,6 +2237,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'stats', description: 'Resumen de tus seguimientos' },
     { command: 'rate', description: 'Evaluar el precio de un enlace (/rate <url>)' },
     { command: 'history', description: 'Gráfico de precios de un seguimiento (/history <id>)' },
+    { command: 'report', description: 'Informe de mercado semanal (/report <id>)' },
     { command: 'export', description: 'Exportar los anuncios recopilados (CSV)' },
     { command: 'remove', description: 'Detener un seguimiento (/remove <id>)' },
     { command: 'share', description: 'Compartir un seguimiento con otro chat (/share <id>)' },

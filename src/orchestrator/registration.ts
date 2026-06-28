@@ -138,6 +138,7 @@ export class RegistrationService {
       this.deps.store.monitors.delete(monitor.id);
       this.deps.store.watchSubscribers.removeAll(monitor.id); // keep deletion self-consistent
       this.deps.store.digestQueue.removeAll(monitor.id);
+      this.deps.store.reportState.disable(monitor.id);
 
 
       log('registration').debug(

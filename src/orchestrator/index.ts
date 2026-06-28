@@ -16,6 +16,7 @@
 import type { AppConfig } from "../config";
 import type { MessageRef, Monitor, Notification, NotificationKind, DigestSummary } from "../contracts";
 import { DIGEST_PERIOD_MS } from "../features/digest";
+import { buildWeeklyReport, WEEK_MS } from "../features/weeklyReport";
 import type { Store } from "../persistence";
 import { maintainDb } from "../persistence";
 import type { PluginRegistry } from "../registry";
@@ -116,7 +117,11 @@ export class Orchestrator {
           auditRetentionDays: deps.config.auditRetentionDays,
         }),
       maintenanceIntervalTicks: deps.config.dbMaintenanceIntervalTicks,
-      onDigestFlush: async () => this.flushDigests(this.now()),
+      onDigestFlush: async () => {
+        const now = this.now();
+        await this.flushDigests(now);
+        await this.flushWeeklyReports(now);
+      },
       now: this.now,
     });
   }
@@ -322,6 +327,36 @@ export class Orchestrator {
         continue; // keep the queue; retry on a later tick
       }
       this.deps.store.digestQueue.clear(g.monitorId, g.chatId);
+    }
+  }
+
+  /**
+   * Deliver the weekly market report for every opted-in watch whose weekly
+   * cadence has elapsed (first delivery is immediate on enable). A watch that
+   * lost its weeklyReport flag or was removed is de-registered without sending.
+   * Idempotent and cheap — only opted-in watches are visited.
+   */
+  async flushWeeklyReports(now: number): Promise<void> {
+    const store = this.deps.store;
+    for (const row of store.reportState.pending()) {
+      const monitor = store.monitors.get(row.monitorId);
+      if (!monitor || monitor.filters.weeklyReport !== true) {
+        store.reportState.disable(row.monitorId); // stale → stop tracking
+        continue;
+      }
+      if (now - row.lastSentAt < WEEK_MS) continue; // cadence not elapsed
+      const report = buildWeeklyReport(store, monitor, now);
+      // Stamp first so an empty/failed report doesn't retry every tick for a week.
+      store.reportState.markSent(row.monitorId, now);
+      if (!report) continue;
+      try {
+        await this.deps.notify({ kind: "weekly_report", chatId: row.chatId, report });
+      } catch (err) {
+        log("orchestrator").warn(
+          { chatId: row.chatId, err: (err as Error).message },
+          "weekly report delivery failed",
+        );
+      }
     }
   }
 

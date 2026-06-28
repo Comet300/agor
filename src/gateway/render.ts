@@ -14,7 +14,7 @@
  * code span). We keep formatting minimal and rely on emoji + plain text so the
  * output is robust regardless of parse mode.
  */
-import type { EnrichedItem, Monitor, Notification, DealTag, SellerVisibility, MarketInsight, DigestSummary } from '../contracts';
+import type { EnrichedItem, Monitor, Notification, DealTag, SellerVisibility, MarketInsight, DigestSummary, WeeklyReportData } from '../contracts';
 import { rankDigest, digestStats } from '../features/digest';
 import type { ItemSnapshot } from '../persistence';
 import type { InlineKeyboard } from 'grammy';
@@ -201,6 +201,27 @@ function renderDigest(summary: DigestSummary, lang: Lang): RenderedMessage {
   return { text: lines.join('\n') };
 }
 
+/** Render a weekly market report: inventory trend, price trend, velocity, best deals. */
+function renderWeeklyReport(report: WeeklyReportData, lang: Lang): RenderedMessage {
+  const t = tr(lang);
+  const sign = report.inventoryDelta >= 0 ? `+${report.inventoryDelta}` : `${report.inventoryDelta}`;
+  const lines: string[] = [
+    t.report_title(report.vendor),
+    t.report_inventory({ count: report.inventory, delta: sign }),
+  ];
+  if (report.trendBadge) lines.push(report.trendBadge);
+  lines.push(t.report_velocity({ n: report.newThisWeek }));
+  if (report.bestDeals.length > 0) {
+    lines.push('');
+    lines.push(t.report_best);
+    report.bestDeals.forEach((d, i) => {
+      lines.push(`${i + 1}. ${formatMoney(d.price, d.currency)} — ${d.title}`);
+      if (d.url) lines.push(d.url);
+    });
+  }
+  return { text: lines.join('\n') };
+}
+
 /** Render a price drop as a single-line delta with the savings. */
 function renderPriceDrop(
   item: EnrichedItem,
@@ -290,6 +311,8 @@ function renderByKind(n: Notification, lang: Lang): RenderedMessage {
       return renderBecameDeal(n.item!, n.becameDeal, lang);
     case 'digest':
       return renderDigest(n.digest!, lang);
+    case 'weekly_report':
+      return renderWeeklyReport(n.report!, lang);
   }
 }
 
