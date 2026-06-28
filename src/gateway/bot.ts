@@ -141,6 +141,9 @@ const pendingAttrRange = new ExpiringMap<number, number>(PENDING_TTL_MS);
 const pendingShare = new ExpiringMap<number, number>(PENDING_TTL_MS);
 const pendingUnshare = new ExpiringMap<number, number>(PENDING_TTL_MS);
 
+/** Chats awaiting a note reply for a browsed item (chat id → {monitorId, itemId}). */
+const pendingNote = new ExpiringMap<number, { monitorId: number; itemId: string }>(PENDING_TTL_MS);
+
 /** Attributes the spec-range filter recognises (parsed numerics). */
 const RANGE_ATTRS = ['year', 'km', 'area', 'rooms', 'power'] as const;
 
@@ -541,14 +544,14 @@ export function buildBot(
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     try {
-      const snaps = store.itemFlags
-        .listSaved(chatId)
-        .map((s) => store.items.getSnapshot(s.monitorId, s.itemId))
-        .filter((s): s is NonNullable<typeof s> => s !== undefined);
-      if (snaps.length === 0) { await ctx.reply(tr(lang).saved_empty); return; }
-      const lines = snaps.map((s) =>
-        tr(lang).saved_item({ title: s.title ?? s.itemId, price: formatMoney(s.lastPrice, s.currency), url: s.url ?? '' }),
-      );
+      const lines: string[] = [];
+      for (const s of store.itemFlags.listSaved(chatId)) {
+        const snap = store.items.getSnapshot(s.monitorId, s.itemId);
+        if (!snap) continue;
+        const base = tr(lang).saved_item({ title: snap.title ?? snap.itemId, price: formatMoney(snap.lastPrice, snap.currency), url: snap.url ?? '' });
+        lines.push(s.note ? `${base}\n📝 ${s.note}` : base);
+      }
+      if (lines.length === 0) { await ctx.reply(tr(lang).saved_empty); return; }
       await replyChunked((t) => ctx.reply(t), `${tr(lang).saved_intro}\n\n${lines.join('\n\n')}`);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
@@ -2072,6 +2075,22 @@ export function buildBot(
     }
   });
 
+  // Browse note: bnt:<index> — attach a free-text note to the item (saves it too).
+  bot.callbackQuery(/^bnt:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      const snap = browseSessions.get(chatId)?.[Number(ctx.match[1])];
+      if (!snap) { await ctx.answerCallbackQuery(tr(lang).browse_gone); return; }
+      pendingNote.set(chatId, { monitorId: snap.monitorId, itemId: snap.itemId });
+      await ctx.answerCallbackQuery();
+      await ctx.reply(tr(lang).note_prompt);
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
   // Browse dismiss: bdm:<index> — hide the item; drop it from the session.
   bot.callbackQuery(/^bdm:(\d+)$/, async (ctx) => {
     const chatId = ctx.chat?.id;
@@ -2274,6 +2293,17 @@ export function buildBot(
         const monitor = store.monitors.get(shareMonitorId);
         if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).cb_watch_gone); return; }
         await applyShare(ctx, chatId, shareMonitorId, text);
+        return;
+      }
+
+      // 1c-note. Awaiting a note for a browsed item?
+      const noteTarget = pendingNote.get(chatId);
+      if (noteTarget !== undefined) {
+        pendingNote.delete(chatId);
+        const raw = text.trim();
+        const note = raw === '-' ? '' : raw.slice(0, 200);
+        store.itemFlags.setNote(chatId, noteTarget.itemId, noteTarget.monitorId, note, Date.now());
+        await ctx.reply(note ? tr(lang).note_set : tr(lang).note_cleared);
         return;
       }
 
@@ -2513,7 +2543,15 @@ export function makeNotifier(
 ): (n: Notification) => Promise<MessageRef | void> {
   return async (n: Notification) => {
     const lang = resolveLang(store.chatPrefs.getLang(n.chatId));
-    const { text, keyboard } = renderNotification(n, lang);
+    const rendered = renderNotification(n, lang);
+    const { keyboard } = rendered;
+    // Surface a saved-item note on its alerts (price drop / back in stock / re-list),
+    // so a remembered detail resurfaces exactly when the item moves.
+    let text = rendered.text;
+    if (n.item) {
+      const note = store.itemFlags.getNote(n.chatId, n.item.id);
+      if (note) text += `\n📝 ${note}`;
+    }
 
     if (n.kind === 'cross_post' && n.messageRef) {
       try {

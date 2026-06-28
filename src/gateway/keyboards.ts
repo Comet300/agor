@@ -109,8 +109,11 @@ export function browseKeyboard(
   // before the url column may have none, and Telegram rejects an empty-url button
   // (BUTTON_URL_INVALID) — which would fail the whole send.
   if (url) kb.url(t.btn_open, url);
-  // Shortlist + dismiss row.
-  kb.row().text(saved ? t.btn_saved : t.btn_save, `bsv:${index}`).text(t.btn_dismiss, `bdm:${index}`);
+  // Shortlist + note + dismiss row.
+  kb.row()
+    .text(saved ? t.btn_saved : t.btn_save, `bsv:${index}`)
+    .text(t.btn_note, `bnt:${index}`)
+    .text(t.btn_dismiss, `bdm:${index}`);
   return kb;
 }
 

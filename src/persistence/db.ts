@@ -246,4 +246,10 @@ export function migrate(db: DB): void {
       db.exec(`ALTER TABLE items ADD COLUMN ${col} ${type}`);
     }
   }
+
+  // item_flags gained a free-text `note` (Favorites & Notes) after first ship.
+  const flagCols = db.prepare('PRAGMA table_info(item_flags)').all() as Array<{ name: string }>;
+  if (!flagCols.some((c) => c.name === 'note')) {
+    db.exec(`ALTER TABLE item_flags ADD COLUMN note TEXT`);
+  }
 }

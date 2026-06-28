@@ -35,14 +35,38 @@ export class ItemFlagsRepo {
     );
   }
 
-  /** The shortlist for a chat (item + its monitor), newest first. */
-  listSaved(chatId: number): Array<{ itemId: string; monitorId: number }> {
-    return this.db
+  /** The shortlist for a chat (item + its monitor + any note), newest first. */
+  listSaved(chatId: number): Array<{ itemId: string; monitorId: number; note?: string }> {
+    const rows = this.db
       .prepare(
-        `SELECT item_id AS itemId, monitor_id AS monitorId FROM item_flags
+        `SELECT item_id AS itemId, monitor_id AS monitorId, note FROM item_flags
           WHERE chat_id = ? AND flag = 'saved' ORDER BY created_at DESC`,
       )
-      .all(chatId) as Array<{ itemId: string; monitorId: number }>;
+      .all(chatId) as Array<{ itemId: string; monitorId: number; note: string | null }>;
+    return rows.map((r) => ({ itemId: r.itemId, monitorId: r.monitorId, ...(r.note ? { note: r.note } : {}) }));
+  }
+
+  /**
+   * Attach (or clear, with note='') a free-text note to an item for a chat. A note
+   * implies the item is saved, so this upserts the 'saved' row. Clearing leaves the
+   * item saved but noteless.
+   */
+  setNote(chatId: number, itemId: string, monitorId: number, note: string, now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO item_flags (chat_id, item_id, monitor_id, flag, created_at, note)
+         VALUES (?, ?, ?, 'saved', ?, ?)
+         ON CONFLICT(chat_id, item_id, flag) DO UPDATE SET note = excluded.note`,
+      )
+      .run(chatId, itemId, monitorId, now, note || null);
+  }
+
+  /** The note a chat attached to an item, if any. */
+  getNote(chatId: number, itemId: string): string | undefined {
+    const row = this.db
+      .prepare(`SELECT note FROM item_flags WHERE chat_id = ? AND item_id = ? AND flag = 'saved' LIMIT 1`)
+      .get(chatId, itemId) as { note: string | null } | undefined;
+    return row?.note ?? undefined;
   }
 
   /** The set of item ids a chat has dismissed (for browse + alert suppression). */
