@@ -218,6 +218,7 @@ export function migrate(db: DB): void {
     ['origin',               "TEXT DEFAULT 'user'"],
     ['paused',               'INTEGER DEFAULT 0'],
     ['label',                'TEXT'],
+    ['collection',           'TEXT'],
   ];
   for (const [col, type] of monitorAlters) {
     if (!monitorCols.some((c) => c.name === col)) {

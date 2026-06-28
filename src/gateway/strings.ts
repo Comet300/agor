@@ -90,6 +90,13 @@ export interface Catalog {
   rename_prompt: string;
   rename_done: (label: string) => string;
   rename_cleared: string;
+  // Watch groups / collections.
+  btn_group: string;
+  group_prompt: string;
+  group_set: (name: string) => string;
+  group_cleared: string;
+  group_usage: string;
+  group_done: (a: { count: number }) => string;
   /** Header of the /edit tuning card for an existing watch. */
   edit_card: (p: {
     id: number;
@@ -411,6 +418,12 @@ const ro: Catalog = {
   rename_prompt: 'Trimite o denumire pentru această urmărire (sau „-” ca să o ștergi).',
   rename_done: (label) => `Denumire setată: „${label}”.`,
   rename_cleared: 'Denumirea a fost ștearsă.',
+  btn_group: '📁 Grup',
+  group_prompt: 'Trimite numele grupului pentru această urmărire (sau „-” pentru a-l elimina).',
+  group_set: (name) => `Grup setat: „${name}”.`,
+  group_cleared: 'Grup eliminat.',
+  group_usage: 'Folosire: /group <pause|resume|remove> <nume>',
+  group_done: ({ count }) => `${count} urmăriri actualizate.`,
   edit_card: ({ id, vendor, type, minutes, label, paused }) =>
     `✏️ Editezi urmărirea #${id} · ${label ? `„${label}” (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ pe pauză' : ''}\n` +
     `Verificare la fiecare ${minutes} min. Ajustează mai jos:`,
@@ -720,6 +733,12 @@ const en: Catalog = {
   rename_prompt: 'Send a name for this watch (or “-” to clear it).',
   rename_done: (label) => `Label set: “${label}”.`,
   rename_cleared: 'Label cleared.',
+  btn_group: '📁 Group',
+  group_prompt: 'Send the group name for this watch (or "-" to remove it).',
+  group_set: (name) => `Group set: "${name}".`,
+  group_cleared: 'Group removed.',
+  group_usage: 'Usage: /group <pause|resume|remove> <name>',
+  group_done: ({ count }) => `${count} watches updated.`,
   edit_card: ({ id, vendor, type, minutes, label, paused }) =>
     `✏️ Editing watch #${id} · ${label ? `“${label}” (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ paused' : ''}\n` +
     `Checks every ${minutes} min. Adjust below:`,
@@ -1024,6 +1043,12 @@ const de: Catalog = {
   rename_prompt: 'Schicke einen Namen für diese Beobachtung (oder „-“ zum Löschen).',
   rename_done: (label) => `Bezeichnung gesetzt: „${label}“.`,
   rename_cleared: 'Bezeichnung gelöscht.',
+  btn_group: '📁 Gruppe',
+  group_prompt: 'Schicke den Gruppennamen für diese Beobachtung (oder „-“ zum Entfernen).',
+  group_set: (name) => `Gruppe gesetzt: „${name}“.`,
+  group_cleared: 'Gruppe entfernt.',
+  group_usage: 'Verwendung: /group <pause|resume|remove> <Name>',
+  group_done: ({ count }) => `${count} Beobachtungen aktualisiert.`,
   edit_card: ({ id, vendor, type, minutes, label, paused }) =>
     `✏️ Beobachtung #${id} bearbeiten · ${label ? `„${label}“ (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ pausiert' : ''}\n` +
     `Prüft alle ${minutes} Min. Unten anpassen:`,
@@ -1328,6 +1353,12 @@ const it: Catalog = {
   rename_prompt: 'Invia un nome per questo monitoraggio (oppure „-“ per rimuoverlo).',
   rename_done: (label) => `Etichetta impostata: „${label}“.`,
   rename_cleared: 'Etichetta rimossa.',
+  btn_group: '📁 Gruppo',
+  group_prompt: 'Invia il nome del gruppo per questo monitoraggio (oppure „-“ per rimuoverlo).',
+  group_set: (name) => `Gruppo impostato: „${name}“.`,
+  group_cleared: 'Gruppo rimosso.',
+  group_usage: 'Uso: /group <pause|resume|remove> <nome>',
+  group_done: ({ count }) => `${count} monitoraggi aggiornati.`,
   edit_card: ({ id, vendor, type, minutes, label, paused }) =>
     `✏️ Modifica monitoraggio #${id} · ${label ? `„${label}“ (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ in pausa' : ''}\n` +
     `Controlla ogni ${minutes} min. Regola qui sotto:`,
@@ -1632,6 +1663,12 @@ const es: Catalog = {
   rename_prompt: 'Envía un nombre para este seguimiento (o „-“ para borrarlo).',
   rename_done: (label) => `Etiqueta establecida: „${label}“.`,
   rename_cleared: 'Etiqueta borrada.',
+  btn_group: '📁 Grupo',
+  group_prompt: 'Envía el nombre del grupo para este seguimiento (o "-" para quitarlo).',
+  group_set: (name) => `Grupo establecido: "${name}".`,
+  group_cleared: 'Grupo quitado.',
+  group_usage: 'Uso: /group <pause|resume|remove> <nombre>',
+  group_done: ({ count }) => `${count} seguimientos actualizados.`,
   edit_card: ({ id, vendor, type, minutes, label, paused }) =>
     `✏️ Editando seguimiento #${id} · ${label ? `„${label}“ (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ pausado' : ''}\n` +
     `Comprueba cada ${minutes} min. Ajusta abajo:`,
@@ -1936,6 +1973,12 @@ const fr: Catalog = {
   rename_prompt: 'Envoyez un nom pour ce suivi (ou “-” pour l’effacer).',
   rename_done: (label) => `Étiquette définie : “${label}”.`,
   rename_cleared: 'Étiquette effacée.',
+  btn_group: '📁 Groupe',
+  group_prompt: 'Envoyez le nom du groupe pour ce suivi (ou « - » pour le retirer).',
+  group_set: (name) => `Groupe défini : « ${name} ».`,
+  group_cleared: 'Groupe retiré.',
+  group_usage: 'Utilisation : /group <pause|resume|remove> <nom>',
+  group_done: ({ count }) => `${count} suivis mis à jour.`,
   edit_card: ({ id, vendor, type, minutes, label, paused }) =>
     `✏️ Modification du suivi #${id} · ${label ? `“${label}” (${vendor})` : vendor} · ${type}${paused ? ' · ⏸ en pause' : ''}\n` +
     `Vérifie toutes les ${minutes} min. Ajustez ci-dessous :`,
@@ -2196,6 +2239,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'stats', description: 'Rezumatul urmăririlor tale' },
     { command: 'rate', description: 'Evaluează prețul unui link (/rate <link>)' },
     { command: 'history', description: 'Grafic preț pentru o urmărire (/history <id>)' },
+    { command: 'group', description: 'Acțiune pe grup (/group pause|resume|remove <nume>)' },
     { command: 'report', description: 'Raport săptămânal de piață (/report <id>)' },
     { command: 'export', description: 'Exportă anunțurile colectate (CSV)' },
     { command: 'remove', description: 'Oprește o urmărire (/remove <id>)' },
@@ -2217,6 +2261,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'stats', description: 'Summary of your watches' },
     { command: 'rate', description: 'Rate a link’s price (/rate <url>)' },
     { command: 'history', description: 'Price chart for a watch (/history <id>)' },
+    { command: 'group', description: 'Bulk group action (/group pause|resume|remove <name>)' },
     { command: 'report', description: 'Weekly market report (/report <id>)' },
     { command: 'export', description: 'Export collected listings (CSV)' },
     { command: 'remove', description: 'Stop a watch (/remove <id>)' },
@@ -2238,6 +2283,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'stats', description: 'Übersicht deiner Beobachtungen' },
     { command: 'rate', description: 'Den Preis eines Links bewerten (/rate <url>)' },
     { command: 'history', description: 'Preisdiagramm für eine Beobachtung (/history <id>)' },
+    { command: 'group', description: 'Gruppenaktion (/group pause|resume|remove <Name>)' },
     { command: 'report', description: 'Wöchentlicher Marktbericht (/report <id>)' },
     { command: 'export', description: 'Gesammelte Anzeigen exportieren (CSV)' },
     { command: 'remove', description: 'Eine Beobachtung stoppen (/remove <id>)' },
@@ -2259,6 +2305,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'stats', description: 'Résumé de vos suivis' },
     { command: 'rate', description: 'Évaluer le prix d’un lien (/rate <url>)' },
     { command: 'history', description: 'Graphique de prix d’un suivi (/history <id>)' },
+    { command: 'group', description: 'Action de groupe (/group pause|resume|remove <nom>)' },
     { command: 'report', description: 'Rapport de marché hebdomadaire (/report <id>)' },
     { command: 'export', description: 'Exporter les annonces collectées (CSV)' },
     { command: 'remove', description: 'Arrêter un suivi (/remove <id>)' },
@@ -2280,6 +2327,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'stats', description: 'Riepilogo dei tuoi monitoraggi' },
     { command: 'rate', description: 'Valuta il prezzo di un link (/rate <url>)' },
     { command: 'history', description: 'Grafico dei prezzi di un monitoraggio (/history <id>)' },
+    { command: 'group', description: 'Azione sul gruppo (/group pause|resume|remove <nome>)' },
     { command: 'report', description: 'Report di mercato settimanale (/report <id>)' },
     { command: 'export', description: 'Esporta gli annunci raccolti (CSV)' },
     { command: 'remove', description: 'Interrompi un monitoraggio (/remove <id>)' },
@@ -2301,6 +2349,7 @@ export const commandMenu: Record<Lang, CommandMenuEntry[]> = {
     { command: 'stats', description: 'Resumen de tus seguimientos' },
     { command: 'rate', description: 'Evaluar el precio de un enlace (/rate <url>)' },
     { command: 'history', description: 'Gráfico de precios de un seguimiento (/history <id>)' },
+    { command: 'group', description: 'Acción de grupo (/group pause|resume|remove <nombre>)' },
     { command: 'report', description: 'Informe de mercado semanal (/report <id>)' },
     { command: 'export', description: 'Exportar los anuncios recopilados (CSV)' },
     { command: 'remove', description: 'Detener un seguimiento (/remove <id>)' },
