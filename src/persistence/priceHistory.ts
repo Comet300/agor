@@ -52,6 +52,25 @@ export class PriceHistoryRepo {
       .run(p.monitorId, p.itemId, p.price, p.currency, p.observedAt);
   }
 
+  /**
+   * Each item's most-recent logged price at or before `asOf`, across the whole
+   * monitor. Because the log stores change points (flat prices aren't re-logged),
+   * the latest point ≤ asOf is the item's effective price at that instant. Used to
+   * reconstruct the market's median price "now" vs "N days ago" for trend analysis.
+   */
+  pricesAsOf(monitorId: number, asOf: number): Array<{ itemId: string; price: number; currency: string }> {
+    return this.db
+      .prepare(
+        `SELECT itemId, price, currency FROM (
+           SELECT item_id AS itemId, price, currency,
+                  ROW_NUMBER() OVER (PARTITION BY item_id ORDER BY observed_at DESC, id DESC) AS rn
+             FROM price_history
+            WHERE monitor_id = ? AND observed_at <= ?
+         ) WHERE rn = 1`,
+      )
+      .all(monitorId, asOf) as Array<{ itemId: string; price: number; currency: string }>;
+  }
+
   /** Most recently observed price for an item, or `undefined` if none logged. */
   lastPrice(monitorId: number, itemId: string): number | undefined {
     const row = this.db
