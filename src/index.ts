@@ -16,6 +16,9 @@ import 'dotenv/config';
 import type { MessageRef, Notification } from './contracts';
 import { loadConfig, droppedAdminIds, incompleteLokiKeys } from './config';
 import { openStore } from './persistence';
+import { applyStagedRestore, runBackup } from './features/backup';
+import { InputFile } from 'grammy';
+import { unlink } from 'node:fs/promises';
 import { PluginRegistry } from './registry';
 import { ProxyPool } from './scraping/proxyPool';
 import { ScrapingEngine, closeAgentPool, type Fetcher } from './scraping/engine';
@@ -135,7 +138,11 @@ async function main(): Promise<void> {
     "starting agor",
   );
 
-  // 2. Persistence + vendor manifests.
+  // 2. Persistence + vendor manifests. A staged restore (from /restore) is applied
+  //    here — before the DB is opened — so the live file is never overwritten in use.
+  if (applyStagedRestore(config.databasePath)) {
+    log("boot").warn({ dbPath: config.databasePath }, "applied a staged database restore");
+  }
   const store = openStore(config.databasePath);
   const registry = PluginRegistry.load("plugins");
   log("boot").info({ vendors: registry.all().length }, "plugins loaded");
@@ -206,6 +213,8 @@ async function main(): Promise<void> {
       maxMonitorsPerChat: config.maxMonitorsPerChat,
       checkCooldownMs: config.checkCooldownMs,
       urlRegisterCooldownMs: config.urlRegisterCooldownMs,
+      databasePath: config.databasePath,
+      ...(config.backupLocalDir ? { backupLocalDir: config.backupLocalDir } : {}),
     });
     botNotifier = makeNotifier(bot, store);
     // Register the localized "/" command menu (Romanian default, English for
@@ -224,6 +233,30 @@ async function main(): Promise<void> {
   // 6. Start the scheduler heartbeat, then (if present) the bot in the
   //    configured mode: webhook when a URL is set, otherwise long-polling.
   orchestrator.start();
+
+  // Scheduled auto-backup: snapshot the DB on a cadence and upload it to every
+  // admin (and the local dir, when set). Unref'd so it never keeps the process up.
+  if (bot) {
+    const adminTargets = (): number[] => {
+      const ids = new Set<number>(config.adminChatIds);
+      for (const u of store.access.list()) if (u.isAdmin) ids.add(u.chatId);
+      return [...ids];
+    };
+    const backupTimer = setInterval(async () => {
+      let path: string | undefined;
+      try {
+        path = await runBackup(store.db, { now: Date.now(), ...(config.backupLocalDir ? { localDir: config.backupLocalDir } : {}) });
+        for (const id of adminTargets()) {
+          try { await bot!.api.sendDocument(id, new InputFile(path), { caption: 'agor backup' }); } catch { /* admin unreachable */ }
+        }
+      } catch (err) {
+        log("backup").error({ err: (err as Error).message }, "scheduled backup failed");
+      } finally {
+        if (path) await unlink(path).catch(() => {});
+      }
+    }, config.backupIntervalMs);
+    backupTimer.unref();
+  }
 
   // Health/readiness: report the scheduler's liveness. In webhook mode the route
   // rides the webhook listener; in long-poll mode a tiny dedicated listener runs
