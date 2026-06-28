@@ -216,6 +216,9 @@ export interface Catalog {
   /** Cross-platform auto-suggest prompt (after tracking) + its decline button. */
   autosuggest_intro: (query: string) => string;
   btn_no_thanks: string;
+  /** "Extend search" edit-card button + the reply when the query can't be read. */
+  btn_extend_search: string;
+  extend_no_query: string;
   browse_gone: string;
   /** Header of the scope picker (browse a single watch vs all). */
   browse_scope_prompt: string;
@@ -546,6 +549,8 @@ const ro: Catalog = {
   browse_track_exists: 'Urmărești deja acest anunț.',
   autosuggest_intro: (query) => `Vrei să urmăresc și anunțuri similare („${query}”) pe alte platforme?`,
   btn_no_thanks: 'Nu, mulțumesc',
+  btn_extend_search: '🔎 Extinde căutarea',
+  extend_no_query: 'Nu pot extinde această căutare (interogare necunoscută sau nicio altă platformă).',
   browse_gone: 'Acest anunț nu mai este disponibil.',
   browse_scope_prompt: 'Ce vrei să răsfoiești?',
   browse_jump_prompt: (total) => `Trimite un număr între 1 și ${total} ca să sari la acel anunț.`,
@@ -869,6 +874,8 @@ const en: Catalog = {
   browse_track_exists: "You're already tracking this item.",
   autosuggest_intro: (query) => `Want me to also watch similar listings ("${query}") on other platforms?`,
   btn_no_thanks: 'No thanks',
+  btn_extend_search: '🔎 Extend search',
+  extend_no_query: "Can't extend this search (query unreadable, or no other platforms support it).",
   browse_gone: 'This item is no longer available.',
   browse_scope_prompt: 'What would you like to browse?',
   browse_jump_prompt: (total) => `Send a number from 1 to ${total} to jump to that item.`,
@@ -1187,6 +1194,8 @@ const de: Catalog = {
   browse_track_exists: 'Du verfolgst diese Anzeige bereits.',
   autosuggest_intro: (query) => `Soll ich auch ähnliche Anzeigen („${query}“) auf anderen Plattformen beobachten?`,
   btn_no_thanks: 'Nein danke',
+  btn_extend_search: '🔎 Suche erweitern',
+  extend_no_query: 'Diese Suche kann nicht erweitert werden (Anfrage unlesbar oder keine andere Plattform).',
   browse_gone: 'Diese Anzeige ist nicht mehr verfügbar.',
   browse_scope_prompt: 'Was möchtest du durchstöbern?',
   browse_jump_prompt: (total) => `Schicke eine Zahl von 1 bis ${total}, um zu dieser Anzeige zu springen.`,
@@ -1505,6 +1514,8 @@ const it: Catalog = {
   browse_track_exists: 'Stai già monitorando questo elemento.',
   autosuggest_intro: (query) => `Vuoi che monitori anche annunci simili („${query}“) su altre piattaforme?`,
   btn_no_thanks: 'No grazie',
+  btn_extend_search: '🔎 Estendi ricerca',
+  extend_no_query: 'Impossibile estendere questa ricerca (query illeggibile o nessun’altra piattaforma).',
   browse_gone: 'Questo elemento non è più disponibile.',
   browse_scope_prompt: 'Cosa vuoi sfogliare?',
   browse_jump_prompt: (total) => `Invia un numero da 1 a ${total} per saltare a quella posizione.`,
@@ -1823,6 +1834,8 @@ const es: Catalog = {
   browse_track_exists: 'Ya estás siguiendo este artículo.',
   autosuggest_intro: (query) => `¿Quieres que también vigile anuncios similares ("${query}") en otras plataformas?`,
   btn_no_thanks: 'No, gracias',
+  btn_extend_search: '🔎 Ampliar búsqueda',
+  extend_no_query: 'No se puede ampliar esta búsqueda (consulta ilegible o ninguna otra plataforma).',
   browse_gone: 'Este artículo ya no está disponible.',
   browse_scope_prompt: '¿Qué te gustaría explorar?',
   browse_jump_prompt: (total) => `Envía un número del 1 al ${total} para saltar a ese artículo.`,
@@ -2141,6 +2154,8 @@ const fr: Catalog = {
   browse_track_exists: 'Vous suivez déjà cette annonce.',
   autosuggest_intro: (query) => `Voulez-vous que je surveille aussi des annonces similaires (« ${query} ») sur d’autres plateformes ?`,
   btn_no_thanks: 'Non merci',
+  btn_extend_search: '🔎 Étendre la recherche',
+  extend_no_query: 'Impossible d’étendre cette recherche (requête illisible ou aucune autre plateforme).',
   browse_gone: 'Cette annonce n’est plus disponible.',
   browse_scope_prompt: 'Que souhaitez-vous parcourir ?',
   browse_jump_prompt: (total) => `Envoyez un nombre de 1 à ${total} pour aller à cette annonce.`,

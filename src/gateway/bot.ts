@@ -32,7 +32,7 @@ import { computeTrend, renderTrendBadge } from '../features/trend';
 import { buildWeeklyReport } from '../features/weeklyReport';
 import { runBackup, stageRestore } from '../features/backup';
 import { sellerReputation, SELLER_FAST_MS } from '../features/sellerReputation';
-import { suggestQuery, suggestVendors } from '../features/autoSuggest';
+import { suggestQuery, suggestVendors, extractQuery } from '../features/autoSuggest';
 import { unlink } from 'node:fs/promises';
 import { toCsv } from '../util/csv';
 import { formatMoney } from '../util/money';
@@ -2187,6 +2187,30 @@ export function buildBot(
           await ctx.reply(tr(lang).autosuggest_intro(query), { reply_markup: kb });
         }
       }
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Extend search: xs:<monitorId> — read this search watch's query and offer to
+  // run the same search on other platforms (reuses the asw suggestion buttons).
+  bot.callbackQuery(/^xs:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      const monitor = store.monitors.get(Number(ctx.match[1]));
+      if (!monitor || !canManage(monitor, chatId)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      const plugin = orchestrator.registry.matchUrl(monitor.url);
+      const query = plugin ? extractQuery(plugin, monitor.url) : undefined;
+      await ctx.answerCallbackQuery();
+      const others = query ? suggestVendors(orchestrator.registry.all(), query, plugin?.vendor) : [];
+      if (!query || others.length === 0) { await ctx.reply(tr(lang).extend_no_query); return; }
+      pendingSuggest.set(chatId, others.map((o) => o.url));
+      const kb = new InlineKeyboard();
+      others.forEach((o, i) => kb.text(o.vendor, `asw:${i}`));
+      kb.row().text(tr(lang).btn_no_thanks, 'asw:x');
+      await ctx.reply(tr(lang).autosuggest_intro(query), { reply_markup: kb });
     } catch {
       try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }
