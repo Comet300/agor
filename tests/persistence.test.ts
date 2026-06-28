@@ -357,6 +357,19 @@ describe('ItemFlagsRepo', () => {
     expect(store.itemFlags.has(7, 'a', 'saved')).toBe(false);
     expect(store.itemFlags.dismissedIds(99).size).toBe(0); // chat isolation
   });
+
+  it('attaches, reads, surfaces, and clears a per-item note (auto-saves the item)', () => {
+    const store = freshStore();
+    store.itemFlags.setNote(7, 'x', 1, 'nice area, noisy street', 100); // implies saved
+    expect(store.itemFlags.has(7, 'x', 'saved')).toBe(true);
+    expect(store.itemFlags.getNote(7, 'x')).toBe('nice area, noisy street');
+    expect(store.itemFlags.listSaved(7).find((s) => s.itemId === 'x')?.note).toBe('nice area, noisy street');
+
+    store.itemFlags.setNote(7, 'x', 1, '', 200); // clear note, stays saved
+    expect(store.itemFlags.getNote(7, 'x')).toBeUndefined();
+    expect(store.itemFlags.has(7, 'x', 'saved')).toBe(true);
+    expect(store.itemFlags.getNote(8, 'x')).toBeUndefined(); // chat isolation
+  });
 });
 
 describe('WatchSubscribersRepo', () => {

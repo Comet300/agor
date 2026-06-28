@@ -184,9 +184,13 @@ export interface Catalog {
   btn_save: string;
   btn_saved: string;
   btn_dismiss: string;
+  btn_note: string;
   cb_saved: string;
   cb_unsaved: string;
   cb_dismissed: string;
+  note_prompt: string;
+  note_set: string;
+  note_cleared: string;
   saved_empty: string;
   saved_intro: string;
   saved_item: (p: { title: string; price: string; url: string }) => string;
@@ -485,9 +489,13 @@ const ro: Catalog = {
   btn_save: '⭐ Salvează',
   btn_saved: '⭐ Salvat',
   btn_dismiss: '🚫 Ascunde',
+  btn_note: '📝 Notează',
   cb_saved: 'Salvat în listă.',
   cb_unsaved: 'Scos din listă.',
   cb_dismissed: 'Anunț ascuns.',
+  note_prompt: 'Trimite o notiță pentru acest anunț (sau „-” pentru a o șterge).',
+  note_set: 'Notiță salvată.',
+  note_cleared: 'Notiță ștearsă.',
   saved_empty: 'Niciun anunț salvat. Apasă ⭐ Salvează în /browse.',
   saved_intro: '⭐ Anunțuri salvate:',
   saved_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
@@ -790,9 +798,13 @@ const en: Catalog = {
   btn_save: '⭐ Save',
   btn_saved: '⭐ Saved',
   btn_dismiss: '🚫 Dismiss',
+  btn_note: '📝 Note',
   cb_saved: 'Saved to your shortlist.',
   cb_unsaved: 'Removed from your shortlist.',
   cb_dismissed: 'Listing hidden.',
+  note_prompt: 'Send a note for this listing (or "-" to clear).',
+  note_set: 'Note saved.',
+  note_cleared: 'Note cleared.',
   saved_empty: 'Nothing saved yet. Tap ⭐ Save in /browse.',
   saved_intro: '⭐ Saved listings:',
   saved_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
@@ -1090,9 +1102,13 @@ const de: Catalog = {
   btn_save: '⭐ Merken',
   btn_saved: '⭐ Gemerkt',
   btn_dismiss: '🚫 Verwerfen',
+  btn_note: '📝 Notiz',
   cb_saved: 'Zu deiner Merkliste hinzugefügt.',
   cb_unsaved: 'Von deiner Merkliste entfernt.',
   cb_dismissed: 'Anzeige ausgeblendet.',
+  note_prompt: 'Schicke eine Notiz zu dieser Anzeige (oder „-“ zum Löschen).',
+  note_set: 'Notiz gespeichert.',
+  note_cleared: 'Notiz gelöscht.',
   saved_empty: 'Noch nichts gemerkt. Tippe ⭐ Merken in /browse.',
   saved_intro: '⭐ Gemerkte Anzeigen:',
   saved_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
@@ -1390,9 +1406,13 @@ const it: Catalog = {
   btn_save: '⭐ Salva',
   btn_saved: '⭐ Salvato',
   btn_dismiss: '🚫 Ignora',
+  btn_note: '📝 Nota',
   cb_saved: 'Salvato nella tua lista.',
   cb_unsaved: 'Rimosso dalla tua lista.',
   cb_dismissed: 'Annuncio nascosto.',
+  note_prompt: 'Invia una nota per questo annuncio (oppure „-“ per rimuoverla).',
+  note_set: 'Nota salvata.',
+  note_cleared: 'Nota rimossa.',
   saved_empty: 'Niente salvato per ora. Tocca ⭐ Salva in /browse.',
   saved_intro: '⭐ Annunci salvati:',
   saved_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
@@ -1690,9 +1710,13 @@ const es: Catalog = {
   btn_save: '⭐ Guardar',
   btn_saved: '⭐ Guardado',
   btn_dismiss: '🚫 Descartar',
+  btn_note: '📝 Nota',
   cb_saved: 'Guardado en tu lista.',
   cb_unsaved: 'Quitado de tu lista.',
   cb_dismissed: 'Anuncio oculto.',
+  note_prompt: 'Envía una nota para este anuncio (o "-" para borrarla).',
+  note_set: 'Nota guardada.',
+  note_cleared: 'Nota borrada.',
   saved_empty: 'Aún no has guardado nada. Pulsa ⭐ Guardar en /browse.',
   saved_intro: '⭐ Anuncios guardados:',
   saved_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
@@ -1990,9 +2014,13 @@ const fr: Catalog = {
   btn_save: '⭐ Enregistrer',
   btn_saved: '⭐ Enregistré',
   btn_dismiss: '🚫 Ignorer',
+  btn_note: '📝 Note',
   cb_saved: 'Ajouté à votre sélection.',
   cb_unsaved: 'Retiré de votre sélection.',
   cb_dismissed: 'Annonce masquée.',
+  note_prompt: 'Envoyez une note pour cette annonce (ou « - » pour l’effacer).',
+  note_set: 'Note enregistrée.',
+  note_cleared: 'Note effacée.',
   saved_empty: 'Rien d’enregistré pour l’instant. Tapez ⭐ Enregistrer dans /browse.',
   saved_intro: '⭐ Annonces enregistrées :',
   saved_item: ({ title, price, url }) => `• ${price} — ${title}\n${url}`,
