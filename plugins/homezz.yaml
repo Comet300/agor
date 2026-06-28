@@ -8,7 +8,6 @@
 
 vendor: Homezz
 domain: homezz.ro
-categories: [property]
 engine: dom-selector
 rate_limit_ms: 3000
 

@@ -387,8 +387,6 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
         `edg:${id}`,
       )
       .text(mark(monitor.filters.weeklyReport === true, t.btn_report), `erp:${id}`)
-      .row()
-      .text(t.btn_extend_search, `xs:${id}`)
       .row();
   } else {
     // A single tracked listing: a target-price alert is the meaningful control.

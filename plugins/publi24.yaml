@@ -10,7 +10,6 @@
 
 vendor: Publi24
 domain: publi24.ro
-categories: [general]
 engine: json-extractor
 rate_limit_ms: 3000
 

@@ -8,7 +8,6 @@
 
 vendor: Imoradar24
 domain: imoradar24.ro
-categories: [property]
 engine: json-extractor
 rate_limit_ms: 3000
 

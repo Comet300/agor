@@ -77,27 +77,6 @@ export interface IVendorPlugin {
   rate_limit_ms: number;
   search_mapping: IPluginSearchMapping;
   product_mapping: IPluginMapping;
-  /**
-   * Optional SERP URL template with a `{query}` slug placeholder, e.g.
-   * `https://www.olx.ro/oferte/q-{query}/`. When present, the bot can BUILD a
-   * search watch for this vendor — powers cross-platform auto-suggest / extend.
-   */
-  search_url_template?: string;
-  /**
-   * Optional regex (capture group 1 = the query slug) that EXTRACTS the query
-   * back out of one of this vendor's SERP URLs, e.g. `q-([^/]+)` for OLX. Lets
-   * "extend search" read the query from an existing search watch's URL.
-   */
-  search_query_pattern?: string;
-  /**
-   * What this vendor sells, for cross-platform compatibility, e.g. `['cars']`,
-   * `['property']`, `['fashion']`, or `['general']` (a marketplace that carries
-   * everything). "Extend search" only offers a target whose categories overlap
-   * the source — so a car search never extends to a clothes-only site. A general
-   * vendor matches any query; but a search FROM a general vendor (whose URL can't
-   * reveal the category) only extends to other general vendors.
-   */
-  categories?: string[];
 }
 
 // ────────────────────────────────────────────────────────────────────────────

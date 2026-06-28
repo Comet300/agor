@@ -62,11 +62,6 @@ export class Orchestrator {
   /** The heartbeat that decides when each monitor polls. */
   readonly scheduler: Scheduler;
 
-  /** The vendor plugin registry (read access for the bot's auto-suggest). */
-  get registry(): PluginRegistry {
-    return this.deps.registry;
-  }
-
   private readonly deps: OrchestratorDeps;
   /** Resolved clock seam — always defined after the constructor. */
   private readonly now: () => number;
