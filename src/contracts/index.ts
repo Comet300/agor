@@ -448,4 +448,8 @@ export interface WeeklyReportData {
   trendBadge: string;
   /** Cheapest current listings, best first. */
   bestDeals: ReportDeal[];
+  /** Seasonal "best time to buy" month (1–12), when a pattern is detected. */
+  seasonalMonth?: number;
+  /** How far that month sits below the yearly mean, in percent. */
+  seasonalBelowPct?: number;
 }
