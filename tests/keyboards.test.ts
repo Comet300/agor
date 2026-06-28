@@ -6,8 +6,6 @@ import {
   browseScopeKeyboard,
   browseScopeLabel,
   pickerKeyboard,
-  specChooserKeyboard,
-  attrPresetKeyboard,
   type PickerSession,
 } from '../src/gateway/keyboards';
 import { tr } from '../src/gateway/strings';
@@ -169,7 +167,6 @@ describe('editKeyboard', () => {
     expect(d).toContain('ex:4');           // exclusion (reuses registration callback)
     expect(d).toContain('eq:4');           // required keywords
     expect(d).toContain('eb:4');           // block seller
-    expect(d).toContain('eo:4');           // deals-only toggle
     expect(d).toContain('er:4');           // rename
     expect(d).toContain('ep:4');           // pause/resume
     expect(d).toContain('rm:4');           // remove
@@ -178,7 +175,7 @@ describe('editKeyboard', () => {
     expect(d.some((x) => x.startsWith('go:'))).toBe(false); // no "Start" on an existing watch
   });
 
-  it('product watch: frequency + target + rename + pause + remove + done (no seller / exclusion / deals-only)', () => {
+  it('product watch: frequency + target + rename + pause + remove + done (no seller / exclusion)', () => {
     const d = dataOf(editKeyboard(monitor({ id: 9, type: 'product', origin: 'tracked' }), 'en'));
     expect(d).toContain('efq:9:5');
     expect(d).toContain('et:9');           // target price (product only)
@@ -190,7 +187,6 @@ describe('editKeyboard', () => {
     expect(d.some((x) => x.startsWith('ex:'))).toBe(false);  // exclusions N/A
     expect(d.some((x) => x.startsWith('eq:'))).toBe(false);  // required keywords N/A
     expect(d.some((x) => x.startsWith('eb:'))).toBe(false);  // block seller N/A
-    expect(d.some((x) => x.startsWith('eo:'))).toBe(false);  // deals-only N/A
     expect(d.some((x) => x.startsWith('go:'))).toBe(false);
   });
 
@@ -199,13 +195,6 @@ describe('editKeyboard', () => {
       editKeyboard(m, 'en').inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
     expect(labelsOf(monitor({ paused: false }))).toContain(tr('en').btn_pause);
     expect(labelsOf(monitor({ paused: true }))).toContain(tr('en').btn_resume);
-  });
-
-  it('marks deals-only with a check when enabled', () => {
-    const labelsOf = (m: Monitor): string[] =>
-      editKeyboard(m, 'en').inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
-    const on = monitor({ filters: { sellerVisibility: 'both', exclusionKeywords: [], dealsOnly: true } });
-    expect(labelsOf(on)).toContain(`✅ ${tr('en').btn_deals_only}`);
   });
 
   it('marks the active frequency and seller with a check', () => {
@@ -246,25 +235,3 @@ describe('pickerKeyboard', () => {
   });
 });
 
-describe('interactive specs wizard (attrPresetKeyboard / specChooserKeyboard)', () => {
-  it('chooser offers year/km/area, a type escape, and done', () => {
-    const kb = specChooserKeyboard(7, 'en');
-    expect(data(kb)).toEqual(['ec:7:year', 'ec:7:km', 'ec:7:area', 'ec:7:type', 'ed']);
-  });
-
-  it('year presets are ≥ lower bounds; the active one is marked', () => {
-    const kb = attrPresetKeyboard(7, 'year', 2018, 'en');
-    expect(labels(kb)).toEqual(['≥2015', '✅ ≥2018', '≥2020', '≥2022', '✖️', '◀️']);
-    expect(data(kb)).toEqual(['ecp:7:year:2015', 'ecp:7:year:2018', 'ecp:7:year:2020', 'ecp:7:year:2022', 'ecp:7:year:0', 'ec:7:back']);
-  });
-
-  it('km presets are ≤ upper bounds shown in k', () => {
-    const kb = attrPresetKeyboard(7, 'km', 100000, 'en');
-    expect(labels(kb)).toEqual(['≤250k', '≤150k', '✅ ≤100k', '≤50k', '✖️', '◀️']);
-  });
-
-  it('area presets are ≥ lower bounds; none marked when unset', () => {
-    const kb = attrPresetKeyboard(7, 'area', undefined, 'en');
-    expect(labels(kb)).toEqual(['≥40', '≥60', '≥80', '≥100', '✖️', '◀️']);
-  });
-});

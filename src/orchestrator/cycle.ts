@@ -174,17 +174,8 @@ export class MonitorCycle {
       );
     }
 
-    // Deals-only: drop new listings the benchmark is CONFIDENT are above median.
-    // When the sample is too small to judge (not confident), nothing is dropped,
-    // so a fresh watch still alerts until it has enough data to call a deal.
-    const fresh = monitor.filters.dealsOnly
-      ? out.newEnriched.filter(
-          (item) => !(item.benchmark?.confident && item.price > item.benchmark.median),
-        )
-      : out.newEnriched;
-
     // One notification per genuinely new (already enriched) listing.
-    const notifications: Notification[] = fresh.map((item) => ({
+    const notifications: Notification[] = out.newEnriched.map((item) => ({
       kind: 'new_listing',
       chatId: monitor.chatId,
       item,
