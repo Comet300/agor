@@ -79,10 +79,16 @@ export interface IVendorPlugin {
   product_mapping: IPluginMapping;
   /**
    * Optional SERP URL template with a `{query}` slug placeholder, e.g.
-   * `https://www.olx.ro/oferte/q-{query}/`. When present, the bot can auto-build
-   * a search watch for this vendor — powers cross-platform auto-suggest.
+   * `https://www.olx.ro/oferte/q-{query}/`. When present, the bot can BUILD a
+   * search watch for this vendor — powers cross-platform auto-suggest / extend.
    */
   search_url_template?: string;
+  /**
+   * Optional regex (capture group 1 = the query slug) that EXTRACTS the query
+   * back out of one of this vendor's SERP URLs, e.g. `q-([^/]+)` for OLX. Lets
+   * "extend search" read the query from an existing search watch's URL.
+   */
+  search_query_pattern?: string;
 }
 
 // ────────────────────────────────────────────────────────────────────────────

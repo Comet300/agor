@@ -31,6 +31,32 @@ export function suggestQuery(title: string): string {
   return tokens.slice(0, QUERY_TOKENS).join(' ');
 }
 
+/** A dash/underscore slug back into a space-separated query: "bmw-320d" → "bmw 320d". */
+export function deslugify(slug: string): string {
+  return decodeURIComponent(slug).replace(/[-_+]+/g, ' ').trim();
+}
+
+/**
+ * Extract the search query from one of `plugin`'s SERP URLs using its
+ * `search_query_pattern` (capture group 1 = the slug). Returns undefined when the
+ * vendor has no pattern or the URL doesn't match — so "extend search" only fires
+ * on a recognisable keyword search.
+ */
+export function extractQuery(plugin: IVendorPlugin, url: string): string | undefined {
+  if (!plugin.search_query_pattern) return undefined;
+  let re: RegExp;
+  try {
+    re = new RegExp(plugin.search_query_pattern);
+  } catch {
+    return undefined; // a malformed manifest pattern must not throw
+  }
+  const m = re.exec(url);
+  const slug = m?.[1];
+  if (!slug) return undefined;
+  const q = deslugify(slug);
+  return q.length > 0 ? q : undefined;
+}
+
 /** Build a vendor's SERP URL for a query, or undefined when it has no template. */
 export function searchUrlFor(plugin: IVendorPlugin, query: string): string | undefined {
   if (!plugin.search_url_template) return undefined;

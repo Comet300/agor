@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slugify, suggestQuery, searchUrlFor, suggestVendors } from '../src/features/autoSuggest';
+import { slugify, deslugify, suggestQuery, searchUrlFor, suggestVendors, extractQuery } from '../src/features/autoSuggest';
 import type { IVendorPlugin } from '../src/contracts';
 
 const plugin = (vendor: string, template?: string): IVendorPlugin => ({
@@ -20,6 +20,23 @@ describe('slugify + suggestQuery', () => {
     expect(suggestQuery('BMW 320d 2.0 Diesel 2018 Automat')).toBe('BMW 320d Diesel'); // pure numbers dropped
     expect(suggestQuery('Apartament de 3 camere Cluj')).toBe('Apartament camere Cluj'); // "de" + "3" dropped
     expect(suggestQuery('')).toBe('');
+  });
+});
+
+describe('extractQuery (extend search)', () => {
+  const olx = plugin('OLX', 'https://www.olx.ro/oferte/q-{query}/');
+  olx.search_query_pattern = 'q-([^/?#]+)';
+
+  it('reads the query back out of a SERP URL and round-trips through build', () => {
+    expect(deslugify('bmw-320d')).toBe('bmw 320d');
+    const q = extractQuery(olx, 'https://www.olx.ro/oferte/q-bmw-320d/');
+    expect(q).toBe('bmw 320d');
+    expect(searchUrlFor(olx, q!)).toBe('https://www.olx.ro/oferte/q-bmw-320d/'); // build∘extract = identity
+  });
+
+  it('returns undefined for a non-matching URL or a vendor without a pattern', () => {
+    expect(extractQuery(olx, 'https://www.olx.ro/d/oferta/some-product-123')).toBeUndefined();
+    expect(extractQuery(plugin('AutoVit', 'https://x/{query}'), 'https://x/q-bmw')).toBeUndefined();
   });
 });
 
@@ -50,10 +67,11 @@ describe('suggestVendors', () => {
 });
 
 describe('olx manifest carries a search template', () => {
-  it('the shipped OLX plugin has a {query} SERP template', async () => {
+  it('the shipped OLX plugin can build AND extract a search', async () => {
     const { PluginRegistry } = await import('../src/registry');
     const reg = PluginRegistry.load('plugins');
-    const olx = reg.all().find((p) => p.domain === 'olx.ro');
-    expect(olx?.search_url_template).toContain('{query}');
+    const olx = reg.all().find((p) => p.domain === 'olx.ro')!;
+    expect(olx.search_url_template).toContain('{query}');
+    expect(extractQuery(olx, searchUrlFor(olx, 'dacia logan')!)).toBe('dacia logan'); // round-trips
   });
 });
