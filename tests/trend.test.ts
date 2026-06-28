@@ -90,11 +90,12 @@ describe('computeTrend', () => {
 });
 
 describe('renderTrendBadge', () => {
-  it('renders only the windows that have data, language-neutral', () => {
+  it('renders a direction-led, signed badge for the windows that have data', () => {
     expect(renderTrendBadge({})).toBe('');
-    expect(renderTrendBadge({ d7: { dir: 'down', pct: -4.2, n: 3 } })).toBe('📊 7d ▼4%');
+    expect(renderTrendBadge({ d7: { dir: 'down', pct: -4.2, n: 3 } })).toBe('📉 💶 7d -4%');
     const both: Trend = { d7: { dir: 'down', pct: -4, n: 3 }, d30: { dir: 'down', pct: -9, n: 5 } };
-    expect(renderTrendBadge(both)).toBe('📊 7d ▼4% · 30d ▼9%');
-    expect(renderTrendBadge({ d30: { dir: 'up', pct: 7.6, n: 4 } })).toBe('📊 30d ▲8%');
+    expect(renderTrendBadge(both)).toBe('📉 💶 7d -4% · 30d -9%');
+    expect(renderTrendBadge({ d30: { dir: 'up', pct: 7.6, n: 4 } })).toBe('📈 💶 30d +8%');
+    expect(renderTrendBadge({ d7: { dir: 'flat', pct: 2, n: 3 } })).toBe('➡️ 💶 7d +2%'); // flat → ➡️
   });
 });

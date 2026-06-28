@@ -77,20 +77,25 @@ export function computeTrend(repo: PriceHistoryRepo, monitorId: number, now: num
   return out;
 }
 
-const ARROW: Record<TrendDir, string> = { up: '▲', down: '▼', flat: '▬' };
+/** Leading emoji = the overall price direction, so the badge reads at a glance. */
+const LEAD: Record<TrendDir, string> = { up: '📈', down: '📉', flat: '➡️' };
 
-/** One window as e.g. "7d ▼4%" — language-neutral (arrow + abs percent). */
+/** One window as e.g. "7d -4%" — language-neutral (signed percent). */
 function part(label: string, p: TrendPoint): string {
-  return `${label} ${ARROW[p.dir]}${Math.round(Math.abs(p.pct))}%`;
+  const pct = Math.round(p.pct);
+  return `${label} ${pct >= 0 ? '+' : ''}${pct}%`;
 }
 
 /**
- * A compact, language-neutral trend badge for a /list row, or '' when there is
- * not enough history to say anything. e.g. "📊 7d ▼4% · 30d ▼9%".
+ * A compact, language-neutral price-trend badge for a /list row, or '' when there
+ * is not enough history. The leading emoji is the direction itself (📈/📉/➡️) so
+ * it's obvious the figures are price movement, e.g. "📉 7d -4% · 30d -9%".
  */
 export function renderTrendBadge(trend: Trend): string {
   const parts: string[] = [];
   if (trend.d7) parts.push(part('7d', trend.d7));
   if (trend.d30) parts.push(part('30d', trend.d30));
-  return parts.length ? `📊 ${parts.join(' · ')}` : '';
+  if (parts.length === 0) return '';
+  const lead = (trend.d30 ?? trend.d7)!.dir; // longest window decides the headline emoji
+  return `${LEAD[lead]} 💶 ${parts.join(' · ')}`;
 }
