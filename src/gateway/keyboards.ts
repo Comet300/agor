@@ -326,8 +326,9 @@ export function registrationKeyboard(
 
   return kb
     .row()
-    // Exclusion keywords prompt + remove monitor.
+    // Exclusion keywords prompt + group (reuses the edit-card egr: flow) + remove.
     .text(t.btn_exclusion, `ex:${monitorId}`)
+    .text(t.btn_group, `egr:${monitorId}`)
     .text(t.btn_remove, `rm:${monitorId}`)
     .row()
     // Go live.
