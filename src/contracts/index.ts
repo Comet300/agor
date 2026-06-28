@@ -89,6 +89,15 @@ export interface IVendorPlugin {
    * "extend search" read the query from an existing search watch's URL.
    */
   search_query_pattern?: string;
+  /**
+   * What this vendor sells, for cross-platform compatibility, e.g. `['cars']`,
+   * `['property']`, `['fashion']`, or `['general']` (a marketplace that carries
+   * everything). "Extend search" only offers a target whose categories overlap
+   * the source — so a car search never extends to a clothes-only site. A general
+   * vendor matches any query; but a search FROM a general vendor (whose URL can't
+   * reveal the category) only extends to other general vendors.
+   */
+  categories?: string[];
 }
 
 // ────────────────────────────────────────────────────────────────────────────

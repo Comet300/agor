@@ -2177,8 +2177,8 @@ export function buildBot(
       // Cross-platform auto-suggest: offer to watch the same query on other vendors.
       const query = suggestQuery(item.title ?? '');
       if (query) {
-        const current = orchestrator.registry.matchUrl(item.url)?.vendor;
-        const others = suggestVendors(orchestrator.registry.all(), query, current);
+        const sourcePlugin = orchestrator.registry.matchUrl(item.url);
+        const others = suggestVendors(orchestrator.registry.all(), query, sourcePlugin);
         if (others.length > 0) {
           pendingSuggest.set(chatId, others.map((o) => o.url));
           const kb = new InlineKeyboard();
@@ -2204,7 +2204,7 @@ export function buildBot(
       const plugin = orchestrator.registry.matchUrl(monitor.url);
       const query = plugin ? extractQuery(plugin, monitor.url) : undefined;
       await ctx.answerCallbackQuery();
-      const others = query ? suggestVendors(orchestrator.registry.all(), query, plugin?.vendor) : [];
+      const others = query ? suggestVendors(orchestrator.registry.all(), query, plugin) : [];
       if (!query || others.length === 0) { await ctx.reply(tr(lang).extend_no_query); return; }
       pendingSuggest.set(chatId, others.map((o) => o.url));
       const kb = new InlineKeyboard();

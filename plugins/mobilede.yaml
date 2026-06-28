@@ -9,6 +9,7 @@
 
 vendor: MobileDe
 domain: mobile.de
+categories: [cars]
 engine: json-extractor
 # Akamai walls a raw undici GET (live 403 from a clean IP — TLS/JA3
 # fingerprinting), so this vendor opts into the headless-browser fallback. The

@@ -15,6 +15,7 @@
 
 vendor: OLX
 domain: olx.ro
+categories: [general]
 engine: json-extractor
 rate_limit_ms: 2500
 
