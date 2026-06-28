@@ -38,7 +38,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, specChooserKeyboard, attrPresetKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -1926,7 +1926,8 @@ export function buildBot(
     }
   });
 
-  // Attribute (spec) ranges: ear:<monitorId> → prompt + remember pending.
+  // Attribute (spec) ranges: ear:<monitorId> → open the interactive specs wizard
+  // (one-tap year/km/area presets), with a ✏️ escape to the free-text flow.
   bot.callbackQuery(/^ear:(\d+)$/, async (ctx) => {
     const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
@@ -1936,9 +1937,61 @@ export function buildBot(
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
-      pendingAttrRange.set(ctx.chat?.id ?? monitor.chatId, monitorId);
       await ctx.answerCallbackQuery();
-      await ctx.reply(tr(lang).attr_range_prompt);
+      await ctx.reply(tr(lang).specs_line(''), { reply_markup: specChooserKeyboard(monitorId, lang) });
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
+  // Specs wizard navigation: ec:<id>:<year|km|area|type|back>.
+  bot.callbackQuery(/^ec:(\d+):(year|km|area|type|back)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const what = ctx.match[2];
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      if (what === 'type') {
+        pendingAttrRange.set(ctx.chat?.id ?? monitor.chatId, monitorId);
+        await ctx.answerCallbackQuery();
+        await ctx.reply(tr(lang).attr_range_prompt);
+        return;
+      }
+      await ctx.answerCallbackQuery();
+      if (what === 'back') {
+        await ctx.editMessageReplyMarkup({ reply_markup: specChooserKeyboard(monitorId, lang) });
+        return;
+      }
+      const attr = what as 'year' | 'km' | 'area';
+      const range = monitor.filters.attrRanges?.[attr];
+      const current = attr === 'km' ? range?.max : range?.min;
+      await ctx.editMessageReplyMarkup({ reply_markup: attrPresetKeyboard(monitorId, attr, current, lang) });
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
+  // Specs wizard apply: ecp:<id>:<attr>:<value> — set/clear that bound, then redraw.
+  bot.callbackQuery(/^ecp:(\d+):(year|km|area):(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const attr = ctx.match[2] as 'year' | 'km' | 'area';
+      const value = Number(ctx.match[3]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      const ranges = { ...(monitor.filters.attrRanges ?? {}) };
+      if (value === 0) delete ranges[attr];
+      else ranges[attr] = attr === 'km' ? { max: value } : { min: value };
+      monitor.filters.attrRanges = Object.keys(ranges).length > 0 ? ranges : undefined;
+      store.monitors.update(monitor);
+      const summary = Object.entries(monitor.filters.attrRanges ?? {})
+        .map(([k, r]) => `${k}${r.min !== undefined ? `≥${r.min}` : ''}${r.max !== undefined ? `≤${r.max}` : ''}`)
+        .join(' · ');
+      await ctx.answerCallbackQuery(summary ? tr(lang).attr_range_set(summary) : tr(lang).range_cleared);
+      const current = value === 0 ? undefined : value;
+      await ctx.editMessageReplyMarkup({ reply_markup: attrPresetKeyboard(monitorId, attr, current, lang) });
     } catch (err) {
       await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
     }

@@ -6,6 +6,8 @@ import {
   browseScopeKeyboard,
   browseScopeLabel,
   pickerKeyboard,
+  specChooserKeyboard,
+  attrPresetKeyboard,
   type PickerSession,
 } from '../src/gateway/keyboards';
 import { tr } from '../src/gateway/strings';
@@ -235,5 +237,28 @@ describe('pickerKeyboard', () => {
     expect(labels.some((l) => l.startsWith('✅'))).toBe(true);
     expect(dataOf(kb)).not.toContain('kt');
     expect(dataOf(kb)).toContain('kc');
+  });
+});
+
+describe('interactive specs wizard (attrPresetKeyboard / specChooserKeyboard)', () => {
+  it('chooser offers year/km/area, a type escape, and done', () => {
+    const kb = specChooserKeyboard(7, 'en');
+    expect(data(kb)).toEqual(['ec:7:year', 'ec:7:km', 'ec:7:area', 'ec:7:type', 'ed']);
+  });
+
+  it('year presets are ≥ lower bounds; the active one is marked', () => {
+    const kb = attrPresetKeyboard(7, 'year', 2018, 'en');
+    expect(labels(kb)).toEqual(['≥2015', '✅ ≥2018', '≥2020', '≥2022', '✖️', '◀️']);
+    expect(data(kb)).toEqual(['ecp:7:year:2015', 'ecp:7:year:2018', 'ecp:7:year:2020', 'ecp:7:year:2022', 'ecp:7:year:0', 'ec:7:back']);
+  });
+
+  it('km presets are ≤ upper bounds shown in k', () => {
+    const kb = attrPresetKeyboard(7, 'km', 100000, 'en');
+    expect(labels(kb)).toEqual(['≤250k', '≤150k', '✅ ≤100k', '≤50k', '✖️', '◀️']);
+  });
+
+  it('area presets are ≥ lower bounds; none marked when unset', () => {
+    const kb = attrPresetKeyboard(7, 'area', undefined, 'en');
+    expect(labels(kb)).toEqual(['≥40', '≥60', '≥80', '≥100', '✖️', '◀️']);
   });
 });

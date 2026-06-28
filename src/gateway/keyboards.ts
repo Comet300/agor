@@ -133,6 +133,44 @@ export function listRowKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
 /** Max options per picker page (paginated when more). */
 export const PICKER_PAGE_SIZE = 15;
 
+/**
+ * Interactive numeric-attribute presets (year/km/area) for a one-tap range
+ * filter. year/area are lower bounds (≥); km is an upper bound (≤). Tapping a
+ * value sets that bound; `0` clears the attribute. Language-neutral: the buttons
+ * are the filter key + a number, so no catalog string is needed.
+ */
+export const ATTR_PRESETS: Record<'year' | 'km' | 'area', number[]> = {
+  year: [2015, 2018, 2020, 2022],
+  km: [250000, 150000, 100000, 50000],
+  area: [40, 60, 80, 100],
+};
+
+/** Step 1 of the specs wizard: choose which attribute to range, or type one. */
+export function specChooserKeyboard(id: number, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  return new InlineKeyboard()
+    .text('📅 year', `ec:${id}:year`)
+    .text('🛣 km', `ec:${id}:km`)
+    .text('📐 area', `ec:${id}:area`)
+    .row()
+    .text('✏️', `ec:${id}:type`)
+    .text(t.btn_done, 'ed');
+}
+
+/** Step 2: one-tap preset bounds for `attr`; `current` is the active bound (✅). */
+export function attrPresetKeyboard(id: number, attr: 'year' | 'km' | 'area', current: number | undefined, lang: Lang): InlineKeyboard {
+  const isMax = attr === 'km';
+  const sym = isMax ? '≤' : '≥';
+  const fmt = (v: number): string => (attr === 'km' ? `${v / 1000}k` : `${v}`);
+  const kb = new InlineKeyboard();
+  ATTR_PRESETS[attr].forEach((v, i) => {
+    if (i > 0 && i % 2 === 0) kb.row();
+    kb.text(`${current === v ? '✅ ' : ''}${sym}${fmt(v)}`, `ecp:${id}:${attr}:${v}`);
+  });
+  kb.row().text('✖️', `ecp:${id}:${attr}:0`).text('◀️', `ec:${id}:back`);
+  return kb;
+}
+
 /** Every command that accepts an id — a no-arg invocation opens an id picker. */
 export type IdCommand =
   | 'edit' | 'remove' | 'check' | 'history' | 'cheaper'
