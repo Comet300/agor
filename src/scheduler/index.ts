@@ -49,6 +49,12 @@ export interface SchedulerDeps {
   /** Ticks between `onMaintenance` runs (default 360). Ignored without the hook. */
   maintenanceIntervalTicks?: number;
   /**
+   * Optional digest flush, run EVERY tick (even with no due monitors) so batched
+   * daily/weekly summaries go out on time on an otherwise-idle bot. Awaited and
+   * cheap (one grouped query when nothing is due).
+   */
+  onDigestFlush?: (now: number) => Promise<void>;
+  /**
    * Max monitor cycles run concurrently within a tick (default 5). Bounds the
    * fan-out so a Pi is not swamped while still keeping a tick's wall time near
    * the slowest single cycle rather than the sum of all due cycles.
@@ -161,6 +167,16 @@ export class Scheduler {
           { err: (err as Error).message },
           "db maintenance failed",
         );
+      }
+    }
+
+    // Digest flush runs every tick (independent of due monitors) so batched
+    // summaries are delivered on schedule even when nothing is polling.
+    if (this.deps.onDigestFlush) {
+      try {
+        await this.deps.onDigestFlush(now);
+      } catch (err) {
+        log("scheduler").warn({ err: (err as Error).message }, "digest flush failed");
       }
     }
 

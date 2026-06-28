@@ -1462,6 +1462,28 @@ export function buildBot(
     }
   });
 
+  // Edit-card digest toggle: edg:<monitorId> cycles off → daily → weekly → off.
+  // Switching OFF flushes nothing (queued items just resume real-time next cycle);
+  // any already-queued items stay until their window flushes or the watch is removed.
+  bot.callbackQuery(/^edg:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitor = store.monitors.get(Number(ctx.match[1]));
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      const next = monitor.filters.digest === undefined ? 'daily' : monitor.filters.digest === 'daily' ? 'weekly' : undefined;
+      if (next === undefined) delete monitor.filters.digest;
+      else monitor.filters.digest = next;
+      store.monitors.update(monitor);
+      await ctx.answerCallbackQuery(tr(lang).cb_digest_set);
+      await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) });
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
   // Edit-card pause/resume toggle: ep:<monitorId>. Resuming re-arms the next poll
   // for now so it does not wait out the old interval.
   bot.callbackQuery(/^ep:(\d+)$/, async (ctx) => {
@@ -1808,6 +1830,7 @@ export function buildBot(
         if (!monitor || monitor.chatId !== chatId) { await ctx.answerCallbackQuery(tr(lang).remove_not_found); return; }
         store.monitors.delete(id);
         store.watchSubscribers.removeAll(id); // drop any shared-watch subscribers
+        store.digestQueue.removeAll(id); // drop any parked digest items
         log('cycle').info({ monitorId: id, chatId, action: 'remove' }, 'monitor removed');
         await ctx.answerCallbackQuery(tr(lang).cb_removed);
         return;

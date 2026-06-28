@@ -336,6 +336,15 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
       .row()
       .text(mark(monitor.filters.priceMin !== undefined || monitor.filters.priceMax !== undefined, t.btn_price_range), `epr:${id}`)
       .text(mark(monitor.filters.attrRanges !== undefined && Object.keys(monitor.filters.attrRanges).length > 0, t.btn_specs), `ear:${id}`)
+      .row()
+      // Digest cycles off → daily (1d) → weekly (7d). The period suffix is
+      // language-neutral so it needs no extra catalog string.
+      .text(
+        monitor.filters.digest
+          ? `✅ ${t.btn_digest} · ${monitor.filters.digest === 'weekly' ? '7d' : '1d'}`
+          : t.btn_digest,
+        `edg:${id}`,
+      )
       .row();
   } else {
     // A single tracked listing: a target-price alert is the meaningful control.

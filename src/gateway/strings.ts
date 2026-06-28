@@ -152,6 +152,7 @@ export interface Catalog {
   btn_done: string;
   btn_remove: string;
   btn_deals_only: string;
+  btn_digest: string;
   btn_required: string;
   btn_block: string;
   btn_price_range: string;
@@ -221,6 +222,7 @@ export interface Catalog {
   cb_resumed: string;
   cb_deals_on: string;
   cb_deals_off: string;
+  cb_digest_set: string;
   exclusion_prompt: string;
   exclusion_set: (keywords: string) => string;
   exclusion_cleared: string;
@@ -265,6 +267,9 @@ export interface Catalog {
   back_in_stock_title: string;
   /** Banner prepended to a new-listing card when multiple "hot" signals coincide. */
   hot_lead_title: string;
+  /** Digest summary header (count + vendor) and the market-stats line. */
+  digest_intro: (a: { count: number; vendor: string }) => string;
+  digest_stats: (a: { median: string; range: string }) => string;
 
   // ── Access control ────────────────────────────────────────────────────────
   access_denied: string; // shown to a non-allowed chat that tries to use the bot
@@ -440,6 +445,7 @@ const ro: Catalog = {
   btn_done: '✅ Gata',
   btn_remove: '🗑 Șterge',
   btn_deals_only: '🔥 Doar oferte',
+  btn_digest: '📰 Rezumat',
   btn_required: '✅ Cuvinte necesare',
   btn_block: '⛔ Blochează vânzător',
   btn_price_range: '💶 Interval preț',
@@ -507,6 +513,7 @@ const ro: Catalog = {
   cb_resumed: 'Urmărire reluată.',
   cb_deals_on: 'Doar oferte bune: pornit.',
   cb_deals_off: 'Doar oferte bune: oprit.',
+  cb_digest_set: 'Mod rezumat actualizat.',
   exclusion_prompt: 'Trimite cuvintele de exclus, separate prin virgulă (ex.: lovit, piese, dube).',
   exclusion_set: (kw) => `Exclud: ${kw}`,
   exclusion_cleared: 'Toate cuvintele excluse au fost șterse.',
@@ -551,6 +558,8 @@ const ro: Catalog = {
     `📉 Scădere de preț la ${title}: ${oldPrice} → ${newPrice} (economisești ${savings})`,
   back_in_stock_title: '🟢 REVENIT ÎN STOC',
   hot_lead_title: '🔥 OFERTĂ FIERBINTE — semnale multiple',
+  digest_intro: ({ count, vendor }) => `📰 Rezumat — ${count} anunțuri noi pe ${vendor}`,
+  digest_stats: ({ median, range }) => `Mediană ${median} · interval ${range}`,
 
   access_denied:
     'Nu ai acces la acest bot. Folosește /request_access ca să ceri accesul.',
@@ -730,6 +739,7 @@ const en: Catalog = {
   btn_done: '✅ Done',
   btn_remove: '🗑 Remove',
   btn_deals_only: '🔥 Deals only',
+  btn_digest: '📰 Digest',
   btn_required: '✅ Required words',
   btn_block: '⛔ Block seller',
   btn_price_range: '💶 Price range',
@@ -797,6 +807,7 @@ const en: Catalog = {
   cb_resumed: 'Watch resumed.',
   cb_deals_on: 'Deals only: on.',
   cb_deals_off: 'Deals only: off.',
+  cb_digest_set: 'Digest mode updated.',
   exclusion_prompt: 'Send a comma-separated list of keywords to exclude (e.g. damaged, parts, salvage).',
   exclusion_set: (kw) => `Excluding: ${kw}`,
   exclusion_cleared: 'Cleared all exclusion keywords.',
@@ -841,6 +852,8 @@ const en: Catalog = {
     `📉 Price drop on ${title}: ${oldPrice} → ${newPrice} (save ${savings})`,
   back_in_stock_title: '🟢 BACK IN STOCK',
   hot_lead_title: '🔥 HOT LEAD — multiple signals',
+  digest_intro: ({ count, vendor }) => `📰 Digest — ${count} new listings on ${vendor}`,
+  digest_stats: ({ median, range }) => `Median ${median} · range ${range}`,
 
   access_denied: 'You do not have access to this bot. Use /request_access to ask for it.',
   access_request_intro: "Let's request access. ",
@@ -1015,6 +1028,7 @@ const de: Catalog = {
   btn_done: '✅ Fertig',
   btn_remove: '🗑 Entfernen',
   btn_deals_only: '🔥 Nur Schnäppchen',
+  btn_digest: '📰 Zusammenfassung',
   btn_required: '✅ Pflichtwörter',
   btn_block: '⛔ Verkäufer blockieren',
   btn_price_range: '💶 Preisspanne',
@@ -1082,6 +1096,7 @@ const de: Catalog = {
   cb_resumed: 'Beobachtung fortgesetzt.',
   cb_deals_on: 'Nur Schnäppchen: an.',
   cb_deals_off: 'Nur Schnäppchen: aus.',
+  cb_digest_set: 'Zusammenfassungsmodus aktualisiert.',
   exclusion_prompt: 'Schicke eine kommagetrennte Liste von Stichwörtern zum Ausschließen (z. B. beschädigt, Teile, Bastler).',
   exclusion_set: (kw) => `Ausgeschlossen: ${kw}`,
   exclusion_cleared: 'Alle Ausschluss-Stichwörter gelöscht.',
@@ -1126,6 +1141,8 @@ const de: Catalog = {
     `📉 Preissenkung bei ${title}: ${oldPrice} → ${newPrice} (spare ${savings})`,
   back_in_stock_title: '🟢 WIEDER VERFÜGBAR',
   hot_lead_title: '🔥 HEISSER TIPP — mehrere Signale',
+  digest_intro: ({ count, vendor }) => `📰 Zusammenfassung — ${count} neue Anzeigen auf ${vendor}`,
+  digest_stats: ({ median, range }) => `Median ${median} · Spanne ${range}`,
 
   access_denied: 'Du hast keinen Zugang zu diesem Bot. Nutze /request_access, um ihn anzufragen.',
   access_request_intro: 'Lass uns Zugang anfragen. ',
@@ -1300,6 +1317,7 @@ const it: Catalog = {
   btn_done: '✅ Fatto',
   btn_remove: '🗑 Rimuovi',
   btn_deals_only: '🔥 Solo affari',
+  btn_digest: '📰 Riepilogo',
   btn_required: '✅ Parole obbligatorie',
   btn_block: '⛔ Blocca venditore',
   btn_price_range: '💶 Fascia di prezzo',
@@ -1367,6 +1385,7 @@ const it: Catalog = {
   cb_resumed: 'Monitoraggio ripreso.',
   cb_deals_on: 'Solo affari: attivo.',
   cb_deals_off: 'Solo affari: disattivo.',
+  cb_digest_set: 'Modalità riepilogo aggiornata.',
   exclusion_prompt: 'Invia una lista di parole separate da virgola da escludere (es. danneggiato, ricambi, incidentato).',
   exclusion_set: (kw) => `Escludo: ${kw}`,
   exclusion_cleared: 'Tutte le parole da escludere rimosse.',
@@ -1411,6 +1430,8 @@ const it: Catalog = {
     `📉 Calo di prezzo su ${title}: ${oldPrice} → ${newPrice} (risparmi ${savings})`,
   back_in_stock_title: '🟢 DI NUOVO DISPONIBILE',
   hot_lead_title: '🔥 OCCASIONE CALDA — più segnali',
+  digest_intro: ({ count, vendor }) => `📰 Riepilogo — ${count} nuovi annunci su ${vendor}`,
+  digest_stats: ({ median, range }) => `Mediana ${median} · intervallo ${range}`,
 
   access_denied: 'Non hai accesso a questo bot. Usa /request_access per richiederlo.',
   access_request_intro: 'Procediamo con la richiesta di accesso. ',
@@ -1585,6 +1606,7 @@ const es: Catalog = {
   btn_done: '✅ Hecho',
   btn_remove: '🗑 Eliminar',
   btn_deals_only: '🔥 Solo chollos',
+  btn_digest: '📰 Resumen',
   btn_required: '✅ Palabras obligatorias',
   btn_block: '⛔ Bloquear vendedor',
   btn_price_range: '💶 Rango de precio',
@@ -1652,6 +1674,7 @@ const es: Catalog = {
   cb_resumed: 'Seguimiento reanudado.',
   cb_deals_on: 'Solo chollos: activado.',
   cb_deals_off: 'Solo chollos: desactivado.',
+  cb_digest_set: 'Modo resumen actualizado.',
   exclusion_prompt: 'Envía una lista de palabras clave separadas por comas para excluir (p. ej. dañado, piezas, siniestro).',
   exclusion_set: (kw) => `Excluyendo: ${kw}`,
   exclusion_cleared: 'Se borraron todas las palabras de exclusión.',
@@ -1696,6 +1719,8 @@ const es: Catalog = {
     `📉 Bajada de precio en ${title}: ${oldPrice} → ${newPrice} (ahorra ${savings})`,
   back_in_stock_title: '🟢 DE NUEVO EN STOCK',
   hot_lead_title: '🔥 CHOLLO CALIENTE — varias señales',
+  digest_intro: ({ count, vendor }) => `📰 Resumen — ${count} anuncios nuevos en ${vendor}`,
+  digest_stats: ({ median, range }) => `Mediana ${median} · rango ${range}`,
 
   access_denied: 'No tienes acceso a este bot. Usa /request_access para solicitarlo.',
   access_request_intro: 'Vamos a solicitar acceso. ',
@@ -1870,6 +1895,7 @@ const fr: Catalog = {
   btn_done: '✅ Terminé',
   btn_remove: '🗑 Supprimer',
   btn_deals_only: '🔥 Bonnes affaires',
+  btn_digest: '📰 Résumé',
   btn_required: '✅ Mots requis',
   btn_block: '⛔ Bloquer le vendeur',
   btn_price_range: '💶 Fourchette de prix',
@@ -1937,6 +1963,7 @@ const fr: Catalog = {
   cb_resumed: 'Suivi repris.',
   cb_deals_on: 'Bonnes affaires : activé.',
   cb_deals_off: 'Bonnes affaires : désactivé.',
+  cb_digest_set: 'Mode résumé mis à jour.',
   exclusion_prompt: 'Envoyez une liste de mots-clés à exclure, séparés par des virgules (ex. : endommagé, pièces, épave).',
   exclusion_set: (kw) => `Exclus : ${kw}`,
   exclusion_cleared: 'Tous les mots-clés exclus ont été effacés.',
@@ -1981,6 +2008,8 @@ const fr: Catalog = {
     `📉 Baisse de prix sur ${title} : ${oldPrice} → ${newPrice} (économie ${savings})`,
   back_in_stock_title: '🟢 DE RETOUR EN STOCK',
   hot_lead_title: '🔥 BON PLAN — plusieurs signaux',
+  digest_intro: ({ count, vendor }) => `📰 Résumé — ${count} nouvelles annonces sur ${vendor}`,
+  digest_stats: ({ median, range }) => `Médiane ${median} · plage ${range}`,
 
   access_denied: 'Vous n’avez pas accès à ce bot. Utilisez /request_access pour le demander.',
   access_request_intro: 'Demandons l’accès. ',

@@ -473,6 +473,38 @@ describe("10.1 search registration + new-listing detection", () => {
     expect(h.notify.mock.calls.every((c) => c[0].item!.id === "C")).toBe(true);
   });
 
+  it("digest mode parks new listings, then flushes a ranked summary once the window elapses", async () => {
+    h.setBody(searchDoc([]));
+    const res = await h.orchestrator.register({ chatId: 5, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("register failed");
+    // Turn on daily digest for this search watch.
+    const m = h.store.monitors.get(res.monitor.id)!;
+    m.filters.digest = "daily";
+    h.store.monitors.update(m);
+    h.notify.mockClear();
+
+    // A new listing arrives → it is QUEUED, not pinged.
+    h.setNow(2_000);
+    h.setBody(searchDoc([{ id: "D", title: "Golf", price: 5000, currency: "RON", url: "https://www.synth.test/D", city: "Cluj" }]));
+    await h.orchestrator.runMonitorOnce(res.monitor.id);
+    expect(h.notify).not.toHaveBeenCalled();
+    expect(h.store.digestQueue.pending()[0]).toMatchObject({ monitorId: res.monitor.id, chatId: 5, count: 1 });
+
+    // Before the 24h window: a flush does nothing.
+    await h.orchestrator.flushDigests(2_000 + 60_000);
+    expect(h.notify).not.toHaveBeenCalled();
+
+    // After the window: one digest notification is delivered and the queue cleared.
+    await h.orchestrator.flushDigests(2_000 + 25 * 60 * 60 * 1000);
+    expect(h.notify).toHaveBeenCalledTimes(1);
+    const n = h.notify.mock.calls[0]![0];
+    expect(n.kind).toBe("digest");
+    expect(n.chatId).toBe(5);
+    expect(n.digest?.entries.map((e) => e.itemId)).toEqual(["D"]);
+    expect(h.store.digestQueue.pending()).toEqual([]);
+  });
+
   it("rolls up dropped listings after the absent threshold, then re-lists on return", async () => {
     const A = { id: "A", title: "Alpha", price: 1000, currency: "RON", url: "https://www.synth.test/A", city: "Cluj" };
     const B = { id: "B", title: "Beta", price: 1100, currency: "RON", url: "https://www.synth.test/B", city: "Cluj" };
