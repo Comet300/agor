@@ -11,7 +11,6 @@
 
 vendor: Storia
 domain: storia.ro
-categories: [property]
 engine: json-extractor
 rate_limit_ms: 3000
 

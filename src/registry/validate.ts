@@ -51,9 +51,6 @@ export const VendorPluginSchema = z
     rate_limit_ms: z.number().int().positive(),
     search_mapping: SearchMappingSchema,
     product_mapping: ProductMappingSchema,
-    search_url_template: z.string().min(1).optional(),
-    search_query_pattern: z.string().min(1).optional(),
-    categories: z.array(z.string().min(1)).nonempty().optional(),
   })
   .superRefine((plugin, ctx) => {
     // json-extractor cannot locate its payload without a non-empty locator;

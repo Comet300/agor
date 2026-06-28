@@ -32,7 +32,6 @@ import { computeTrend, renderTrendBadge } from '../features/trend';
 import { buildWeeklyReport } from '../features/weeklyReport';
 import { runBackup, stageRestore } from '../features/backup';
 import { sellerReputation, SELLER_FAST_MS } from '../features/sellerReputation';
-import { suggestQuery, suggestVendors, extractQuery } from '../features/autoSuggest';
 import { unlink } from 'node:fs/promises';
 import { toCsv } from '../util/csv';
 import { formatMoney } from '../util/money';
@@ -148,9 +147,6 @@ const pendingNote = new ExpiringMap<number, { monitorId: number; itemId: string 
 
 /** Chats awaiting a collection-name reply for a watch (chat id → monitor id). */
 const pendingGroup = new ExpiringMap<number, number>(PENDING_TTL_MS);
-
-/** Chats with an open cross-platform auto-suggest (chat id → suggested search URLs). */
-const pendingSuggest = new ExpiringMap<number, string[]>(PENDING_TTL_MS);
 
 /** Attributes the spec-range filter recognises (parsed numerics). */
 const RANGE_ATTRS = ['year', 'km', 'area', 'rooms', 'power'] as const;
@@ -2174,65 +2170,6 @@ export function buildBot(
         return;
       }
       await ctx.reply(tr(lang).browse_track_done(item.title ?? item.itemId));
-      // Cross-platform auto-suggest: offer to watch the same query on other vendors.
-      const query = suggestQuery(item.title ?? '');
-      if (query) {
-        const sourcePlugin = orchestrator.registry.matchUrl(item.url);
-        const others = suggestVendors(orchestrator.registry.all(), query, sourcePlugin);
-        if (others.length > 0) {
-          pendingSuggest.set(chatId, others.map((o) => o.url));
-          const kb = new InlineKeyboard();
-          others.forEach((o, i) => kb.text(o.vendor, `asw:${i}`));
-          kb.row().text(tr(lang).btn_no_thanks, 'asw:x');
-          await ctx.reply(tr(lang).autosuggest_intro(query), { reply_markup: kb });
-        }
-      }
-    } catch {
-      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
-    }
-  });
-
-  // Extend search: xs:<monitorId> — read this search watch's query and offer to
-  // run the same search on other platforms (reuses the asw suggestion buttons).
-  bot.callbackQuery(/^xs:(\d+)$/, async (ctx) => {
-    const chatId = ctx.chat?.id;
-    const lang = langFor(store, chatId ?? 0);
-    try {
-      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
-      const monitor = store.monitors.get(Number(ctx.match[1]));
-      if (!monitor || !canManage(monitor, chatId)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
-      const plugin = orchestrator.registry.matchUrl(monitor.url);
-      const query = plugin ? extractQuery(plugin, monitor.url) : undefined;
-      await ctx.answerCallbackQuery();
-      const others = query ? suggestVendors(orchestrator.registry.all(), query, plugin) : [];
-      if (!query || others.length === 0) { await ctx.reply(tr(lang).extend_no_query); return; }
-      pendingSuggest.set(chatId, others.map((o) => o.url));
-      const kb = new InlineKeyboard();
-      others.forEach((o, i) => kb.text(o.vendor, `asw:${i}`));
-      kb.row().text(tr(lang).btn_no_thanks, 'asw:x');
-      await ctx.reply(tr(lang).autosuggest_intro(query), { reply_markup: kb });
-    } catch {
-      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
-    }
-  });
-
-  // Auto-suggest accept/decline: asw:<i> registers the i-th suggested search; asw:x declines.
-  bot.callbackQuery(/^asw:(\d+|x)$/, async (ctx) => {
-    const chatId = ctx.chat?.id;
-    const lang = langFor(store, chatId ?? 0);
-    try {
-      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
-      const urls = pendingSuggest.get(chatId);
-      await ctx.answerCallbackQuery();
-      if (ctx.match[1] === 'x' || !urls) { pendingSuggest.delete(chatId); return; }
-      const url = urls[Number(ctx.match[1])];
-      if (!url) return;
-      const result = await orchestrator.register({ chatId, rawUrl: url });
-      if (!result.ok) {
-        await ctx.reply(result.reason === 'quota' ? tr(lang).quota_reached(maxMonitorsPerChat) : tr(lang).track_error);
-        return;
-      }
-      await ctx.reply(`${tr(lang).reg_watching(result.monitor.vendor)}\n${tr(lang).reg_baseline(result.baselineCount)}`);
     } catch {
       try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }

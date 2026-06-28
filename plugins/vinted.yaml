@@ -10,7 +10,6 @@
 
 vendor: Vinted
 domain: vinted.ro
-categories: [fashion]
 engine: json-extractor
 rate_limit_ms: 5000
 
