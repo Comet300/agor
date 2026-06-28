@@ -14,7 +14,7 @@
  * code span). We keep formatting minimal and rely on emoji + plain text so the
  * output is robust regardless of parse mode.
  */
-import type { EnrichedItem, Monitor, Notification, DealTag, SellerVisibility } from '../contracts';
+import type { EnrichedItem, Monitor, Notification, DealTag, SellerVisibility, MarketInsight } from '../contracts';
 import type { ItemSnapshot } from '../persistence';
 import type { InlineKeyboard } from 'grammy';
 import { formatMoney } from '../util/money';
@@ -94,10 +94,35 @@ function postedDate(item: EnrichedItem): string {
 /** Render a brand-new listing as a rich card. */
 /** Below this fraction of predicted fair value, a new listing is flagged under-priced. */
 const UNDER_PRICED_PCT = -0.08;
+/** Days-on-market at or below which a listing counts as a "fresh" hot signal. */
+const HOT_FRESH_DAYS = 3;
+/** A new listing escalates to a hot-lead card when at least this many hot signals coincide. */
+const HOT_LEAD_MIN_SIGNALS = 2;
 
-function renderNewListing(item: EnrichedItem, lang: Lang, fairValue?: FairValue): RenderedMessage {
+/**
+ * Count the coinciding "hot" signals on a new listing: a great deal, a confident
+ * under-fair-value price, a seller already cutting the price, and a fresh (low
+ * days-on-market) listing. When several fire at once the listing is a hot lead.
+ */
+function hotLeadSignals(item: EnrichedItem, fairValue?: FairValue, insight?: MarketInsight): number {
+  let n = 0;
+  if (item.dealTag === 'great_deal') n++;
+  if (fairValue && fairValue.confidence !== 'low' && fairValue.deltaPct <= UNDER_PRICED_PCT) n++;
+  if (insight && insight.priceCuts > 0) n++;
+  if (insight && insight.daysOnMarket !== undefined && insight.daysOnMarket <= HOT_FRESH_DAYS) n++;
+  return n;
+}
+
+function renderNewListing(item: EnrichedItem, lang: Lang, fairValue?: FairValue, insight?: MarketInsight): RenderedMessage {
   const t = tr(lang);
   const lines: string[] = [];
+
+  // Smart escalation: when multiple hot signals coincide, lead with a banner so the
+  // card stands out from routine new-listing alerts. The signal lines themselves
+  // still render below, so the banner is a headline, not a replacement.
+  if (hotLeadSignals(item, fairValue, insight) >= HOT_LEAD_MIN_SIGNALS) {
+    lines.push(t.hot_lead_title);
+  }
 
   // Title + headline price.
   lines.push(`🆕 ${item.title}`);
@@ -210,7 +235,7 @@ export function renderNotification(n: Notification, lang: Lang): RenderedMessage
 function renderByKind(n: Notification, lang: Lang): RenderedMessage {
   switch (n.kind) {
     case 'new_listing':
-      return renderNewListing(n.item!, lang, n.fairValue);
+      return renderNewListing(n.item!, lang, n.fairValue, n.insight);
     case 'price_drop':
       return renderPriceDrop(n.item!, n.priceDrop, lang);
     case 'back_in_stock':

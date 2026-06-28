@@ -370,3 +370,28 @@ describe('renderBrowseCard', () => {
     expect(view.photoUrl).toBeUndefined();
   });
 });
+
+describe('renderNotification — smart escalation (hot lead)', () => {
+  const fvUnder = { category: 'car', fair: 5000, delta: -800, deltaPct: -0.16, confidence: 'high' } as const;
+
+  it('escalates a great_deal that is ALSO confidently under fair value (2 signals)', () => {
+    const item = makeItem({ dealTag: 'great_deal' });
+    const n: Notification = { kind: 'new_listing', chatId: 1, item, fairValue: { ...fvUnder } };
+    const msg = renderNotification(n, 'en');
+    expect(msg.text).toContain(tr('en').hot_lead_title);
+    expect(msg.text.startsWith(tr('en').hot_lead_title)).toBe(true); // banner leads the card
+  });
+
+  it('does NOT escalate on a single signal (great_deal only)', () => {
+    const item = makeItem({ dealTag: 'great_deal' });
+    const msg = renderNotification({ kind: 'new_listing', chatId: 1, item }, 'en');
+    expect(msg.text).not.toContain(tr('en').hot_lead_title);
+  });
+
+  it('does NOT count a low-confidence fair value as a signal', () => {
+    const item = makeItem({ dealTag: 'great_deal' });
+    const n: Notification = { kind: 'new_listing', chatId: 1, item, fairValue: { ...fvUnder, confidence: 'low' } };
+    const msg = renderNotification(n, 'en');
+    expect(msg.text).not.toContain(tr('en').hot_lead_title); // great_deal alone = 1 signal
+  });
+});

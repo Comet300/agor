@@ -263,6 +263,8 @@ export interface Catalog {
   also_on: (sources: string) => string;
   price_drop: (p: { title: string; oldPrice: string; newPrice: string; savings: string }) => string;
   back_in_stock_title: string;
+  /** Banner prepended to a new-listing card when multiple "hot" signals coincide. */
+  hot_lead_title: string;
 
   // ── Access control ────────────────────────────────────────────────────────
   access_denied: string; // shown to a non-allowed chat that tries to use the bot
@@ -548,6 +550,7 @@ const ro: Catalog = {
   price_drop: ({ title, oldPrice, newPrice, savings }) =>
     `📉 Scădere de preț la ${title}: ${oldPrice} → ${newPrice} (economisești ${savings})`,
   back_in_stock_title: '🟢 REVENIT ÎN STOC',
+  hot_lead_title: '🔥 OFERTĂ FIERBINTE — semnale multiple',
 
   access_denied:
     'Nu ai acces la acest bot. Folosește /request_access ca să ceri accesul.',
@@ -837,6 +840,7 @@ const en: Catalog = {
   price_drop: ({ title, oldPrice, newPrice, savings }) =>
     `📉 Price drop on ${title}: ${oldPrice} → ${newPrice} (save ${savings})`,
   back_in_stock_title: '🟢 BACK IN STOCK',
+  hot_lead_title: '🔥 HOT LEAD — multiple signals',
 
   access_denied: 'You do not have access to this bot. Use /request_access to ask for it.',
   access_request_intro: "Let's request access. ",
@@ -1121,6 +1125,7 @@ const de: Catalog = {
   price_drop: ({ title, oldPrice, newPrice, savings }) =>
     `📉 Preissenkung bei ${title}: ${oldPrice} → ${newPrice} (spare ${savings})`,
   back_in_stock_title: '🟢 WIEDER VERFÜGBAR',
+  hot_lead_title: '🔥 HEISSER TIPP — mehrere Signale',
 
   access_denied: 'Du hast keinen Zugang zu diesem Bot. Nutze /request_access, um ihn anzufragen.',
   access_request_intro: 'Lass uns Zugang anfragen. ',
@@ -1405,6 +1410,7 @@ const it: Catalog = {
   price_drop: ({ title, oldPrice, newPrice, savings }) =>
     `📉 Calo di prezzo su ${title}: ${oldPrice} → ${newPrice} (risparmi ${savings})`,
   back_in_stock_title: '🟢 DI NUOVO DISPONIBILE',
+  hot_lead_title: '🔥 OCCASIONE CALDA — più segnali',
 
   access_denied: 'Non hai accesso a questo bot. Usa /request_access per richiederlo.',
   access_request_intro: 'Procediamo con la richiesta di accesso. ',
@@ -1689,6 +1695,7 @@ const es: Catalog = {
   price_drop: ({ title, oldPrice, newPrice, savings }) =>
     `📉 Bajada de precio en ${title}: ${oldPrice} → ${newPrice} (ahorra ${savings})`,
   back_in_stock_title: '🟢 DE NUEVO EN STOCK',
+  hot_lead_title: '🔥 CHOLLO CALIENTE — varias señales',
 
   access_denied: 'No tienes acceso a este bot. Usa /request_access para solicitarlo.',
   access_request_intro: 'Vamos a solicitar acceso. ',
@@ -1973,6 +1980,7 @@ const fr: Catalog = {
   price_drop: ({ title, oldPrice, newPrice, savings }) =>
     `📉 Baisse de prix sur ${title} : ${oldPrice} → ${newPrice} (économie ${savings})`,
   back_in_stock_title: '🟢 DE RETOUR EN STOCK',
+  hot_lead_title: '🔥 BON PLAN — plusieurs signaux',
 
   access_denied: 'Vous n’avez pas accès à ce bot. Utilisez /request_access pour le demander.',
   access_request_intro: 'Demandons l’accès. ',
