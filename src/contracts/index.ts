@@ -180,6 +180,11 @@ export interface FilterConfig {
    * (best deals first, with market stats). Absent = real-time alerts.
    */
   digest?: 'daily' | 'weekly';
+  /**
+   * When true, a search watch emits an auto-generated weekly market report
+   * (inventory trend, price movement, new-listing velocity, best deals).
+   */
+  weeklyReport?: boolean;
 }
 
 export interface Monitor {
@@ -265,7 +270,9 @@ export type NotificationKind =
   /** A tracked item just crossed INTO a great deal vs comparable listings. */
   | 'became_deal'
   /** A batched daily/weekly summary of a digest-mode search watch's new listings. */
-  | 'digest';
+  | 'digest'
+  /** An auto-generated weekly market report for a search watch. */
+  | 'weekly_report';
 
 export interface PriceDropInfo {
   previousPrice: number;
@@ -392,6 +399,8 @@ export interface Notification {
   health?: WatchHealth;
   /** Present only for digest notifications: the batched summary to render. */
   digest?: DigestSummary;
+  /** Present only for weekly_report notifications. */
+  report?: WeeklyReportData;
 }
 
 /** A single batched listing inside a digest summary. */
@@ -414,4 +423,27 @@ export interface DigestSummary {
   period: 'daily' | 'weekly';
   /** The batched listings (unranked; the renderer ranks best-deals-first). */
   entries: DigestEntry[];
+}
+
+/** One "best deal" row in a weekly report. */
+export interface ReportDeal {
+  title: string;
+  price: number;
+  currency: string;
+  url: string;
+}
+
+/** The payload for a `weekly_report` notification. */
+export interface WeeklyReportData {
+  vendor: string;
+  /** Listings currently tracked (price-history reconstruction). */
+  inventory: number;
+  /** inventory − inventory a week ago (signed). */
+  inventoryDelta: number;
+  /** New listings first seen in the last 7 days. */
+  newThisWeek: number;
+  /** Pre-rendered, language-neutral price-trend badge ('' when no trend). */
+  trendBadge: string;
+  /** Cheapest current listings, best first. */
+  bestDeals: ReportDeal[];
 }

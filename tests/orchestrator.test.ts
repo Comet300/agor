@@ -505,6 +505,41 @@ describe("10.1 search registration + new-listing detection", () => {
     expect(h.store.digestQueue.pending()).toEqual([]);
   });
 
+  it("delivers an opted-in weekly report immediately, then waits out the weekly cadence", async () => {
+    // Seed one listing so the watch has inventory to report.
+    h.setBody(searchDoc([{ id: "A", title: "Golf", price: 5000, currency: "RON", url: "https://www.synth.test/A", city: "Cluj" }]));
+    const res = await h.orchestrator.register({ chatId: 5, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("register failed");
+
+    // Enable the weekly report (flag + state row, as the toggle does).
+    const m = h.store.monitors.get(res.monitor.id)!;
+    m.filters.weeklyReport = true;
+    h.store.monitors.update(m);
+    h.store.reportState.enable(m.id, 5);
+    h.notify.mockClear();
+
+    const T = 1_700_000_000_000; // a realistic epoch (last_sent_at = 0 ⇒ due now)
+    // First flush: due immediately → one report.
+    await h.orchestrator.flushWeeklyReports(T);
+    expect(h.notify).toHaveBeenCalledTimes(1);
+    expect(h.notify.mock.calls[0]![0].kind).toBe("weekly_report");
+    expect(h.notify.mock.calls[0]![0].chatId).toBe(5);
+
+    // Same week: no second report.
+    await h.orchestrator.flushWeeklyReports(T + 60_000);
+    expect(h.notify).toHaveBeenCalledTimes(1);
+
+    // A week later: another report.
+    await h.orchestrator.flushWeeklyReports(T + 8 * 24 * 60 * 60 * 1000);
+    expect(h.notify).toHaveBeenCalledTimes(2);
+
+    // Disabling removes the state row so no further reports fire.
+    h.store.reportState.disable(m.id);
+    await h.orchestrator.flushWeeklyReports(T + 30 * 24 * 60 * 60 * 1000);
+    expect(h.notify).toHaveBeenCalledTimes(2);
+  });
+
   it("rolls up dropped listings after the absent threshold, then re-lists on return", async () => {
     const A = { id: "A", title: "Alpha", price: 1000, currency: "RON", url: "https://www.synth.test/A", city: "Cluj" };
     const B = { id: "B", title: "Beta", price: 1100, currency: "RON", url: "https://www.synth.test/B", city: "Cluj" };

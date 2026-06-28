@@ -29,6 +29,7 @@ import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput, phoneKey } from '../pipeline';
 import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard, renderListRow, renderPicker } from './render';
 import { computeTrend, renderTrendBadge } from '../features/trend';
+import { buildWeeklyReport } from '../features/weeklyReport';
 import { toCsv } from '../util/csv';
 import { formatMoney } from '../util/money';
 import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
@@ -831,7 +832,7 @@ export function buildBot(
   /** Where each id command sources its picker options. */
   const idPickerSource: Record<IdCommand, 'watch' | 'product' | 'user'> = {
     edit: 'watch', remove: 'watch', check: 'watch', history: 'watch', cheaper: 'product',
-    share: 'watch', unshare: 'watch',
+    share: 'watch', unshare: 'watch', report: 'watch',
     allow: 'user', deny: 'user', promote: 'user', demote: 'user', userinfo: 'user', setname: 'user', setemail: 'user',
   };
 
@@ -908,6 +909,15 @@ export function buildBot(
         if (subs.length === 0) { await ctx.reply(tr(lang).share_none); return; }
         pendingUnshare.set(chatId, id);
         await ctx.reply(tr(lang).unshare_prompt({ list: subs.join(', ') }));
+        return;
+      }
+      case 'report': {
+        const monitor = store.monitors.get(id);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).remove_not_found); return; }
+        const report = buildWeeklyReport(store, monitor, Date.now());
+        if (!report) { await ctx.reply(tr(lang).browse_empty); return; }
+        const msg = renderNotification({ kind: 'weekly_report', chatId, report }, lang);
+        await ctx.reply(msg.text);
         return;
       }
       case 'allow': {
@@ -1074,6 +1084,19 @@ export function buildBot(
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     await ctx.reply(tr(lang).chat_id_line(chatId));
+  });
+
+  // /report [<id>] — generate a watch's weekly market report on demand.
+  bot.command('report', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const id = parseId(ctx.match ?? '');
+      if (id === undefined) { await openIdPicker(ctx, chatId, 'report'); return; }
+      await runIdCommand('report', ctx, chatId, id);
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
   });
 
   bot.command('check', async (ctx) => {
@@ -1484,6 +1507,29 @@ export function buildBot(
     }
   });
 
+  // Edit-card weekly-report toggle: erp:<monitorId>. The flag drives the button
+  // state; the report_state row drives the weekly flush (first one is immediate).
+  bot.callbackQuery(/^erp:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitor = store.monitors.get(Number(ctx.match[1]));
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      const on = monitor.filters.weeklyReport !== true;
+      if (on) monitor.filters.weeklyReport = true;
+      else delete monitor.filters.weeklyReport;
+      store.monitors.update(monitor);
+      if (on) store.reportState.enable(monitor.id, monitor.chatId);
+      else store.reportState.disable(monitor.id);
+      await ctx.answerCallbackQuery(tr(lang).cb_report_set);
+      await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) });
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
   // Edit-card pause/resume toggle: ep:<monitorId>. Resuming re-arms the next poll
   // for now so it does not wait out the old interval.
   bot.callbackQuery(/^ep:(\d+)$/, async (ctx) => {
@@ -1831,6 +1877,7 @@ export function buildBot(
         store.monitors.delete(id);
         store.watchSubscribers.removeAll(id); // drop any shared-watch subscribers
         store.digestQueue.removeAll(id); // drop any parked digest items
+        store.reportState.disable(id); // stop any weekly report
         log('cycle').info({ monitorId: id, chatId, action: 'remove' }, 'monitor removed');
         await ctx.answerCallbackQuery(tr(lang).cb_removed);
         return;

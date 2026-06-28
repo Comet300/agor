@@ -133,7 +133,7 @@ export const PICKER_PAGE_SIZE = 15;
 /** Every command that accepts an id — a no-arg invocation opens an id picker. */
 export type IdCommand =
   | 'edit' | 'remove' | 'check' | 'history' | 'cheaper'
-  | 'share' | 'unshare'
+  | 'share' | 'unshare' | 'report'
   | 'allow' | 'deny' | 'promote' | 'demote' | 'userinfo' | 'setname' | 'setemail';
 
 /**
@@ -345,6 +345,7 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
           : t.btn_digest,
         `edg:${id}`,
       )
+      .text(mark(monitor.filters.weeklyReport === true, t.btn_report), `erp:${id}`)
       .row();
   } else {
     // A single tracked listing: a target-price alert is the meaningful control.

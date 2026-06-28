@@ -190,6 +190,14 @@ export function migrate(db: DB): void {
       PRIMARY KEY (monitor_id, chat_id, item_id)
     );
 
+    -- Weekly market report opt-in + cadence: one row per watch that has the
+    -- report enabled; last_sent_at gates the weekly delivery (0 = send next tick).
+    CREATE TABLE IF NOT EXISTS report_state (
+      monitor_id   INTEGER PRIMARY KEY,
+      chat_id      INTEGER NOT NULL,
+      last_sent_at INTEGER NOT NULL
+    );
+
     -- Fair-value (v2): per (category, currency) ridge accumulators.
     CREATE TABLE IF NOT EXISTS valuation_models (
       category   TEXT,

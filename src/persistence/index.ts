@@ -15,6 +15,7 @@ import { ValuationRepo } from "./valuation";
 import { ItemFlagsRepo } from "./itemFlags";
 import { WatchSubscribersRepo } from "./watchSubscribers";
 import { DigestQueueRepo } from "./digestQueue";
+import { ReportStateRepo } from "./reportState";
 
 export { MonitorRepo } from "./monitors";
 export { ItemRepo } from "./items";
@@ -26,6 +27,7 @@ export { ValuationRepo } from "./valuation";
 export { ItemFlagsRepo, type ItemFlag } from "./itemFlags";
 export { WatchSubscribersRepo } from "./watchSubscribers";
 export { DigestQueueRepo, type DigestRow, type DigestPending } from "./digestQueue";
+export { ReportStateRepo, type ReportStateRow } from "./reportState";
 export { AuditRepo } from "./audit";
 export type { DedupStore, PersistedDedupEntry } from "./dedupStore";
 export type { AuditAction, AuditEntry } from "./audit";
@@ -61,6 +63,8 @@ export interface Store {
   watchSubscribers: WatchSubscribersRepo;
   /** Digest mode: parked new-listing alerts awaiting a daily/weekly summary flush. */
   digestQueue: DigestQueueRepo;
+  /** Weekly-report opt-in + delivery cadence, per watch. */
+  reportState: ReportStateRepo;
   /**
    * Run `fn`'s writes inside a single SQLite transaction (atomic + faster):
    * either every write commits or, on a thrown error, all roll back. Used to
@@ -87,6 +91,7 @@ export function openStore(path: string): Store {
     itemFlags: new ItemFlagsRepo(db),
     watchSubscribers: new WatchSubscribersRepo(db),
     digestQueue: new DigestQueueRepo(db),
+    reportState: new ReportStateRepo(db),
     transaction: <T>(fn: () => T): T => db.transaction(fn)(),
   };
 }
