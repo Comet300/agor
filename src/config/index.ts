@@ -70,6 +70,8 @@ const EnvSchema = z.object({
   // FAILURE_ALERT_THRESHOLD: telling the user a watch is failing is cheap and
   // early; giving up on polling a vendor entirely is a stronger, later decision.
   CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().int().positive().default(10),
+  // Cooldown before an open vendor breaker auto-probes (half-open). Default 30 min.
+  CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().int().positive().default(30 * 60_000),
   // Scheduler ticks between periodic DB maintenance (wal_checkpoint). Default
   // 360 ≈ 6h at the typical ~1-min tick cadence.
   DB_MAINTENANCE_INTERVAL_TICKS: z.coerce
@@ -127,6 +129,8 @@ export interface AppConfig {
   enableBrowserFallback: boolean;
   /** Consecutive blocked/failed cycles before a vendor is circuit-broken. */
   circuitBreakerThreshold: number;
+  /** Cooldown (ms) before an open vendor breaker auto-probes (half-open). */
+  circuitBreakerCooldownMs: number;
   /** Scheduler ticks between periodic DB maintenance (wal_checkpoint). */
   dbMaintenanceIntervalTicks: number;
   /** Days of audit-log history to retain (older rows pruned during maintenance). */
@@ -174,6 +178,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     failureAlertThreshold: parsed.FAILURE_ALERT_THRESHOLD,
     enableBrowserFallback: parsed.ENABLE_BROWSER_FALLBACK,
     circuitBreakerThreshold: parsed.CIRCUIT_BREAKER_THRESHOLD,
+    circuitBreakerCooldownMs: parsed.CIRCUIT_BREAKER_COOLDOWN_MS,
     dbMaintenanceIntervalTicks: parsed.DB_MAINTENANCE_INTERVAL_TICKS,
     auditRetentionDays: parsed.AUDIT_RETENTION_DAYS,
     maxMonitorsPerChat: parsed.MAX_MONITORS_PER_CHAT,

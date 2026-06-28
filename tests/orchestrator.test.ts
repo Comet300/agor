@@ -123,6 +123,7 @@ function makeConfig(over: Partial<AppConfig> = {}): AppConfig {
     failureAlertThreshold: 3,
     enableBrowserFallback: false,
     circuitBreakerThreshold: 10,
+    circuitBreakerCooldownMs: 30 * 60_000,
     dbMaintenanceIntervalTicks: 360,
     auditRetentionDays: 365,
     maxMonitorsPerChat: 50,

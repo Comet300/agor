@@ -12,6 +12,7 @@ describe('loadConfig', () => {
     // Browser fallback is OFF by default so the base install never needs Chromium.
     expect(cfg.enableBrowserFallback).toBe(false);
     expect(cfg.circuitBreakerThreshold).toBe(10);
+    expect(cfg.circuitBreakerCooldownMs).toBe(30 * 60_000);
     expect(cfg.auditRetentionDays).toBe(365);
     expect(cfg.maxMonitorsPerChat).toBe(50);
     expect(cfg.checkCooldownMs).toBe(10_000);
