@@ -9,6 +9,7 @@
 
 vendor: Lajumate
 domain: lajumate.ro
+categories: [general]
 engine: json-extractor
 rate_limit_ms: 3000
 

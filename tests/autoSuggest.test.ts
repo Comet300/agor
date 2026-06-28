@@ -2,13 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { slugify, deslugify, suggestQuery, searchUrlFor, suggestVendors, extractQuery } from '../src/features/autoSuggest';
 import type { IVendorPlugin } from '../src/contracts';
 
-const plugin = (vendor: string, template?: string): IVendorPlugin => ({
+const plugin = (vendor: string, template?: string, categories?: string[]): IVendorPlugin => ({
   vendor, domain: `${vendor.toLowerCase()}.ro`, engine: 'json-extractor', rate_limit_ms: 1000,
   // Mappings are irrelevant to auto-suggest; a minimal stub keeps the test focused.
   search_mapping: {} as IVendorPlugin['search_mapping'],
   product_mapping: {} as IVendorPlugin['product_mapping'],
   ...(template ? { search_url_template: template } : {}),
+  ...(categories ? { categories } : {}),
 });
+
+/** A template-bearing vendor of a given category, for compatibility tests. */
+const tpl = (vendor: string, cats: string[]) => plugin(vendor, `https://${vendor.toLowerCase()}.ro/q-{query}/`, cats);
 
 describe('slugify + suggestQuery', () => {
   it('slugifies to a dash query', () => {
@@ -49,20 +53,44 @@ describe('searchUrlFor', () => {
 });
 
 describe('suggestVendors', () => {
-  it('offers only template-bearing vendors, excluding the current one, sorted', () => {
+  it('offers only template-bearing, category-compatible vendors, excluding the source, sorted', () => {
     const plugins = [
-      plugin('OLX', 'https://www.olx.ro/oferte/q-{query}/'),
-      plugin('Lajumate', 'https://lajumate.ro/q-{query}'),
-      plugin('AutoVit'), // no template → not offered
+      tpl('OLX', ['general']),
+      tpl('Lajumate', ['general']),
+      plugin('AutoVit', undefined, ['cars']), // no template → not offered
     ];
-    const s = suggestVendors(plugins, 'BMW 320d', 'AutoVit');
-    expect(s.map((x) => x.vendor)).toEqual(['Lajumate', 'OLX']); // sorted, AutoVit excluded (no template anyway)
-    expect(s[1]!.url).toBe('https://www.olx.ro/oferte/q-bmw-320d/');
+    const s = suggestVendors(plugins, 'BMW 320d', tpl('Carzz', ['cars'])); // source: cars
+    expect(s.map((x) => x.vendor)).toEqual(['Lajumate', 'OLX']); // both general → accept any query
   });
 
   it('excludes the source vendor so it does not suggest the same platform', () => {
-    const plugins = [plugin('OLX', 'https://www.olx.ro/oferte/q-{query}/')];
-    expect(suggestVendors(plugins, 'BMW', 'OLX')).toEqual([]);
+    const olx = tpl('OLX', ['general']);
+    expect(suggestVendors([olx], 'BMW', olx)).toEqual([]);
+  });
+});
+
+describe('suggestVendors — category compatibility', () => {
+  const olx = tpl('OLX', ['general']);
+  const publi24 = tpl('Publi24', ['general']);
+  const autovit = tpl('AutoVit', ['cars']);
+  const vinted = tpl('Vinted', ['fashion']);
+  const all = [olx, publi24, autovit, vinted];
+
+  it('a car search extends to car + general sites, never to a clothes-only site', () => {
+    const s = suggestVendors(all, 'bmw 320d', autovit).map((x) => x.vendor);
+    expect(s).toEqual(['OLX', 'Publi24']); // general accepts; Vinted (fashion) excluded; AutoVit is source
+    expect(s).not.toContain('Vinted');
+  });
+
+  it('a clothes search extends to fashion + general sites, never to a cars-only site', () => {
+    const s = suggestVendors(all, 'nike hoodie', vinted).map((x) => x.vendor);
+    expect(s).toEqual(['OLX', 'Publi24']);
+    expect(s).not.toContain('AutoVit');
+  });
+
+  it('a search FROM a general marketplace only extends to other general sites (category unknown)', () => {
+    const s = suggestVendors(all, 'bmw 320d', olx).map((x) => x.vendor);
+    expect(s).toEqual(['Publi24']); // not AutoVit/Vinted — OLX URL cannot reveal the category
   });
 });
 

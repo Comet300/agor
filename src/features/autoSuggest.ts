@@ -70,14 +70,35 @@ export interface VendorSuggestion {
   url: string;
 }
 
+/** Categories of a vendor, defaulting to a permissive 'general' when unset. */
+function catsOf(plugin: IVendorPlugin | undefined): string[] {
+  return plugin?.categories && plugin.categories.length > 0 ? plugin.categories : ['general'];
+}
+
 /**
- * Other platforms (excluding `excludeVendor`) that can be auto-watched for
- * `query`. Sorted by vendor name for a stable button order.
+ * Whether a `source` search may extend to `target`:
+ *  - a general target (a marketplace carrying everything) accepts any query;
+ *  - a specialized target needs a SPECIFIC category shared with the source.
+ * A general source (whose URL can't reveal the query's category) therefore only
+ * extends to other general targets — never to a specialized site.
  */
-export function suggestVendors(plugins: IVendorPlugin[], query: string, excludeVendor?: string): VendorSuggestion[] {
+export function categoriesCompatible(source: IVendorPlugin | undefined, target: IVendorPlugin): boolean {
+  const tgt = catsOf(target);
+  if (tgt.includes('general')) return true;
+  const src = catsOf(source);
+  return src.some((c) => c !== 'general' && tgt.includes(c));
+}
+
+/**
+ * Other platforms that can run `query` as a search, compatible with the `source`
+ * vendor's category (so a car search never extends to a clothes-only site) and
+ * excluding the source itself. Sorted by vendor name for a stable button order.
+ */
+export function suggestVendors(plugins: IVendorPlugin[], query: string, source?: IVendorPlugin): VendorSuggestion[] {
   const out: VendorSuggestion[] = [];
   for (const p of plugins) {
-    if (p.vendor === excludeVendor) continue;
+    if (p.vendor === source?.vendor) continue;
+    if (!categoriesCompatible(source, p)) continue;
     const url = searchUrlFor(p, query);
     if (url) out.push({ vendor: p.vendor, url });
   }
