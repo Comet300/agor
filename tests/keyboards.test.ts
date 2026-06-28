@@ -74,6 +74,12 @@ describe('registrationKeyboard frequency presets', () => {
     expect(d).toContain('fq:7:60');
     expect(d).toContain('rm:7');
   });
+
+  it('offers grouping straight from the confirm card (reuses the egr: flow)', () => {
+    const kb = registrationKeyboard(7, 'en');
+    expect(data(kb)).toContain('egr:7');
+    expect(labels(kb)).toContain(tr('en').btn_group);
+  });
 });
 
 describe('registrationKeyboard localization', () => {
