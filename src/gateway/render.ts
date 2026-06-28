@@ -17,6 +17,7 @@
 import type { EnrichedItem, Monitor, Notification, DealTag, SellerVisibility, MarketInsight, DigestSummary, WeeklyReportData } from '../contracts';
 import { rankDigest, digestStats } from '../features/digest';
 import { scamRisk } from '../features/scamRisk';
+import { predictDirection } from '../features/pricePrediction';
 import type { ItemSnapshot } from '../persistence';
 import type { InlineKeyboard } from 'grammy';
 import { formatMoney } from '../util/money';
@@ -280,6 +281,10 @@ export function renderNotification(n: Notification, lang: Lang): RenderedMessage
       low,
       ...(n.insight.daysOnMarket !== undefined ? { days: n.insight.daysOnMarket } : {}),
     });
+    // Price-direction outlook from the same behavioural signals.
+    const outlook = predictDirection(n.insight);
+    if (outlook === 'falling') msg.text += '\n' + tr(lang).price_outlook_falling;
+    else if (outlook === 'stable') msg.text += '\n' + tr(lang).price_outlook_stable;
   }
   return msg;
 }

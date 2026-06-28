@@ -258,6 +258,9 @@ export interface Catalog {
   became_deal_title: string;
   /** Market-insight footer on a product alert (time-on-market, price cuts, low). */
   insight_line: (p: { days?: number; cuts: number; low: string }) => string;
+  /** Price-direction outlook lines for a tracked item. */
+  price_outlook_falling: string;
+  price_outlook_stable: string;
   block_prompt: string;
   block_added_seller: (name: string) => string;
   block_added_phone: (phone: string) => string;
@@ -573,6 +576,8 @@ const ro: Catalog = {
   target_hit_title: '🎯 Preț țintă atins!',
   target_hit_line: (target) => `Țintă: ${target}`,
   became_deal_title: '🔥 A devenit o ofertă bună!',
+  price_outlook_falling: '🔮 Prețul va scădea probabil mai mult',
+  price_outlook_stable: '🔮 Prețul pare să se stabilizeze',
   insight_line: ({ days, cuts, low }) => {
     const parts: string[] = [];
     if (days !== undefined) parts.push(`📅 listat de ${days}z`);
@@ -891,6 +896,8 @@ const en: Catalog = {
   target_hit_title: '🎯 Target price reached!',
   target_hit_line: (target) => `Target: ${target}`,
   became_deal_title: '🔥 Just became a great deal!',
+  price_outlook_falling: '🔮 Price will likely drop further',
+  price_outlook_stable: '🔮 Price looks to be stabilizing',
   insight_line: ({ days, cuts, low }) => {
     const parts: string[] = [];
     if (days !== undefined) parts.push(`📅 listed ${days}d`);
@@ -1204,6 +1211,8 @@ const de: Catalog = {
   target_hit_title: '🎯 Zielpreis erreicht!',
   target_hit_line: (target) => `Ziel: ${target}`,
   became_deal_title: '🔥 Gerade zum Top-Angebot geworden!',
+  price_outlook_falling: '🔮 Preis fällt wahrscheinlich weiter',
+  price_outlook_stable: '🔮 Preis scheint sich zu stabilisieren',
   insight_line: ({ days, cuts, low }) => {
     const parts: string[] = [];
     if (days !== undefined) parts.push(`📅 seit ${days}T inseriert`);
@@ -1517,6 +1526,8 @@ const it: Catalog = {
   target_hit_title: '🎯 Prezzo obiettivo raggiunto!',
   target_hit_line: (target) => `Obiettivo: ${target}`,
   became_deal_title: '🔥 Ora è un ottimo affare!',
+  price_outlook_falling: '🔮 Il prezzo calerà probabilmente ancora',
+  price_outlook_stable: '🔮 Il prezzo sembra stabilizzarsi',
   insight_line: ({ days, cuts, low }) => {
     const parts: string[] = [];
     if (days !== undefined) parts.push(`📅 online da ${days}g`);
@@ -1830,6 +1841,8 @@ const es: Catalog = {
   target_hit_title: '🎯 ¡Precio objetivo alcanzado!',
   target_hit_line: (target) => `Objetivo: ${target}`,
   became_deal_title: '🔥 ¡Acaba de convertirse en un gran chollo!',
+  price_outlook_falling: '🔮 El precio probablemente bajará más',
+  price_outlook_stable: '🔮 El precio parece estabilizarse',
   insight_line: ({ days, cuts, low }) => {
     const parts: string[] = [];
     if (days !== undefined) parts.push(`📅 publicado hace ${days}d`);
@@ -2143,6 +2156,8 @@ const fr: Catalog = {
   target_hit_title: '🎯 Prix cible atteint !',
   target_hit_line: (target) => `Cible : ${target}`,
   became_deal_title: '🔥 Vient de devenir une bonne affaire !',
+  price_outlook_falling: '🔮 Le prix va probablement encore baisser',
+  price_outlook_stable: '🔮 Le prix semble se stabiliser',
   insight_line: ({ days, cuts, low }) => {
     const parts: string[] = [];
     if (days !== undefined) parts.push(`📅 en ligne ${days}j`);
