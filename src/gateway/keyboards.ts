@@ -23,6 +23,29 @@ export const FREQUENCY_PRESETS: readonly number[] = [5, 10, 15, 30, 60, 120, 360
 /** Chunk size for laying frequency presets across keyboard rows. */
 const FREQ_PER_ROW = 5;
 
+/** Compact interval label without the clock emoji, e.g. 30 → "30m", 120 → "2h". */
+export function fmtInterval(minutes: number): string {
+  return minutes < 60 ? `${minutes}m` : `${minutes / 60}h`;
+}
+
+/**
+ * The collapsed frequency picker, opened from the single "Interval" button on the
+ * registration / edit card (keeps those cards uncluttered). `scope` chooses the
+ * set callback ('reg' → fq:, 'edit' → efq:, each re-renders its own card), and
+ * the back button returns to that card.
+ */
+export function frequencyPickerKeyboard(id: number, activeMinutes: number, lang: Lang, scope: 'reg' | 'edit'): InlineKeyboard {
+  const t = tr(lang);
+  const setCb = scope === 'edit' ? 'efq' : 'fq';
+  const backCb = scope === 'edit' ? 'efb' : 'fqb';
+  const kb = new InlineKeyboard();
+  FREQUENCY_PRESETS.forEach((m, i) => {
+    if (i > 0 && i % FREQ_PER_ROW === 0) kb.row();
+    kb.text(`${m === activeMinutes ? '✅ ' : ''}${t.btn_freq(m)}`, `${setCb}:${id}:${m}`);
+  });
+  return kb.row().text('◀️', `${backCb}:${id}`);
+}
+
 /**
  * Two-tap confirmation keyboard for a destructive action. The confirm button
  * carries `cf:<action>:<id>` (the handler re-validates before acting); cancel is
@@ -271,8 +294,6 @@ export function registrationKeyboard(
   const t = tr(lang);
   const markSeller = (label: string, value: SellerVisibility): string =>
     value === activeVisibility ? `✅ ${label}` : label;
-  const markFreq = (label: string, minutes: number): string =>
-    minutes === activeMinutes ? `✅ ${label}` : label;
 
   const kb = new InlineKeyboard()
     // Seller visibility row (active option marked).
@@ -281,11 +302,8 @@ export function registrationKeyboard(
     .text(markSeller(t.btn_both, 'both'), `sv:${monitorId}:both`)
     .row();
 
-  // Frequency presets (active minutes marked), wrapped across rows.
-  FREQUENCY_PRESETS.forEach((minutes, i) => {
-    if (i > 0 && i % FREQ_PER_ROW === 0) kb.row();
-    kb.text(markFreq(t.btn_freq(minutes), minutes), `fq:${monitorId}:${minutes}`);
-  });
+  // Check interval — collapsed behind one button (opens the freq picker).
+  kb.text(t.btn_interval(fmtInterval(activeMinutes)), `fqi:${monitorId}`);
 
   return kb
     .row()
@@ -326,11 +344,8 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
       .text(markSeller(t.btn_both, 'both'), `esv:${id}:both`)
       .row();
   }
-  FREQUENCY_PRESETS.forEach((minutes, i) => {
-    if (i > 0 && i % FREQ_PER_ROW === 0) kb.row();
-    kb.text(mark(minutes === activeMinutes, t.btn_freq(minutes)), `efq:${id}:${minutes}`);
-  });
-  kb.row();
+  // Check interval — collapsed behind one button (opens the freq picker).
+  kb.text(t.btn_interval(fmtInterval(activeMinutes)), `efi:${id}`).row();
   // Filters that only make sense for a multi-result search.
   if (isSearch) {
     kb.text(t.btn_exclusion, `ex:${id}`)

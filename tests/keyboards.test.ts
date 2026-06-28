@@ -6,6 +6,7 @@ import {
   browseScopeKeyboard,
   browseScopeLabel,
   pickerKeyboard,
+  frequencyPickerKeyboard,
   type PickerSession,
 } from '../src/gateway/keyboards';
 import { tr } from '../src/gateway/strings';
@@ -57,20 +58,25 @@ describe('registrationKeyboard seller-visibility state', () => {
   });
 });
 
-describe('registrationKeyboard frequency presets', () => {
-  it('marks the active frequency preset with a check', () => {
-    const lbls = labels(registrationKeyboard(7, 'en', 'both', 30));
-    expect(lbls).toContain(`✅ ${tr('en').btn_freq(30)}`);
-    expect(lbls).toContain(tr('en').btn_freq(5)); // others unmarked
+describe('registrationKeyboard check-interval', () => {
+  it('collapses the presets behind one interval button showing the current value', () => {
+    const kb = registrationKeyboard(7, 'en', 'both', 30);
+    expect(data(kb)).toContain('fqi:7');          // opens the freq picker
+    expect(labels(kb)).toContain(tr('en').btn_interval('30m')); // current shown
+    expect(data(kb)).not.toContain('fq:7:5');     // presets no longer on the card
+    expect(data(kb)).toContain('rm:7');
   });
 
-  it('exposes fq/rm callback data for every preset', () => {
-    const d = data(registrationKeyboard(7, 'en'));
-    expect(d).toContain('fq:7:5');
-    expect(d).toContain('fq:7:10');
-    expect(d).toContain('fq:7:30');
-    expect(d).toContain('fq:7:60');
-    expect(d).toContain('rm:7');
+  it('the freq picker lists every preset (scoped fq:/efq:) with the active one marked, + back', () => {
+    const reg = frequencyPickerKeyboard(7, 30, 'en', 'reg');
+    expect(data(reg)).toContain('fq:7:5');
+    expect(data(reg)).toContain('fq:7:60');
+    expect(labels(reg)).toContain(`✅ ${tr('en').btn_freq(30)}`); // active marked
+    expect(data(reg)).toContain('fqb:7'); // back to the card
+
+    const edit = frequencyPickerKeyboard(9, 5, 'en', 'edit');
+    expect(data(edit)).toContain('efq:9:5');
+    expect(data(edit)).toContain('efb:9');
   });
 
   it('offers grouping straight from the confirm card (reuses the egr: flow)', () => {
@@ -159,11 +165,11 @@ describe('editKeyboard', () => {
   const dataOf = (kb: ReturnType<typeof editKeyboard>): string[] =>
     kb.inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : `url:${'url' in b ? b.url : ''}`));
 
-  it('search watch: seller + frequency + exclusion + deals-only + rename + pause + remove + done, no Start', () => {
+  it('search watch: seller + interval + exclusion + rename + pause + remove + done, no Start', () => {
     const d = dataOf(editKeyboard(monitor({ id: 4, type: 'search' }), 'en'));
     expect(d).toContain('esv:4:both');     // seller (edit-scoped callback)
-    expect(d).toContain('efq:4:10');       // frequency presets
-    expect(d).toContain('efq:4:30');
+    expect(d).toContain('efi:4');          // check-interval button (opens the freq picker)
+    expect(d.some((x) => x.startsWith('efq:'))).toBe(false); // presets are behind the picker now
     expect(d).toContain('ex:4');           // exclusion (reuses registration callback)
     expect(d).toContain('eq:4');           // required keywords
     expect(d).toContain('eb:4');           // block seller
@@ -175,9 +181,9 @@ describe('editKeyboard', () => {
     expect(d.some((x) => x.startsWith('go:'))).toBe(false); // no "Start" on an existing watch
   });
 
-  it('product watch: frequency + target + rename + pause + remove + done (no seller / exclusion)', () => {
+  it('product watch: interval + target + rename + pause + remove + done (no seller / exclusion)', () => {
     const d = dataOf(editKeyboard(monitor({ id: 9, type: 'product', origin: 'tracked' }), 'en'));
-    expect(d).toContain('efq:9:5');
+    expect(d).toContain('efi:9');          // check-interval button
     expect(d).toContain('et:9');           // target price (product only)
     expect(d).toContain('er:9');           // rename works for any watch
     expect(d).toContain('ep:9');           // pause works for any watch
@@ -197,11 +203,11 @@ describe('editKeyboard', () => {
     expect(labelsOf(monitor({ paused: true }))).toContain(tr('en').btn_resume);
   });
 
-  it('marks the active frequency and seller with a check', () => {
+  it('shows the active seller and the current interval on the card', () => {
     const labels = (m: Monitor): string[] =>
       editKeyboard(m, 'en').inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
     const l = labels(monitor({ intervalMs: 30 * 60000, filters: { sellerVisibility: 'private', exclusionKeywords: [] } }));
-    expect(l).toContain(`✅ ${tr('en').btn_freq(30)}`);
+    expect(l).toContain(tr('en').btn_interval('30m')); // current interval on the collapsed button
     expect(l).toContain(`✅ ${tr('en').btn_private}`);
   });
 });
