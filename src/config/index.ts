@@ -72,6 +72,10 @@ const EnvSchema = z.object({
   CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().int().positive().default(10),
   // Cooldown before an open vendor breaker auto-probes (half-open). Default 30 min.
   CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().int().positive().default(30 * 60_000),
+  // Auto-backup cadence (ms). Default weekly. The backup is uploaded to admins.
+  BACKUP_INTERVAL_MS: z.coerce.number().int().positive().default(7 * 24 * 60 * 60_000),
+  // Optional directory to also drop each backup snapshot into (besides Telegram).
+  BACKUP_LOCAL_DIR: z.string().optional(),
   // Scheduler ticks between periodic DB maintenance (wal_checkpoint). Default
   // 360 ≈ 6h at the typical ~1-min tick cadence.
   DB_MAINTENANCE_INTERVAL_TICKS: z.coerce
@@ -131,6 +135,10 @@ export interface AppConfig {
   circuitBreakerThreshold: number;
   /** Cooldown (ms) before an open vendor breaker auto-probes (half-open). */
   circuitBreakerCooldownMs: number;
+  /** Auto-backup cadence (ms); the snapshot is uploaded to admins. */
+  backupIntervalMs: number;
+  /** Optional directory to also write each backup snapshot to. */
+  backupLocalDir?: string;
   /** Scheduler ticks between periodic DB maintenance (wal_checkpoint). */
   dbMaintenanceIntervalTicks: number;
   /** Days of audit-log history to retain (older rows pruned during maintenance). */
@@ -179,6 +187,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     enableBrowserFallback: parsed.ENABLE_BROWSER_FALLBACK,
     circuitBreakerThreshold: parsed.CIRCUIT_BREAKER_THRESHOLD,
     circuitBreakerCooldownMs: parsed.CIRCUIT_BREAKER_COOLDOWN_MS,
+    backupIntervalMs: parsed.BACKUP_INTERVAL_MS,
+    ...(parsed.BACKUP_LOCAL_DIR !== undefined ? { backupLocalDir: parsed.BACKUP_LOCAL_DIR } : {}),
     dbMaintenanceIntervalTicks: parsed.DB_MAINTENANCE_INTERVAL_TICKS,
     auditRetentionDays: parsed.AUDIT_RETENTION_DAYS,
     maxMonitorsPerChat: parsed.MAX_MONITORS_PER_CHAT,

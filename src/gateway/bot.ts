@@ -30,6 +30,8 @@ import { parseExclusionInput, phoneKey } from '../pipeline';
 import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard, renderListRow, renderPicker } from './render';
 import { computeTrend, renderTrendBadge } from '../features/trend';
 import { buildWeeklyReport } from '../features/weeklyReport';
+import { runBackup, stageRestore } from '../features/backup';
+import { unlink } from 'node:fs/promises';
 import { toCsv } from '../util/csv';
 import { formatMoney } from '../util/money';
 import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
@@ -324,6 +326,10 @@ export interface BotAccessOptions {
   checkCooldownMs?: number;
   /** Per-chat cooldown (ms) on registering a watch from a pasted URL (0 = off). */
   urlRegisterCooldownMs?: number;
+  /** Live SQLite path — needed to stage a /restore for the next boot. */
+  databasePath?: string;
+  /** Optional directory each /backup snapshot is also copied to. */
+  backupLocalDir?: string;
 }
 
 /**
@@ -347,6 +353,8 @@ export function buildBot(
   const maxMonitorsPerChat = options.maxMonitorsPerChat ?? 0;
   const checkCooldownMs = options.checkCooldownMs ?? 0;
   const urlRegisterCooldownMs = options.urlRegisterCooldownMs ?? 0;
+  const databasePath = options.databasePath;
+  const backupLocalDir = options.backupLocalDir;
 
   // Per-chat flood gates: an entry exists iff the chat acted within the cooldown
   // window (the TTL is the cooldown), so `has(chatId)` means "still cooling down".
@@ -1084,6 +1092,41 @@ export function buildBot(
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
     await ctx.reply(tr(lang).chat_id_line(chatId));
+  });
+
+  // /backup — admin: snapshot the DB and upload it as a Telegram document
+  // (and copy it to the local backup dir when configured).
+  bot.command('backup', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+    let path: string | undefined;
+    try {
+      path = await runBackup(store.db, { now: Date.now(), ...(backupLocalDir ? { localDir: backupLocalDir } : {}) });
+      await ctx.replyWithDocument(new InputFile(path), { caption: tr(lang).backup_caption });
+    } catch (err) {
+      log('backup').error({ chatId, err: (err as Error).message }, 'backup failed');
+      await ctx.reply(tr(lang).backup_failed);
+    } finally {
+      if (path) await unlink(path).catch(() => {});
+    }
+  });
+
+  // /restore <file-path> — admin: validate a backup on the host and stage it for
+  // the next boot to apply (a live DB is never overwritten in place).
+  bot.command('restore', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    if (!isAdmin(chatId)) { await ctx.reply(tr(lang).access_admin_only); return; }
+    const src = (ctx.match ?? '').trim();
+    if (!src || !databasePath) { await ctx.reply(tr(lang).restore_usage); return; }
+    try {
+      stageRestore(databasePath, src);
+      log('backup').warn({ chatId, src }, 'restore staged for next boot');
+      await ctx.reply(tr(lang).restore_staged);
+    } catch {
+      await ctx.reply(tr(lang).restore_invalid);
+    }
   });
 
   // /report [<id>] — generate a watch's weekly market report on demand.

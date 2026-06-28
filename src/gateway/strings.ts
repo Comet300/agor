@@ -332,6 +332,12 @@ export interface Catalog {
   audit_intro: string;
   audit_empty: string;
   audit_item: (p: { action: string; targetId: number; actorId: number; at: string }) => string;
+  // ── Backup & restore (admin) ──────────────────────────────────────────────
+  backup_caption: string;
+  backup_failed: string;
+  restore_usage: string;
+  restore_invalid: string;
+  restore_staged: string;
 }
 
 const ro: Catalog = {
@@ -632,6 +638,11 @@ const ro: Catalog = {
   audit_empty: 'Nicio decizie de acces înregistrată încă.',
   audit_item: ({ action, targetId, actorId, at }) =>
     `${at} · ${action} · țintă ${targetId} · de către ${actorId}`,
+  backup_caption: 'Copie de rezervă agor',
+  backup_failed: 'Copierea de rezervă a eșuat.',
+  restore_usage: 'Folosire: /restore <cale-fișier> (se aplică la repornire).',
+  restore_invalid: 'Fișierul nu este o copie de rezervă agor validă.',
+  restore_staged: 'Copie pregătită. Repornește botul pentru a o aplica.',
 };
 
 const en: Catalog = {
@@ -929,6 +940,11 @@ const en: Catalog = {
   audit_empty: 'No access decisions recorded yet.',
   audit_item: ({ action, targetId, actorId, at }) =>
     `${at} · ${action} · target ${targetId} · by ${actorId}`,
+  backup_caption: 'agor backup',
+  backup_failed: 'Backup failed.',
+  restore_usage: 'Usage: /restore <file-path> (applied on restart).',
+  restore_invalid: 'That file is not a valid agor backup.',
+  restore_staged: 'Backup staged. Restart the bot to apply it.',
 };
 
 const de: Catalog = {
@@ -1224,6 +1240,11 @@ const de: Catalog = {
   audit_empty: 'Noch keine Zugangsentscheidungen erfasst.',
   audit_item: ({ action, targetId, actorId, at }) =>
     `${at} · ${action} · Ziel ${targetId} · von ${actorId}`,
+  backup_caption: 'agor-Backup',
+  backup_failed: 'Backup fehlgeschlagen.',
+  restore_usage: 'Verwendung: /restore <Dateipfad> (wird beim Neustart angewendet).',
+  restore_invalid: 'Diese Datei ist kein gültiges agor-Backup.',
+  restore_staged: 'Backup bereitgestellt. Starte den Bot neu, um es anzuwenden.',
 };
 
 const it: Catalog = {
@@ -1519,6 +1540,11 @@ const it: Catalog = {
   audit_empty: 'Nessuna decisione di accesso registrata per ora.',
   audit_item: ({ action, targetId, actorId, at }) =>
     `${at} · ${action} · target ${targetId} · da ${actorId}`,
+  backup_caption: 'Backup agor',
+  backup_failed: 'Backup non riuscito.',
+  restore_usage: 'Uso: /restore <percorso-file> (applicato al riavvio).',
+  restore_invalid: 'Il file non è un backup agor valido.',
+  restore_staged: 'Backup preparato. Riavvia il bot per applicarlo.',
 };
 
 const es: Catalog = {
@@ -1814,6 +1840,11 @@ const es: Catalog = {
   audit_empty: 'Aún no hay decisiones de acceso registradas.',
   audit_item: ({ action, targetId, actorId, at }) =>
     `${at} · ${action} · objetivo ${targetId} · por ${actorId}`,
+  backup_caption: 'Copia de seguridad agor',
+  backup_failed: 'La copia de seguridad falló.',
+  restore_usage: 'Uso: /restore <ruta-archivo> (se aplica al reiniciar).',
+  restore_invalid: 'Ese archivo no es una copia de seguridad válida de agor.',
+  restore_staged: 'Copia preparada. Reinicia el bot para aplicarla.',
 };
 
 const fr: Catalog = {
@@ -2109,6 +2140,11 @@ const fr: Catalog = {
   audit_empty: 'Aucune décision d’accès enregistrée pour l’instant.',
   audit_item: ({ action, targetId, actorId, at }) =>
     `${at} · ${action} · cible ${targetId} · par ${actorId}`,
+  backup_caption: 'Sauvegarde agor',
+  backup_failed: 'La sauvegarde a échoué.',
+  restore_usage: 'Utilisation : /restore <chemin-fichier> (appliqué au redémarrage).',
+  restore_invalid: 'Ce fichier n’est pas une sauvegarde agor valide.',
+  restore_staged: 'Sauvegarde préparée. Redémarrez le bot pour l’appliquer.',
 };
 
 /**
