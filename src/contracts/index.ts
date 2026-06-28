@@ -77,6 +77,12 @@ export interface IVendorPlugin {
   rate_limit_ms: number;
   search_mapping: IPluginSearchMapping;
   product_mapping: IPluginMapping;
+  /**
+   * Optional SERP URL template with a `{query}` slug placeholder, e.g.
+   * `https://www.olx.ro/oferte/q-{query}/`. When present, the bot can auto-build
+   * a search watch for this vendor — powers cross-platform auto-suggest.
+   */
+  search_url_template?: string;
 }
 
 // ────────────────────────────────────────────────────────────────────────────

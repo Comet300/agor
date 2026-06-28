@@ -18,6 +18,10 @@ domain: olx.ro
 engine: json-extractor
 rate_limit_ms: 2500
 
+# SERP URL template ({query} = a dash slug) — lets the bot auto-build a search
+# watch for OLX from a tracked item (cross-platform auto-suggest).
+search_url_template: "https://www.olx.ro/oferte/q-{query}/"
+
 # Search results listing (the SERP grid of ads).
 search_mapping:
   payload_locator: "window.__PRERENDERED_STATE__"

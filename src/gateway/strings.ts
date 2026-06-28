@@ -213,6 +213,9 @@ export interface Catalog {
   browse_empty: string;
   browse_track_done: (title: string) => string;
   browse_track_exists: string;
+  /** Cross-platform auto-suggest prompt (after tracking) + its decline button. */
+  autosuggest_intro: (query: string) => string;
+  btn_no_thanks: string;
   browse_gone: string;
   /** Header of the scope picker (browse a single watch vs all). */
   browse_scope_prompt: string;
@@ -541,6 +544,8 @@ const ro: Catalog = {
   browse_empty: 'Niciun anunț colectat încă. Adaugă o urmărire cu un link, apoi revino.',
   browse_track_done: (title) => `📌 Urmăresc acum „${title}". Te anunț la schimbări de preț și la eliminare.`,
   browse_track_exists: 'Urmărești deja acest anunț.',
+  autosuggest_intro: (query) => `Vrei să urmăresc și anunțuri similare („${query}”) pe alte platforme?`,
+  btn_no_thanks: 'Nu, mulțumesc',
   browse_gone: 'Acest anunț nu mai este disponibil.',
   browse_scope_prompt: 'Ce vrei să răsfoiești?',
   browse_jump_prompt: (total) => `Trimite un număr între 1 și ${total} ca să sari la acel anunț.`,
@@ -862,6 +867,8 @@ const en: Catalog = {
   browse_empty: 'No items collected yet. Add a watch with a link, then come back.',
   browse_track_done: (title) => `📌 Now tracking "${title}". I'll alert you on price changes and de-listing.`,
   browse_track_exists: "You're already tracking this item.",
+  autosuggest_intro: (query) => `Want me to also watch similar listings ("${query}") on other platforms?`,
+  btn_no_thanks: 'No thanks',
   browse_gone: 'This item is no longer available.',
   browse_scope_prompt: 'What would you like to browse?',
   browse_jump_prompt: (total) => `Send a number from 1 to ${total} to jump to that item.`,
@@ -1178,6 +1185,8 @@ const de: Catalog = {
   browse_empty: 'Noch keine Anzeigen gesammelt. Füge eine Beobachtung mit einem Link hinzu und komm dann zurück.',
   browse_track_done: (title) => `📌 Verfolge jetzt „${title}“. Ich benachrichtige dich bei Preisänderungen und Entfernung.`,
   browse_track_exists: 'Du verfolgst diese Anzeige bereits.',
+  autosuggest_intro: (query) => `Soll ich auch ähnliche Anzeigen („${query}“) auf anderen Plattformen beobachten?`,
+  btn_no_thanks: 'Nein danke',
   browse_gone: 'Diese Anzeige ist nicht mehr verfügbar.',
   browse_scope_prompt: 'Was möchtest du durchstöbern?',
   browse_jump_prompt: (total) => `Schicke eine Zahl von 1 bis ${total}, um zu dieser Anzeige zu springen.`,
@@ -1494,6 +1503,8 @@ const it: Catalog = {
   browse_empty: 'Nessun elemento raccolto per ora. Aggiungi un monitoraggio con un link, poi torna qui.',
   browse_track_done: (title) => `📌 Ora monitoro „${title}“. Ti avviserò sui cambi di prezzo e sulle rimozioni.`,
   browse_track_exists: 'Stai già monitorando questo elemento.',
+  autosuggest_intro: (query) => `Vuoi che monitori anche annunci simili („${query}“) su altre piattaforme?`,
+  btn_no_thanks: 'No grazie',
   browse_gone: 'Questo elemento non è più disponibile.',
   browse_scope_prompt: 'Cosa vuoi sfogliare?',
   browse_jump_prompt: (total) => `Invia un numero da 1 a ${total} per saltare a quella posizione.`,
@@ -1810,6 +1821,8 @@ const es: Catalog = {
   browse_empty: 'Aún no hay artículos recopilados. Añade un seguimiento con un enlace y vuelve.',
   browse_track_done: (title) => `📌 Ahora siguiendo "${title}". Te avisaré de cambios de precio y de su eliminación.`,
   browse_track_exists: 'Ya estás siguiendo este artículo.',
+  autosuggest_intro: (query) => `¿Quieres que también vigile anuncios similares ("${query}") en otras plataformas?`,
+  btn_no_thanks: 'No, gracias',
   browse_gone: 'Este artículo ya no está disponible.',
   browse_scope_prompt: '¿Qué te gustaría explorar?',
   browse_jump_prompt: (total) => `Envía un número del 1 al ${total} para saltar a ese artículo.`,
@@ -2126,6 +2139,8 @@ const fr: Catalog = {
   browse_empty: 'Aucune annonce collectée pour l’instant. Ajoutez un suivi avec un lien, puis revenez.',
   browse_track_done: (title) => `📌 Suivi de "${title}" activé. Je vous alerterai en cas de changement de prix ou de retrait.`,
   browse_track_exists: 'Vous suivez déjà cette annonce.',
+  autosuggest_intro: (query) => `Voulez-vous que je surveille aussi des annonces similaires (« ${query} ») sur d’autres plateformes ?`,
+  btn_no_thanks: 'Non merci',
   browse_gone: 'Cette annonce n’est plus disponible.',
   browse_scope_prompt: 'Que souhaitez-vous parcourir ?',
   browse_jump_prompt: (total) => `Envoyez un nombre de 1 à ${total} pour aller à cette annonce.`,
