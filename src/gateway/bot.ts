@@ -39,7 +39,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -1522,6 +1522,46 @@ export function buildBot(
     } catch (err) {
       await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
     }
+  });
+
+  // Interval button → open the collapsed frequency picker (registration / edit),
+  // and its back button → return to the originating card.
+  const curMinutes = (m: { intervalMs: number }): number => Math.round(m.intervalMs / 60000);
+  bot.callbackQuery(/^fqi:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitor = store.monitors.get(Number(ctx.match[1]));
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageReplyMarkup({ reply_markup: frequencyPickerKeyboard(monitor.id, curMinutes(monitor), lang, 'reg') });
+    } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
+  });
+  bot.callbackQuery(/^efi:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitor = store.monitors.get(Number(ctx.match[1]));
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageReplyMarkup({ reply_markup: frequencyPickerKeyboard(monitor.id, curMinutes(monitor), lang, 'edit') });
+    } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
+  });
+  bot.callbackQuery(/^fqb:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitor = store.monitors.get(Number(ctx.match[1]));
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageReplyMarkup({ reply_markup: registrationKeyboard(monitor.id, lang, monitor.filters.sellerVisibility, curMinutes(monitor)) });
+    } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
+  });
+  bot.callbackQuery(/^efb:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitor = store.monitors.get(Number(ctx.match[1]));
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) });
+    } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
   });
 
   // Edit-card digest toggle: edg:<monitorId> cycles off → daily → weekly → off.

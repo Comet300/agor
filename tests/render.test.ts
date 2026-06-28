@@ -180,15 +180,14 @@ describe('renderRegistrationCard', () => {
     expect(data).toContain('sv:42:private');
     expect(data).toContain('sv:42:company');
     expect(data).toContain('sv:42:both');
-    // Frequency presets + exclusion prompt + remove + go-live.
-    expect(data).toContain('fq:42:5');
-    expect(data).toContain('fq:42:60');
+    // Check-interval button (presets behind it) + exclusion prompt + remove + go-live.
+    expect(data).toContain('fqi:42');
     expect(data).toContain('ex:42');
     expect(data).toContain('rm:42');
     expect(data).toContain('go:42');
   });
 
-  it('uses EN copy and marks the active frequency preset', () => {
+  it('uses EN copy and shows the current interval on the card', () => {
     const msg = renderRegistrationCard(
       {
         monitorId: 42,
@@ -205,7 +204,7 @@ describe('renderRegistrationCard', () => {
     expect(msg.text).toContain(tr('en').reg_baseline(1));
 
     const labels = buttons(msg).map((b) => ('text' in b ? b.text : ''));
-    expect(labels).toContain(`✅ ${tr('en').btn_freq(30)}`);
+    expect(labels).toContain(tr('en').btn_interval('30m'));
     expect(labels).toContain(`✅ ${tr('en').btn_private}`);
   });
 });

@@ -172,6 +172,8 @@ export interface Catalog {
   btn_call: string;
   btn_price_history: string;
   btn_freq: (minutes: number) => string;
+  /** Collapsed check-interval button on the registration / edit card (current value). */
+  btn_interval: (current: string) => string;
   // Browse carousel.
   btn_prev: string;
   btn_next: string;
@@ -484,6 +486,7 @@ const ro: Catalog = {
   btn_call: '📞 Sună',
   btn_price_history: '📊 Istoric preț',
   btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
+  btn_interval: (current) => `⏱ Interval verificare: ${current}`,
   btn_prev: '◀️ Înapoi',
   btn_next: 'Înainte ▶️',
   btn_track: '📌 Urmărește',
@@ -792,6 +795,7 @@ const en: Catalog = {
   btn_call: '📞 Call',
   btn_price_history: '📊 Price history',
   btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
+  btn_interval: (current) => `⏱ Check interval: ${current}`,
   btn_prev: '◀️ Prev',
   btn_next: 'Next ▶️',
   btn_track: '📌 Track',
@@ -1095,6 +1099,7 @@ const de: Catalog = {
   btn_call: '📞 Anrufen',
   btn_price_history: '📊 Preisverlauf',
   btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
+  btn_interval: (current) => `⏱ Prüfintervall: ${current}`,
   btn_prev: '◀️ Zurück',
   btn_next: 'Weiter ▶️',
   btn_track: '📌 Verfolgen',
@@ -1398,6 +1403,7 @@ const it: Catalog = {
   btn_call: '📞 Chiama',
   btn_price_history: '📊 Cronologia prezzi',
   btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
+  btn_interval: (current) => `⏱ Intervallo di controllo: ${current}`,
   btn_prev: '◀️ Indietro',
   btn_next: 'Avanti ▶️',
   btn_track: '📌 Monitora',
@@ -1701,6 +1707,7 @@ const es: Catalog = {
   btn_call: '📞 Llamar',
   btn_price_history: '📊 Historial de precios',
   btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
+  btn_interval: (current) => `⏱ Intervalo de comprobación: ${current}`,
   btn_prev: '◀️ Anterior',
   btn_next: 'Siguiente ▶️',
   btn_track: '📌 Seguir',
@@ -2004,6 +2011,7 @@ const fr: Catalog = {
   btn_call: '📞 Appeler',
   btn_price_history: '📊 Historique des prix',
   btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
+  btn_interval: (current) => `⏱ Intervalle de vérification : ${current}`,
   btn_prev: '◀️ Préc.',
   btn_next: 'Suiv. ▶️',
   btn_track: '📌 Suivre',

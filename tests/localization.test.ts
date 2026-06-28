@@ -113,16 +113,16 @@ describe('registrationKeyboard localized labels vs stable data', () => {
   const data = (kb: ReturnType<typeof registrationKeyboard>) =>
     flat(kb).map((b) => ('callback_data' in b ? b.callback_data : ''));
 
-  it('marks the active seller visibility and frequency preset', () => {
+  it('marks the active seller and shows the current interval', () => {
     const lbls = labels(registrationKeyboard(3, 'en', 'company', 60));
     expect(lbls).toContain(`✅ ${tr('en').btn_company}`);
-    expect(lbls).toContain(`✅ ${tr('en').btn_freq(60)}`);
+    expect(lbls).toContain(tr('en').btn_interval('1h'));
   });
 
-  it('includes rm:, fq: and go: callback data', () => {
+  it('includes rm:, fqi: and go: callback data', () => {
     const d = data(registrationKeyboard(3, 'en'));
     expect(d).toContain('rm:3');
-    expect(d).toContain('fq:3:5');
+    expect(d).toContain('fqi:3'); // interval button (presets are behind it)
     expect(d).toContain('go:3');
   });
 

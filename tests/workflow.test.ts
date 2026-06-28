@@ -127,7 +127,7 @@ describe('workflow commands', () => {
     const m = mkSearch(h.store);
     await cmd(h.bot, '/list');
     await tap(h.bot, `le:${m.id}`);
-    expect(h.sent.at(-1)!.data.some((d) => d.startsWith('efq:'))).toBe(true); // edit card
+    expect(h.sent.at(-1)!.data.some((d) => d.startsWith('efi:'))).toBe(true); // edit card
 
     await tap(h.bot, `lp:${m.id}`);
     expect(h.store.monitors.get(m.id)!.paused).toBe(true);

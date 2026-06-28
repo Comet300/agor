@@ -99,7 +99,7 @@ describe('/edit', () => {
     const card = h.sent.at(-1)!;
     expect(card.text).toMatch(new RegExp(`Editing watch #${m.id}`));
     expect(card.data).toContain(`esv:${m.id}:both`);
-    expect(card.data).toContain(`efq:${m.id}:30`);
+    expect(card.data).toContain(`efi:${m.id}`); // collapsed check-interval button
     expect(card.data).toContain(`ex:${m.id}`);
     expect(card.data).toContain(`rm:${m.id}`);
     expect(card.data).toContain('ed');
@@ -109,7 +109,7 @@ describe('/edit', () => {
     const m = mkMonitor(h.store, 'product');
     await cmd(h.bot, `/edit ${m.id}`);
     const card = h.sent.at(-1)!;
-    expect(card.data).toContain(`efq:${m.id}:5`);
+    expect(card.data).toContain(`efi:${m.id}`);
     expect(card.data).toContain(`rm:${m.id}`);
     expect(card.data.some((d) => d.startsWith('esv:'))).toBe(false);
     expect(card.data.some((d) => d.startsWith('ex:'))).toBe(false);
@@ -148,7 +148,7 @@ describe('/edit', () => {
     expect(picker.text).toMatch(/which watch/i);
     expect(picker.data).toContain(`ki:0`); // first watch as a button
     await tap(h.bot, 'ki:0'); // pick it → opens its edit card
-    expect(h.sent.at(-1)!.data.some((d) => d.startsWith('efq:'))).toBe(true);
+    expect(h.sent.at(-1)!.data.some((d) => d.startsWith('efi:'))).toBe(true);
     expect(m.id).toBeGreaterThan(0);
   });
 
