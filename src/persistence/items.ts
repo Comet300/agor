@@ -293,6 +293,31 @@ export class ItemRepo {
       .run(tag, monitorId, itemId);
   }
 
+  /**
+   * Aggregate a seller's behaviour across ALL their listings, keyed by phone when
+   * given (the reliable identity) else by seller name. `fastMs` is the window
+   * under which a delist counts as a fast flip. Powers the reputation score.
+   */
+  sellerStats(seller: { phone?: string; name?: string }, fastMs: number): {
+    listings: number; delisted: number; fastDelists: number; relists: number;
+  } {
+    const byPhone = seller.phone !== undefined && seller.phone !== '';
+    const key = byPhone ? seller.phone : seller.name;
+    if (key === undefined || key === '') return { listings: 0, delisted: 0, fastDelists: 0, relists: 0 };
+    const col = byPhone ? 'phone' : 'seller_name';
+    const row = this.db
+      .prepare(
+        `SELECT
+           COUNT(*) AS listings,
+           SUM(CASE WHEN delisted_at IS NOT NULL THEN 1 ELSE 0 END) AS delisted,
+           SUM(CASE WHEN delisted_at IS NOT NULL AND delisted_at - first_seen < ? THEN 1 ELSE 0 END) AS fastDelists,
+           COALESCE(SUM(gone_count), 0) AS relists
+         FROM items WHERE ${col} = ?`,
+      )
+      .get(fastMs, key) as { listings: number; delisted: number; fastDelists: number; relists: number };
+    return { listings: row.listings, delisted: row.delisted, fastDelists: row.fastDelists, relists: row.relists };
+  }
+
   /** The de-listing bookkeeping for one item (absent-cycle counter + delist stamp). */
   delistState(monitorId: number, itemId: string): { goneCount: number; delistedAt?: number } | undefined {
     const row = this.db

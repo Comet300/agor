@@ -31,6 +31,7 @@ import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBro
 import { computeTrend, renderTrendBadge } from '../features/trend';
 import { buildWeeklyReport } from '../features/weeklyReport';
 import { runBackup, stageRestore } from '../features/backup';
+import { sellerReputation, SELLER_FAST_MS } from '../features/sellerReputation';
 import { unlink } from 'node:fs/promises';
 import { toCsv } from '../util/csv';
 import { formatMoney } from '../util/money';
@@ -2686,6 +2687,14 @@ export function makeNotifier(
     if (n.item) {
       const note = store.itemFlags.getNote(n.chatId, n.item.id);
       if (note) text += `\n📝 ${note}`;
+      // Seller reputation from their track record across listings.
+      const stats = store.items.sellerStats(
+        { ...(n.item.phone ? { phone: n.item.phone } : {}), ...(n.item.sellerName ? { name: n.item.sellerName } : {}) },
+        SELLER_FAST_MS,
+      );
+      const rep = sellerReputation(stats);
+      if (rep.trust === 'good') text += `\n${tr(lang).seller_trust_good}`;
+      else if (rep.trust === 'caution') text += `\n${tr(lang).seller_trust_caution}`;
     }
 
     if (n.kind === 'cross_post' && n.messageRef) {
