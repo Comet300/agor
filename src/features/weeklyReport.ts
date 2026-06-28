@@ -9,6 +9,7 @@ import type { Monitor, WeeklyReportData } from '../contracts';
 import type { PriceHistoryRepo } from '../persistence/priceHistory';
 import type { ItemRepo } from '../persistence/items';
 import { computeTrend, renderTrendBadge, DAY_MS } from './trend';
+import { seasonalHint } from './seasonal';
 
 export const WEEK_MS = 7 * DAY_MS;
 /** Most active listings scanned for velocity + best deals. */
@@ -39,6 +40,8 @@ export function buildWeeklyReport(repos: ReportRepos, monitor: Monitor, now: num
     .slice(0, REPORT_MAX_DEALS)
     .map((i) => ({ title: i.title!, price: i.lastPrice, currency: i.currency, url: i.url ?? '' }));
 
+  const season = seasonalHint(repos.priceHistory.monthlyAverages(monitor.id));
+
   return {
     vendor: monitor.vendor,
     inventory,
@@ -46,5 +49,6 @@ export function buildWeeklyReport(repos: ReportRepos, monitor: Monitor, now: num
     newThisWeek,
     trendBadge: renderTrendBadge(computeTrend(repos.priceHistory, monitor.id, now)),
     bestDeals,
+    ...(season ? { seasonalMonth: season.month, seasonalBelowPct: season.belowPct } : {}),
   };
 }

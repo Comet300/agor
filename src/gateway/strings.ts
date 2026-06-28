@@ -296,6 +296,8 @@ export interface Catalog {
   report_inventory: (a: { count: number; delta: string }) => string;
   report_velocity: (a: { n: number }) => string;
   report_best: string;
+  /** Seasonal "best time to buy" hint (month abbrev + percent below the yearly mean). */
+  report_seasonal: (a: { month: string; pct: number }) => string;
 
   // ── Access control ────────────────────────────────────────────────────────
   access_denied: string; // shown to a non-allowed chat that tries to use the bot
@@ -613,6 +615,7 @@ const ro: Catalog = {
   report_inventory: ({ count, delta }) => `Anunțuri urmărite: ${count} (${delta} față de săptămâna trecută)`,
   report_velocity: ({ n }) => `Anunțuri noi săptămâna aceasta: ${n}`,
   report_best: 'Cele mai bune oferte:',
+  report_seasonal: ({ month, pct }) => `🗓 Cel mai ieftin în jur de ${month} (~${pct}% sub medie)`,
 
   access_denied:
     'Nu ai acces la acest bot. Folosește /request_access ca să ceri accesul.',
@@ -933,6 +936,7 @@ const en: Catalog = {
   report_inventory: ({ count, delta }) => `Listings tracked: ${count} (${delta} vs last week)`,
   report_velocity: ({ n }) => `New this week: ${n}`,
   report_best: 'Best deals:',
+  report_seasonal: ({ month, pct }) => `🗓 Cheapest around ${month} (~${pct}% below average)`,
 
   access_denied: 'You do not have access to this bot. Use /request_access to ask for it.',
   access_request_intro: "Let's request access. ",
@@ -1248,6 +1252,7 @@ const de: Catalog = {
   report_inventory: ({ count, delta }) => `Beobachtete Anzeigen: ${count} (${delta} ggü. Vorwoche)`,
   report_velocity: ({ n }) => `Neu diese Woche: ${n}`,
   report_best: 'Top-Angebote:',
+  report_seasonal: ({ month, pct }) => `🗓 Am günstigsten um ${month} (~${pct}% unter dem Mittel)`,
 
   access_denied: 'Du hast keinen Zugang zu diesem Bot. Nutze /request_access, um ihn anzufragen.',
   access_request_intro: 'Lass uns Zugang anfragen. ',
@@ -1563,6 +1568,7 @@ const it: Catalog = {
   report_inventory: ({ count, delta }) => `Annunci monitorati: ${count} (${delta} rispetto alla settimana scorsa)`,
   report_velocity: ({ n }) => `Nuovi questa settimana: ${n}`,
   report_best: 'Migliori offerte:',
+  report_seasonal: ({ month, pct }) => `🗓 Più economico intorno a ${month} (~${pct}% sotto la media)`,
 
   access_denied: 'Non hai accesso a questo bot. Usa /request_access per richiederlo.',
   access_request_intro: 'Procediamo con la richiesta di accesso. ',
@@ -1878,6 +1884,7 @@ const es: Catalog = {
   report_inventory: ({ count, delta }) => `Anuncios seguidos: ${count} (${delta} frente a la semana pasada)`,
   report_velocity: ({ n }) => `Nuevos esta semana: ${n}`,
   report_best: 'Mejores ofertas:',
+  report_seasonal: ({ month, pct }) => `🗓 Más barato en torno a ${month} (~${pct}% por debajo de la media)`,
 
   access_denied: 'No tienes acceso a este bot. Usa /request_access para solicitarlo.',
   access_request_intro: 'Vamos a solicitar acceso. ',
@@ -2193,6 +2200,7 @@ const fr: Catalog = {
   report_inventory: ({ count, delta }) => `Annonces suivies : ${count} (${delta} vs la semaine dernière)`,
   report_velocity: ({ n }) => `Nouvelles cette semaine : ${n}`,
   report_best: 'Meilleures affaires :',
+  report_seasonal: ({ month, pct }) => `🗓 Le moins cher autour de ${month} (~${pct}% sous la moyenne)`,
 
   access_denied: 'Vous n’avez pas accès à ce bot. Utilisez /request_access pour le demander.',
   access_request_intro: 'Demandons l’accès. ',

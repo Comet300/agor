@@ -183,6 +183,9 @@ function renderNewListing(item: EnrichedItem, lang: Lang, fairValue?: FairValue,
 /** Most listings shown in one digest message (the rest are summarized as "+N"). */
 const DIGEST_MAX_ROWS = 15;
 
+/** Language-neutral 3-letter month labels for the seasonal "best time to buy" hint. */
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 /** Render a digest: a ranked, best-deals-first summary of a watch's batched listings. */
 function renderDigest(summary: DigestSummary, lang: Lang): RenderedMessage {
   const t = tr(lang);
@@ -216,6 +219,9 @@ function renderWeeklyReport(report: WeeklyReportData, lang: Lang): RenderedMessa
   ];
   if (report.trendBadge) lines.push(report.trendBadge);
   lines.push(t.report_velocity({ n: report.newThisWeek }));
+  if (report.seasonalMonth !== undefined && report.seasonalBelowPct !== undefined) {
+    lines.push(t.report_seasonal({ month: MONTH_ABBR[report.seasonalMonth - 1] ?? '?', pct: report.seasonalBelowPct }));
+  }
   if (report.bestDeals.length > 0) {
     lines.push('');
     lines.push(t.report_best);

@@ -71,6 +71,23 @@ export class PriceHistoryRepo {
       .all(monitorId, asOf) as Array<{ itemId: string; price: number; currency: string }>;
   }
 
+  /**
+   * Average price per calendar month (1–12) and currency across all of a
+   * monitor's history — the raw material for seasonal-pattern detection. Months
+   * with no data simply don't appear.
+   */
+  monthlyAverages(monitorId: number): Array<{ month: number; currency: string; avg: number; n: number }> {
+    return this.db
+      .prepare(
+        `SELECT CAST(strftime('%m', observed_at / 1000, 'unixepoch') AS INTEGER) AS month,
+                currency, AVG(price) AS avg, COUNT(*) AS n
+           FROM price_history
+          WHERE monitor_id = ?
+          GROUP BY month, currency`,
+      )
+      .all(monitorId) as Array<{ month: number; currency: string; avg: number; n: number }>;
+  }
+
   /** Most recently observed price for an item, or `undefined` if none logged. */
   lastPrice(monitorId: number, itemId: string): number | undefined {
     const row = this.db
