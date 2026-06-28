@@ -43,16 +43,10 @@ export interface Catalog {
     label?: string;
     /** True when the watch is paused (scheduler skips it). */
     paused: boolean;
-    /** True when a search watch only alerts on at-or-below-median listings. */
-    dealsOnly: boolean;
     /** Comma-joined required keywords; empty when none. */
     required: string;
     /** Count of blocked sellers + phones; 0 when none. */
     blocked: number;
-    /** Price range summary (e.g. "5000–15000"); empty when none. */
-    priceRange: string;
-    /** Attribute-range summary (e.g. "year≥2019 · km≤120000"); empty when none. */
-    specs: string;
   }) => string;
   remove_usage: string;
   remove_done: (id: number) => string;
@@ -158,13 +152,10 @@ export interface Catalog {
   btn_start: string;
   btn_done: string;
   btn_remove: string;
-  btn_deals_only: string;
   btn_digest: string;
   btn_report: string;
   btn_required: string;
   btn_block: string;
-  btn_price_range: string;
-  btn_specs: string;
   btn_rename: string;
   btn_pause: string;
   btn_resume: string;
@@ -232,8 +223,6 @@ export interface Catalog {
   cb_edit_done: string;
   cb_paused: string;
   cb_resumed: string;
-  cb_deals_on: string;
-  cb_deals_off: string;
   cb_digest_set: string;
   cb_report_set: string;
   exclusion_prompt: string;
@@ -242,11 +231,6 @@ export interface Catalog {
   required_prompt: string;
   required_set: (keywords: string) => string;
   required_cleared: string;
-  price_range_prompt: string;
-  price_range_set: (p: { min?: number; max?: number }) => string;
-  attr_range_prompt: string;
-  attr_range_set: (text: string) => string;
-  range_cleared: string;
   target_prompt: string;
   target_set: (price: number) => string;
   target_cleared: string;
@@ -386,14 +370,11 @@ const ro: Catalog = {
   track_error: 'Nu am putut înregistra urmărirea. Te rog încearcă din nou.',
   list_empty: 'Nicio urmărire încă. Trimite un link de anunț ca să creezi una.',
   list_intro: 'Urmăririle tale:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked, priceRange, specs }) =>
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, required, blocked }) =>
     `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `„${label}” (${vendor})` : vendor} · ${type}` +
     // Seller filter, deals-only & keyword filters only apply to search watches; a
     // product watch tracks one listing, so they'd be meaningless noise.
     (type === 'search' ? ` · vânzător=${seller}` : '') +
-    (type === 'search' && dealsOnly ? ' · doar oferte' : '') +
-    (type === 'search' && priceRange ? ` · preț ${priceRange}` : '') +
-    (type === 'search' && specs ? ` · ${specs}` : '') +
     (type === 'search' && required ? ` · necesită: ${required}` : '') +
     (type === 'search' && exclusions ? ` · excluse: ${exclusions}` : '') +
     (type === 'search' && blocked > 0 ? ` · blocați: ${blocked}` : '') +
@@ -484,13 +465,10 @@ const ro: Catalog = {
   btn_start: '▶️ Pornește',
   btn_done: '✅ Gata',
   btn_remove: '🗑 Șterge',
-  btn_deals_only: '🔥 Doar oferte',
   btn_digest: '📰 Rezumat',
   btn_report: '📅 Raport săptămânal',
   btn_required: '✅ Cuvinte necesare',
   btn_block: '⛔ Blochează vânzător',
-  btn_price_range: '💶 Interval preț',
-  btn_specs: '📐 Specificații',
   btn_rename: '✏️ Redenumește',
   btn_pause: '⏸ Pauză',
   btn_resume: '▶️ Reia',
@@ -556,8 +534,6 @@ const ro: Catalog = {
   cb_edit_done: 'Modificări salvate.',
   cb_paused: 'Urmărire pusă pe pauză.',
   cb_resumed: 'Urmărire reluată.',
-  cb_deals_on: 'Doar oferte bune: pornit.',
-  cb_deals_off: 'Doar oferte bune: oprit.',
   cb_digest_set: 'Mod rezumat actualizat.',
   cb_report_set: 'Raport săptămânal actualizat.',
   exclusion_prompt: 'Trimite cuvintele de exclus, separate prin virgulă (ex.: lovit, piese, dube).',
@@ -566,11 +542,6 @@ const ro: Catalog = {
   required_prompt: 'Trimite cuvintele necesare, separate prin virgulă (anunțul trebuie să conțină cel puțin unul). „-” le șterge.',
   required_set: (kw) => `Necesită: ${kw}`,
   required_cleared: 'Toate cuvintele necesare au fost șterse.',
-  price_range_prompt: 'Trimite intervalul de preț: min-max (ex.: 5000-15000, 5000-, -15000). „-” îl șterge.',
-  price_range_set: ({ min, max }) => `Interval preț: ${min ?? '0'}–${max ?? '∞'}`,
-  attr_range_prompt: 'Trimite specificații, ex.: year>=2019, km<=120000, area>=60 (year/km/area/rooms/power). „-” le șterge.',
-  attr_range_set: (text) => `Specificații: ${text}`,
-  range_cleared: 'Filtrul a fost șters.',
   target_prompt: 'Trimite prețul țintă (doar numărul, în moneda anunțului). Te anunț când scade până la el. „-” îl șterge.',
   target_set: (price) => `Preț țintă setat: ${price}`,
   target_cleared: 'Prețul țintă a fost șters.',
@@ -707,14 +678,11 @@ const en: Catalog = {
   track_error: 'Sorry — I could not register that watch. Please try again.',
   list_empty: 'No watches yet. Send a listing link to create one.',
   list_intro: 'Your watches:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked, priceRange, specs }) =>
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, required, blocked }) =>
     `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `“${label}” (${vendor})` : vendor} · ${type}` +
     // Seller filter, deals-only & keyword filters only apply to search watches; a
     // product watch tracks one listing, so they'd be meaningless noise.
     (type === 'search' ? ` · seller=${seller}` : '') +
-    (type === 'search' && dealsOnly ? ' · deals only' : '') +
-    (type === 'search' && priceRange ? ` · price ${priceRange}` : '') +
-    (type === 'search' && specs ? ` · ${specs}` : '') +
     (type === 'search' && required ? ` · requires: ${required}` : '') +
     (type === 'search' && exclusions ? ` · excluded: ${exclusions}` : '') +
     (type === 'search' && blocked > 0 ? ` · blocked: ${blocked}` : '') +
@@ -805,13 +773,10 @@ const en: Catalog = {
   btn_start: '▶️ Start',
   btn_done: '✅ Done',
   btn_remove: '🗑 Remove',
-  btn_deals_only: '🔥 Deals only',
   btn_digest: '📰 Digest',
   btn_report: '📅 Weekly report',
   btn_required: '✅ Required words',
   btn_block: '⛔ Block seller',
-  btn_price_range: '💶 Price range',
-  btn_specs: '📐 Specs',
   btn_rename: '✏️ Rename',
   btn_pause: '⏸ Pause',
   btn_resume: '▶️ Resume',
@@ -877,8 +842,6 @@ const en: Catalog = {
   cb_edit_done: 'Changes saved.',
   cb_paused: 'Watch paused.',
   cb_resumed: 'Watch resumed.',
-  cb_deals_on: 'Deals only: on.',
-  cb_deals_off: 'Deals only: off.',
   cb_digest_set: 'Digest mode updated.',
   cb_report_set: 'Weekly report updated.',
   exclusion_prompt: 'Send a comma-separated list of keywords to exclude (e.g. damaged, parts, salvage).',
@@ -887,11 +850,6 @@ const en: Catalog = {
   required_prompt: 'Send comma-separated required keywords (a listing must contain at least one). “-” clears them.',
   required_set: (kw) => `Requiring: ${kw}`,
   required_cleared: 'Cleared all required keywords.',
-  price_range_prompt: 'Send a price range: min-max (e.g. 5000-15000, 5000-, -15000). “-” clears it.',
-  price_range_set: ({ min, max }) => `Price range: ${min ?? '0'}–${max ?? '∞'}`,
-  attr_range_prompt: 'Send specs, e.g. year>=2019, km<=120000, area>=60 (year/km/area/rooms/power). “-” clears them.',
-  attr_range_set: (text) => `Specs: ${text}`,
-  range_cleared: 'Filter cleared.',
   target_prompt: 'Send the target price (number only, in the listing’s currency). I’ll alert when it drops to it. “-” clears it.',
   target_set: (price) => `Target price set: ${price}`,
   target_cleared: 'Target price cleared.',
@@ -1025,12 +983,9 @@ const de: Catalog = {
   track_error: 'Entschuldigung — diese Beobachtung konnte nicht registriert werden. Bitte versuche es erneut.',
   list_empty: 'Noch keine Beobachtungen. Schicke einen Anzeigenlink, um eine zu erstellen.',
   list_intro: 'Deine Beobachtungen:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked, priceRange, specs }) =>
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, required, blocked }) =>
     `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `„${label}“ (${vendor})` : vendor} · ${type}` +
     (type === 'search' ? ` · Verkäufer=${seller}` : '') +
-    (type === 'search' && dealsOnly ? ' · nur Schnäppchen' : '') +
-    (type === 'search' && priceRange ? ` · Preis ${priceRange}` : '') +
-    (type === 'search' && specs ? ` · ${specs}` : '') +
     (type === 'search' && required ? ` · erfordert: ${required}` : '') +
     (type === 'search' && exclusions ? ` · ausgeschlossen: ${exclusions}` : '') +
     (type === 'search' && blocked > 0 ? ` · blockiert: ${blocked}` : '') +
@@ -1121,13 +1076,10 @@ const de: Catalog = {
   btn_start: '▶️ Start',
   btn_done: '✅ Fertig',
   btn_remove: '🗑 Entfernen',
-  btn_deals_only: '🔥 Nur Schnäppchen',
   btn_digest: '📰 Zusammenfassung',
   btn_report: '📅 Wochenbericht',
   btn_required: '✅ Pflichtwörter',
   btn_block: '⛔ Verkäufer blockieren',
-  btn_price_range: '💶 Preisspanne',
-  btn_specs: '📐 Eckdaten',
   btn_rename: '✏️ Umbenennen',
   btn_pause: '⏸ Pausieren',
   btn_resume: '▶️ Fortsetzen',
@@ -1193,8 +1145,6 @@ const de: Catalog = {
   cb_edit_done: 'Änderungen gespeichert.',
   cb_paused: 'Beobachtung pausiert.',
   cb_resumed: 'Beobachtung fortgesetzt.',
-  cb_deals_on: 'Nur Schnäppchen: an.',
-  cb_deals_off: 'Nur Schnäppchen: aus.',
   cb_digest_set: 'Zusammenfassungsmodus aktualisiert.',
   cb_report_set: 'Wochenbericht aktualisiert.',
   exclusion_prompt: 'Schicke eine kommagetrennte Liste von Stichwörtern zum Ausschließen (z. B. beschädigt, Teile, Bastler).',
@@ -1203,11 +1153,6 @@ const de: Catalog = {
   required_prompt: 'Schicke kommagetrennte Pflicht-Stichwörter (eine Anzeige muss mindestens eines enthalten). „-“ löscht sie.',
   required_set: (kw) => `Erforderlich: ${kw}`,
   required_cleared: 'Alle Pflicht-Stichwörter gelöscht.',
-  price_range_prompt: 'Schicke eine Preisspanne: min-max (z. B. 5000-15000, 5000-, -15000). „-“ löscht sie.',
-  price_range_set: ({ min, max }) => `Preisspanne: ${min ?? '0'}–${max ?? '∞'}`,
-  attr_range_prompt: 'Schicke Eckdaten, z. B. year>=2019, km<=120000, area>=60 (year/km/area/rooms/power). „-“ löscht sie.',
-  attr_range_set: (text) => `Eckdaten: ${text}`,
-  range_cleared: 'Filter gelöscht.',
   target_prompt: 'Schicke den Zielpreis (nur Zahl, in der Währung der Anzeige). Ich melde mich, wenn er darauf fällt. „-“ löscht ihn.',
   target_set: (price) => `Zielpreis gesetzt: ${price}`,
   target_cleared: 'Zielpreis gelöscht.',
@@ -1341,12 +1286,9 @@ const it: Catalog = {
   track_error: 'Spiacente — non sono riuscito a registrare il monitoraggio. Riprova.',
   list_empty: 'Nessun monitoraggio. Invia il link di un annuncio per crearne uno.',
   list_intro: 'I tuoi monitoraggi:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked, priceRange, specs }) =>
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, required, blocked }) =>
     `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `„${label}“ (${vendor})` : vendor} · ${type}` +
     (type === 'search' ? ` · venditore=${seller}` : '') +
-    (type === 'search' && dealsOnly ? ' · solo affari' : '') +
-    (type === 'search' && priceRange ? ` · prezzo ${priceRange}` : '') +
-    (type === 'search' && specs ? ` · ${specs}` : '') +
     (type === 'search' && required ? ` · richiede: ${required}` : '') +
     (type === 'search' && exclusions ? ` · esclusi: ${exclusions}` : '') +
     (type === 'search' && blocked > 0 ? ` · bloccati: ${blocked}` : '') +
@@ -1437,13 +1379,10 @@ const it: Catalog = {
   btn_start: '▶️ Avvia',
   btn_done: '✅ Fatto',
   btn_remove: '🗑 Rimuovi',
-  btn_deals_only: '🔥 Solo affari',
   btn_digest: '📰 Riepilogo',
   btn_report: '📅 Report settimanale',
   btn_required: '✅ Parole obbligatorie',
   btn_block: '⛔ Blocca venditore',
-  btn_price_range: '💶 Fascia di prezzo',
-  btn_specs: '📐 Caratteristiche',
   btn_rename: '✏️ Rinomina',
   btn_pause: '⏸ Pausa',
   btn_resume: '▶️ Riprendi',
@@ -1509,8 +1448,6 @@ const it: Catalog = {
   cb_edit_done: 'Modifiche salvate.',
   cb_paused: 'Monitoraggio in pausa.',
   cb_resumed: 'Monitoraggio ripreso.',
-  cb_deals_on: 'Solo affari: attivo.',
-  cb_deals_off: 'Solo affari: disattivo.',
   cb_digest_set: 'Modalità riepilogo aggiornata.',
   cb_report_set: 'Report settimanale aggiornato.',
   exclusion_prompt: 'Invia una lista di parole separate da virgola da escludere (es. danneggiato, ricambi, incidentato).',
@@ -1519,11 +1456,6 @@ const it: Catalog = {
   required_prompt: 'Invia le parole obbligatorie separate da virgola (un annuncio deve contenerne almeno una). „-“ le rimuove.',
   required_set: (kw) => `Richiedo: ${kw}`,
   required_cleared: 'Tutte le parole obbligatorie rimosse.',
-  price_range_prompt: 'Invia una fascia di prezzo: min-max (es. 5000-15000, 5000-, -15000). „-“ la rimuove.',
-  price_range_set: ({ min, max }) => `Fascia di prezzo: ${min ?? '0'}–${max ?? '∞'}`,
-  attr_range_prompt: 'Invia le caratteristiche, es. year>=2019, km<=120000, area>=60 (year/km/area/rooms/power). „-“ le rimuove.',
-  attr_range_set: (text) => `Caratteristiche: ${text}`,
-  range_cleared: 'Filtro rimosso.',
   target_prompt: 'Invia il prezzo obiettivo (solo numero, nella stessa valuta). Ti avviserò quando scende a quel valore. „-“ lo rimuove.',
   target_set: (price) => `Prezzo obiettivo impostato: ${price}`,
   target_cleared: 'Prezzo obiettivo rimosso.',
@@ -1657,12 +1589,9 @@ const es: Catalog = {
   track_error: 'Lo siento — no pude registrar ese seguimiento. Inténtalo de nuevo.',
   list_empty: 'Aún no hay seguimientos. Envía un enlace de anuncio para crear uno.',
   list_intro: 'Tus seguimientos:',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked, priceRange, specs }) =>
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, required, blocked }) =>
     `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `„${label}“ (${vendor})` : vendor} · ${type}` +
     (type === 'search' ? ` · vendedor=${seller}` : '') +
-    (type === 'search' && dealsOnly ? ' · solo chollos' : '') +
-    (type === 'search' && priceRange ? ` · precio ${priceRange}` : '') +
-    (type === 'search' && specs ? ` · ${specs}` : '') +
     (type === 'search' && required ? ` · requiere: ${required}` : '') +
     (type === 'search' && exclusions ? ` · excluido: ${exclusions}` : '') +
     (type === 'search' && blocked > 0 ? ` · bloqueados: ${blocked}` : '') +
@@ -1753,13 +1682,10 @@ const es: Catalog = {
   btn_start: '▶️ Iniciar',
   btn_done: '✅ Hecho',
   btn_remove: '🗑 Eliminar',
-  btn_deals_only: '🔥 Solo chollos',
   btn_digest: '📰 Resumen',
   btn_report: '📅 Informe semanal',
   btn_required: '✅ Palabras obligatorias',
   btn_block: '⛔ Bloquear vendedor',
-  btn_price_range: '💶 Rango de precio',
-  btn_specs: '📐 Características',
   btn_rename: '✏️ Renombrar',
   btn_pause: '⏸ Pausar',
   btn_resume: '▶️ Reanudar',
@@ -1825,8 +1751,6 @@ const es: Catalog = {
   cb_edit_done: 'Cambios guardados.',
   cb_paused: 'Seguimiento pausado.',
   cb_resumed: 'Seguimiento reanudado.',
-  cb_deals_on: 'Solo chollos: activado.',
-  cb_deals_off: 'Solo chollos: desactivado.',
   cb_digest_set: 'Modo resumen actualizado.',
   cb_report_set: 'Informe semanal actualizado.',
   exclusion_prompt: 'Envía una lista de palabras clave separadas por comas para excluir (p. ej. dañado, piezas, siniestro).',
@@ -1835,11 +1759,6 @@ const es: Catalog = {
   required_prompt: 'Envía palabras clave obligatorias separadas por comas (un anuncio debe contener al menos una). „-“ las borra.',
   required_set: (kw) => `Exigiendo: ${kw}`,
   required_cleared: 'Se borraron todas las palabras obligatorias.',
-  price_range_prompt: 'Envía un rango de precio: mín-máx (p. ej. 5000-15000, 5000-, -15000). „-“ lo borra.',
-  price_range_set: ({ min, max }) => `Rango de precio: ${min ?? '0'}–${max ?? '∞'}`,
-  attr_range_prompt: 'Envía características, p. ej. year>=2019, km<=120000, area>=60 (year/km/area/rooms/power). „-“ las borra.',
-  attr_range_set: (text) => `Características: ${text}`,
-  range_cleared: 'Filtro borrado.',
   target_prompt: 'Envía el precio objetivo (solo el número, en la moneda del anuncio). Te avisaré cuando baje hasta él. „-“ lo borra.',
   target_set: (price) => `Precio objetivo establecido: ${price}`,
   target_cleared: 'Precio objetivo borrado.',
@@ -1973,12 +1892,9 @@ const fr: Catalog = {
   track_error: 'Désolé — je n’ai pas pu enregistrer ce suivi. Veuillez réessayer.',
   list_empty: 'Aucun suivi pour l’instant. Envoyez un lien d’annonce pour en créer un.',
   list_intro: 'Vos suivis :',
-  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, dealsOnly, required, blocked, priceRange, specs }) =>
+  list_item: ({ id, vendor, type, seller, url, exclusions, tracked, label, paused, required, blocked }) =>
     `#${id} · ${tracked ? '📌 ' : ''}${paused ? '⏸ ' : ''}${label ? `“${label}” (${vendor})` : vendor} · ${type}` +
     (type === 'search' ? ` · vendeur=${seller}` : '') +
-    (type === 'search' && dealsOnly ? ' · bonnes affaires' : '') +
-    (type === 'search' && priceRange ? ` · prix ${priceRange}` : '') +
-    (type === 'search' && specs ? ` · ${specs}` : '') +
     (type === 'search' && required ? ` · requis : ${required}` : '') +
     (type === 'search' && exclusions ? ` · exclus : ${exclusions}` : '') +
     (type === 'search' && blocked > 0 ? ` · bloqués : ${blocked}` : '') +
@@ -2069,13 +1985,10 @@ const fr: Catalog = {
   btn_start: '▶️ Démarrer',
   btn_done: '✅ Terminé',
   btn_remove: '🗑 Supprimer',
-  btn_deals_only: '🔥 Bonnes affaires',
   btn_digest: '📰 Résumé',
   btn_report: '📅 Rapport hebdomadaire',
   btn_required: '✅ Mots requis',
   btn_block: '⛔ Bloquer le vendeur',
-  btn_price_range: '💶 Fourchette de prix',
-  btn_specs: '📐 Caractéristiques',
   btn_rename: '✏️ Renommer',
   btn_pause: '⏸ Pause',
   btn_resume: '▶️ Reprendre',
@@ -2141,8 +2054,6 @@ const fr: Catalog = {
   cb_edit_done: 'Modifications enregistrées.',
   cb_paused: 'Suivi mis en pause.',
   cb_resumed: 'Suivi repris.',
-  cb_deals_on: 'Bonnes affaires : activé.',
-  cb_deals_off: 'Bonnes affaires : désactivé.',
   cb_digest_set: 'Mode résumé mis à jour.',
   cb_report_set: 'Rapport hebdomadaire mis à jour.',
   exclusion_prompt: 'Envoyez une liste de mots-clés à exclure, séparés par des virgules (ex. : endommagé, pièces, épave).',
@@ -2151,11 +2062,6 @@ const fr: Catalog = {
   required_prompt: 'Envoyez des mots-clés requis séparés par des virgules (une annonce doit en contenir au moins un). “-” les efface.',
   required_set: (kw) => `Requis : ${kw}`,
   required_cleared: 'Tous les mots-clés requis ont été effacés.',
-  price_range_prompt: 'Envoyez une fourchette de prix : min-max (ex. : 5000-15000, 5000-, -15000). “-” l’efface.',
-  price_range_set: ({ min, max }) => `Fourchette de prix : ${min ?? '0'}–${max ?? '∞'}`,
-  attr_range_prompt: 'Envoyez des caractéristiques, ex. : year>=2019, km<=120000, area>=60 (year/km/area/rooms/power). “-” les efface.',
-  attr_range_set: (text) => `Caractéristiques : ${text}`,
-  range_cleared: 'Filtre effacé.',
   target_prompt: 'Envoyez le prix cible (nombre uniquement, dans la devise de l’annonce). Je vous alerterai quand il l’atteindra. “-” l’efface.',
   target_set: (price) => `Prix cible défini : ${price}`,
   target_cleared: 'Prix cible effacé.',

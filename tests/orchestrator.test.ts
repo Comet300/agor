@@ -984,63 +984,6 @@ describe("10.4 search filters + deal tagging", () => {
     expect(byId.get("D1")!.dealTag).toBe("fair_price");
   });
 
-  it("deals-only suppresses confidently above-median listings", async () => {
-    const h = makeHarness({ benchmarkMinSample: 4 });
-    h.setBody(searchDoc([]));
-    const res = await h.orchestrator.register({ chatId: 8, rawUrl: SEARCH_URL });
-    expect(res.ok).toBe(true);
-    if (!res.ok) throw new Error("register failed");
-
-    // Turn on deals-only for this watch.
-    const m = h.store.monitors.get(res.monitor.id)!;
-    m.filters = { ...m.filters, dealsOnly: true };
-    h.store.monitors.update(m);
-
-    // Median of [500,1000,1000,1000,2000] = 1000. The 2000 is confidently above
-    // median -> suppressed; the rest (<= median) still alert.
-    h.setNow(2_000);
-    h.setBody(
-      searchDoc([
-        { id: "B", title: "Bargain", price: 500, currency: "RON", url: "https://www.synth.test/B", city: "Cluj" },
-        { id: "M1", title: "Mid one", price: 1000, currency: "RON", url: "https://www.synth.test/M1", city: "Cluj" },
-        { id: "M2", title: "Mid two", price: 1000, currency: "RON", url: "https://www.synth.test/M2", city: "Cluj" },
-        { id: "M3", title: "Mid three", price: 1000, currency: "RON", url: "https://www.synth.test/M3", city: "Cluj" },
-        { id: "PRICEY", title: "Pricey", price: 2000, currency: "RON", url: "https://www.synth.test/PRICEY", city: "Cluj" },
-      ]),
-    );
-
-    const ids = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications
-      .filter((n) => n.kind === "new_listing")
-      .map((n) => n.item!.id);
-    expect(ids).not.toContain("PRICEY");
-    expect(ids).toContain("B");
-    expect(ids).toHaveLength(4);
-  });
-
-  it("deals-only does NOT suppress when the benchmark is not yet confident", async () => {
-    const h = makeHarness({ benchmarkMinSample: 4 });
-    h.setBody(searchDoc([]));
-    const res = await h.orchestrator.register({ chatId: 9, rawUrl: SEARCH_URL });
-    expect(res.ok).toBe(true);
-    if (!res.ok) throw new Error("register failed");
-    const m = h.store.monitors.get(res.monitor.id)!;
-    m.filters = { ...m.filters, dealsOnly: true };
-    h.store.monitors.update(m);
-
-    // Only 2 active listings (< minSample 4) -> not confident -> nothing dropped.
-    h.setNow(2_000);
-    h.setBody(
-      searchDoc([
-        { id: "X", title: "Cheap", price: 100, currency: "RON", url: "https://www.synth.test/X", city: "Cluj" },
-        { id: "Y", title: "Dear", price: 9000, currency: "RON", url: "https://www.synth.test/Y", city: "Cluj" },
-      ]),
-    );
-    const ids = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications
-      .filter((n) => n.kind === "new_listing")
-      .map((n) => n.item!.id);
-    expect(ids).toEqual(expect.arrayContaining(["X", "Y"]));
-  });
-
   it("omits the deal tag when the active sample is below minSample", async () => {
     // minSample=4 but only 2 active listings -> not confident -> no dealTag.
     const h = makeHarness({ benchmarkMinSample: 4 });

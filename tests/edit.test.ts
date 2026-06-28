@@ -4,7 +4,7 @@
  * interval/seller mutations, and ownership/usage guards.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { buildBot, parsePriceRange, parseAttrRanges } from '../src/gateway/bot';
+import { buildBot } from '../src/gateway/bot';
 import { Orchestrator } from '../src/orchestrator';
 import { openStore, type Store } from '../src/persistence';
 import { PluginRegistry } from '../src/registry';
@@ -163,15 +163,6 @@ describe('/edit', () => {
     expect(h.store.monitors.listDue(Number.MAX_SAFE_INTEGER).some((x) => x.id === m.id)).toBe(true);
   });
 
-  it('eo toggles deals-only on a search watch', async () => {
-    const m = mkMonitor(h.store, 'search');
-    await cmd(h.bot, `/edit ${m.id}`);
-    await tap(h.bot, `eo:${m.id}`);
-    expect(h.store.monitors.get(m.id)!.filters.dealsOnly).toBe(true);
-    await tap(h.bot, `eo:${m.id}`);
-    expect(h.store.monitors.get(m.id)!.filters.dealsOnly).toBe(false);
-  });
-
   it('er renames the watch from the next text reply ("-" clears)', async () => {
     const m = mkMonitor(h.store, 'search');
     await cmd(h.bot, `/edit ${m.id}`);
@@ -219,27 +210,6 @@ describe('/edit', () => {
     expect(h.store.monitors.get(m.id)!.filters.targetPrice).toBeUndefined();
   });
 
-  it('epr sets a price range from the next text reply', async () => {
-    const m = mkMonitor(h.store, 'search');
-    await cmd(h.bot, `/edit ${m.id}`);
-    await tap(h.bot, `epr:${m.id}`);
-    await say(h.bot, '5000-15000');
-    expect(h.store.monitors.get(m.id)!.filters.priceMin).toBe(5000);
-    expect(h.store.monitors.get(m.id)!.filters.priceMax).toBe(15000);
-    await tap(h.bot, `epr:${m.id}`);
-    await say(h.bot, '-');
-    expect(h.store.monitors.get(m.id)!.filters.priceMin).toBeUndefined();
-  });
-
-  it('ear → ✏️ type sets attribute (spec) ranges from the next text reply', async () => {
-    const m = mkMonitor(h.store, 'search');
-    await cmd(h.bot, `/edit ${m.id}`);
-    await tap(h.bot, `ear:${m.id}`); // opens the specs wizard (chooser)
-    await tap(h.bot, `ec:${m.id}:type`); // ✏️ escape → free-text prompt
-    await say(h.bot, 'year>=2019, km<=120000');
-    expect(h.store.monitors.get(m.id)!.filters.attrRanges).toEqual({ year: { min: 2019 }, km: { max: 120000 } });
-  });
-
   it('a collaborator (editor subscriber) can change a watch they do NOT own', async () => {
     const OWNER = 999;
     const m = h.store.monitors.create({
@@ -262,17 +232,6 @@ describe('/edit', () => {
     expect(h.store.monitors.get(m.id)!.filters.sellerVisibility).toBe('both'); // unchanged
   });
 
-  it('ear → year preset sets a one-tap lower bound', async () => {
-    const m = mkMonitor(h.store, 'search');
-    await cmd(h.bot, `/edit ${m.id}`);
-    await tap(h.bot, `ear:${m.id}`);
-    await tap(h.bot, `ec:${m.id}:year`); // pick the year attribute
-    await tap(h.bot, `ecp:${m.id}:year:2020`); // tap ≥2020
-    expect(h.store.monitors.get(m.id)!.filters.attrRanges).toEqual({ year: { min: 2020 } });
-    await tap(h.bot, `ecp:${m.id}:year:0`); // ✖️ clears it
-    expect(h.store.monitors.get(m.id)!.filters.attrRanges).toBeUndefined();
-  });
-
   it('eb blocks a seller name or a phone, classifying by digit count', async () => {
     const m = mkMonitor(h.store, 'search');
     await cmd(h.bot, `/edit ${m.id}`);
@@ -291,19 +250,3 @@ describe('/edit', () => {
   });
 });
 
-describe('range parsers', () => {
-  it('parsePriceRange handles a-b / a- / -b / bare / clear', () => {
-    expect(parsePriceRange('5000-15000')).toEqual({ min: 5000, max: 15000 });
-    expect(parsePriceRange('5000-')).toEqual({ min: 5000 });
-    expect(parsePriceRange('-15000')).toEqual({ max: 15000 });
-    expect(parsePriceRange('5000')).toEqual({ max: 5000 }); // bare = "under N"
-    expect(parsePriceRange('-')).toEqual({}); // clears
-  });
-
-  it('parseAttrRanges reads >=/<= for recognised attrs only', () => {
-    expect(parseAttrRanges('year>=2019, km<=120000, area > 60')).toEqual({
-      year: { min: 2019 }, km: { max: 120000 }, area: { min: 60 },
-    });
-    expect(parseAttrRanges('color = red')).toEqual({}); // unknown attr ignored
-  });
-});

@@ -13,8 +13,6 @@ import {
   applyRequired,
   applyBlocklist,
   phoneKey,
-  applyPriceRange,
-  applyAttrRanges,
   applySellerFilter,
   computeDelta,
   newItems,
@@ -451,26 +449,6 @@ describe('seller blocklist', () => {
   it('passes everything through with empty blocklists', () => {
     const items = [{ ...item({ id: '1' }), sellerName: 'X' }, item({ id: '2', phone: '0712345678' })];
     expect(applyBlocklist(items, [], [])).toHaveLength(2);
-  });
-});
-
-describe('range filters', () => {
-  it('applyPriceRange keeps items within [min,max] (bounds optional)', () => {
-    const items = [item({ id: 'a', price: 3000 }), item({ id: 'b', price: 10000 }), item({ id: 'c', price: 20000 })];
-    expect(applyPriceRange(items, 5000, 15000).map((i) => i.id)).toEqual(['b']);
-    expect(applyPriceRange(items, undefined, 15000).map((i) => i.id)).toEqual(['a', 'b']);
-    expect(applyPriceRange(items, 5000).map((i) => i.id)).toEqual(['b', 'c']);
-    expect(applyPriceRange(items).map((i) => i.id)).toEqual(['a', 'b', 'c']); // no bounds
-  });
-
-  it('applyAttrRanges filters by parsed attributes, lenient on a missing attribute', () => {
-    const items: IScrapedItem[] = [
-      { ...item({ id: 'old' }), attributes: { year: '2015', km: '200.000' } },
-      { ...item({ id: 'new' }), attributes: { year: '2021', km: '50.000' } },
-      { ...item({ id: 'nokm' }), attributes: { year: '2022' } }, // km missing → lenient pass
-    ];
-    const out = applyAttrRanges(items, { year: { min: 2019 }, km: { max: 120000 } });
-    expect(out.map((i) => i.id)).toEqual(['new', 'nokm']);
   });
 });
 
