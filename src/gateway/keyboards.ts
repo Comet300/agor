@@ -354,8 +354,9 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
     // A single tracked listing: a target-price alert is the meaningful control.
     kb.text(mark(monitor.filters.targetPrice !== undefined, t.btn_target), `et:${id}`).row();
   }
-  // Rename + pause/resume on their own row, then remove + done.
+  // Rename + group + pause/resume on their own row, then remove + done.
   kb.text(t.btn_rename, `er:${id}`)
+    .text(t.btn_group, `egr:${id}`)
     .text(monitor.paused ? t.btn_resume : t.btn_pause, `ep:${id}`)
     .row()
     .text(t.btn_remove, `rm:${id}`)

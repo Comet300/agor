@@ -38,6 +38,7 @@ interface MonitorRow {
   origin: string | null;
   paused: number | null;
   label: string | null;
+  collection: string | null;
 }
 
 /** Map a DB row into the typed domain {@link Monitor}. */
@@ -58,6 +59,7 @@ function rowToMonitor(row: MonitorRow): Monitor {
     createdAt: row.created_at,
   };
   if (row.label != null && row.label !== '') monitor.label = row.label;
+  if (row.collection != null && row.collection !== '') monitor.collection = row.collection;
   return monitor;
 }
 
@@ -181,6 +183,19 @@ export class MonitorRepo {
   /** Set or clear a monitor's user-given label (empty string clears it). */
   setLabel(id: number, label: string): void {
     this.db.prepare(`UPDATE monitors SET label = ? WHERE id = ?`).run(label || null, id);
+  }
+
+  /** Set or clear a monitor's collection/folder (empty string clears it). */
+  setCollection(id: number, collection: string): void {
+    this.db.prepare(`UPDATE monitors SET collection = ? WHERE id = ?`).run(collection || null, id);
+  }
+
+  /** All monitors in a chat's named collection (case-sensitive), in id order. */
+  listByCollection(chatId: number, collection: string): Monitor[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM monitors WHERE chat_id = ? AND collection = ? ORDER BY id`)
+      .all(chatId, collection) as MonitorRow[];
+    return rows.map(rowToMonitor);
   }
 
   /** Remove a monitor by id. */

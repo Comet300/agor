@@ -211,6 +211,8 @@ export interface Monitor {
   paused: boolean;
   /** Optional user-given name, shown in /list, /browse scope, and the edit card. */
   label?: string;
+  /** Optional collection/folder this watch belongs to, for grouped /list + bulk ops. */
+  collection?: string;
   createdAt: number;
 }
 

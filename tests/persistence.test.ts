@@ -65,6 +65,25 @@ describe("MonitorRepo", () => {
     expect(store.monitors.get(999)).toBeUndefined();
   });
 
+  it("sets/clears a collection and lists a chat's watches by collection", () => {
+    const store = freshStore();
+    const a = store.monitors.create(newMonitorInput({ chatId: 7 }));
+    const b = store.monitors.create(newMonitorInput({ chatId: 7 }));
+    const c = store.monitors.create(newMonitorInput({ chatId: 7 }));
+    store.monitors.setCollection(a.id, 'Winter tires');
+    store.monitors.setCollection(b.id, 'Winter tires');
+    store.monitors.setCollection(c.id, 'Apartment hunt');
+
+    expect(store.monitors.get(a.id)!.collection).toBe('Winter tires');
+    expect(store.monitors.listByCollection(7, 'Winter tires').map((m) => m.id)).toEqual([a.id, b.id]);
+    expect(store.monitors.listByCollection(7, 'Apartment hunt').map((m) => m.id)).toEqual([c.id]);
+    expect(store.monitors.listByCollection(99, 'Winter tires')).toEqual([]); // chat isolation
+
+    store.monitors.setCollection(a.id, ''); // clear
+    expect(store.monitors.get(a.id)!.collection).toBeUndefined();
+    expect(store.monitors.listByCollection(7, 'Winter tires').map((m) => m.id)).toEqual([b.id]);
+  });
+
   it("listByChat returns only that chat's monitors", () => {
     const store = freshStore();
     store.monitors.create(newMonitorInput({ chatId: 1 }));

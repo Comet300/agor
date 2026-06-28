@@ -144,6 +144,9 @@ const pendingUnshare = new ExpiringMap<number, number>(PENDING_TTL_MS);
 /** Chats awaiting a note reply for a browsed item (chat id → {monitorId, itemId}). */
 const pendingNote = new ExpiringMap<number, { monitorId: number; itemId: string }>(PENDING_TTL_MS);
 
+/** Chats awaiting a collection-name reply for a watch (chat id → monitor id). */
+const pendingGroup = new ExpiringMap<number, number>(PENDING_TTL_MS);
+
 /** Attributes the spec-range filter recognises (parsed numerics). */
 const RANGE_ATTRS = ['year', 'km', 'area', 'rooms', 'power'] as const;
 
@@ -477,12 +480,53 @@ export function buildBot(
       // (Edit / Pause / Remove) so the user can manage it without typing ids.
       await ctx.reply(tr(lang).list_intro);
       const now = Date.now();
-      for (const m of monitors) {
+      const emit = async (m: typeof monitors[number]): Promise<void> => {
         // Market trend is a per-search-query signal; a product watch tracks one item.
         const badge = m.type === 'search' ? renderTrendBadge(computeTrend(store.priceHistory, m.id, now)) : '';
         const row = renderListRow(m, lang, badge);
         await ctx.reply(row.text, row.keyboard ? { reply_markup: row.keyboard } : undefined);
+      };
+      // Ungrouped watches first, then each named collection under a 📁 header.
+      const groups = new Map<string, typeof monitors>();
+      for (const m of monitors) {
+        if (!m.collection) continue;
+        (groups.get(m.collection) ?? groups.set(m.collection, []).get(m.collection)!).push(m);
       }
+      for (const m of monitors) if (!m.collection) await emit(m);
+      for (const name of [...groups.keys()].sort()) {
+        await ctx.reply(`📁 ${name}`);
+        for (const m of groups.get(name)!) await emit(m);
+      }
+    } catch (err) {
+      await ctx.reply(tr(lang).generic_error);
+    }
+  });
+
+  // /group <pause|resume|remove> <name> — bulk action on every watch in a collection.
+  bot.command('group', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    try {
+      const parts = (ctx.match ?? '').trim().split(/\s+/);
+      const action = (parts[0] ?? '').toLowerCase();
+      const name = parts.slice(1).join(' ').trim();
+      if (!name || !['pause', 'resume', 'remove'].includes(action)) { await ctx.reply(tr(lang).group_usage); return; }
+      const members = store.monitors.listByCollection(chatId, name);
+      if (members.length === 0) { await ctx.reply(tr(lang).group_usage); return; }
+      for (const m of members) {
+        if (action === 'pause') {
+          store.monitors.setPaused(m.id, true);
+        } else if (action === 'resume') {
+          store.monitors.setPaused(m.id, false);
+          store.monitors.setSchedule(m.id, Date.now(), m.fastTier); // re-arm so it polls now
+        } else {
+          store.monitors.delete(m.id);
+          store.watchSubscribers.removeAll(m.id);
+          store.digestQueue.removeAll(m.id);
+          store.reportState.disable(m.id);
+        }
+      }
+      await ctx.reply(tr(lang).group_done({ count: members.length }));
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -1616,6 +1660,24 @@ export function buildBot(
     }
   });
 
+  // Edit-card group: egr:<monitorId> → prompt for a collection name + remember it.
+  bot.callbackQuery(/^egr:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
+        return;
+      }
+      pendingGroup.set(ctx.chat?.id ?? monitor.chatId, monitorId);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(tr(lang).group_prompt);
+    } catch (err) {
+      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
+    }
+  });
+
   // Edit done: ed — acknowledge and collapse the editor (clear its keyboard).
   bot.callbackQuery(/^ed$/, async (ctx) => {
     const lang = langFor(store, ctx.chat?.id ?? 0);
@@ -2293,6 +2355,19 @@ export function buildBot(
         const monitor = store.monitors.get(shareMonitorId);
         if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).cb_watch_gone); return; }
         await applyShare(ctx, chatId, shareMonitorId, text);
+        return;
+      }
+
+      // 1c-group. Awaiting a collection name for a watch?
+      const groupMonitorId = pendingGroup.get(chatId);
+      if (groupMonitorId !== undefined) {
+        pendingGroup.delete(chatId);
+        const monitor = store.monitors.get(groupMonitorId);
+        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).cb_watch_gone); return; }
+        const raw = text.trim();
+        const name = raw === '-' ? '' : raw.slice(0, 40);
+        store.monitors.setCollection(groupMonitorId, name);
+        await ctx.reply(name ? tr(lang).group_set(name) : tr(lang).group_cleared);
         return;
       }
 
