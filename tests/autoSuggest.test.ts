@@ -4,8 +4,9 @@ import type { IVendorPlugin } from '../src/contracts';
 
 const plugin = (vendor: string, template?: string): IVendorPlugin => ({
   vendor, domain: `${vendor.toLowerCase()}.ro`, engine: 'json-extractor', rate_limit_ms: 1000,
-  search_mapping: { payload_locator: 'x', item_array: 'y', fields: {} } as IVendorPlugin['search_mapping'],
-  product_mapping: { payload_locator: 'x', fields: {} } as IVendorPlugin['product_mapping'],
+  // Mappings are irrelevant to auto-suggest; a minimal stub keeps the test focused.
+  search_mapping: {} as IVendorPlugin['search_mapping'],
+  product_mapping: {} as IVendorPlugin['product_mapping'],
   ...(template ? { search_url_template: template } : {}),
 });
 
