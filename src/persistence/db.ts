@@ -171,6 +171,7 @@ export function migrate(db: DB): void {
       monitor_id INTEGER NOT NULL,
       chat_id    INTEGER NOT NULL,
       created_at INTEGER,
+      can_edit   INTEGER DEFAULT 0,
       PRIMARY KEY (monitor_id, chat_id)
     );
 
@@ -252,5 +253,11 @@ export function migrate(db: DB): void {
   const flagCols = db.prepare('PRAGMA table_info(item_flags)').all() as Array<{ name: string }>;
   if (!flagCols.some((c) => c.name === 'note')) {
     db.exec(`ALTER TABLE item_flags ADD COLUMN note TEXT`);
+  }
+
+  // watch_subscribers gained `can_edit` (collaborative watches) after first ship.
+  const subCols = db.prepare('PRAGMA table_info(watch_subscribers)').all() as Array<{ name: string }>;
+  if (subCols.length > 0 && !subCols.some((c) => c.name === 'can_edit')) {
+    db.exec(`ALTER TABLE watch_subscribers ADD COLUMN can_edit INTEGER DEFAULT 0`);
   }
 }

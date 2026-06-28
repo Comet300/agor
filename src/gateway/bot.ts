@@ -382,6 +382,12 @@ export function buildBot(
   /** True when `chatId` is an admin. */
   const isAdmin = (chatId: number): boolean => store.access.isAdmin(chatId);
 
+  // A chat may manage a watch's config if it owns it OR is a collaborator (editor)
+  // subscriber. Used by the edit-card filter callbacks; destructive/ownership
+  // actions (remove, share) stay owner-only.
+  const canManage = (monitor: Monitor, chatId: number | undefined): boolean =>
+    chatId !== undefined && (monitor.chatId === chatId || store.watchSubscribers.isEditor(monitor.id, chatId));
+
   /** Notify every admin chat (DB admins + any configured) with text + keyboard. */
   const notifyAdmins = async (text: string, keyboard?: InlineKeyboard): Promise<void> => {
     const ids = new Set<number>(adminChatIds);
@@ -922,7 +928,7 @@ export function buildBot(
     switch (command) {
       case 'edit': {
         const monitor = store.monitors.get(id);
-        if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).edit_not_found); return; }
+        if (!monitor || !canManage(monitor, chatId)) { await ctx.reply(tr(lang).edit_not_found); return; }
         const view = renderEditCard(monitor, lang);
         await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
         return;
@@ -1083,12 +1089,12 @@ export function buildBot(
     return Number.isInteger(n) && n !== 0 ? n : undefined;
   };
 
-  /** Subscribe a target chat to one of the caller's watches. */
-  const applyShare = async (ctx: IdCtx, chatId: number, monitorId: number, raw: string): Promise<void> => {
+  /** Subscribe a target chat to a watch; `canEdit` makes it a collaborator (editor). */
+  const applyShare = async (ctx: IdCtx, chatId: number, monitorId: number, raw: string, canEdit = false): Promise<void> => {
     const lang = langFor(store, chatId);
     const target = parseChatId(raw);
     if (target === undefined || target === chatId) { await ctx.reply(tr(lang).share_invalid); return; }
-    store.watchSubscribers.add(monitorId, target, Date.now());
+    store.watchSubscribers.add(monitorId, target, Date.now(), canEdit);
     await ctx.reply(tr(lang).share_added({ chatId: target, count: store.watchSubscribers.count(monitorId) }));
   };
 
@@ -1110,7 +1116,8 @@ export function buildBot(
       if (id === undefined) { await openIdPicker(ctx, chatId, 'share'); return; }
       const monitor = store.monitors.get(id);
       if (!monitor || monitor.chatId !== chatId) { await ctx.reply(tr(lang).remove_not_found); return; }
-      if (tokens.length >= 2) { await applyShare(ctx, chatId, id, tokens[1]!); return; }
+      // /share <id> <chatId> [edit] — a trailing "edit" makes the chat a collaborator.
+      if (tokens.length >= 2) { await applyShare(ctx, chatId, id, tokens[1]!, (tokens[2] ?? '').toLowerCase() === 'edit'); return; }
       await runIdCommand('share', ctx, chatId, id); // sets the pending target-chat prompt
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
@@ -1451,7 +1458,7 @@ export function buildBot(
       }
 
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1484,7 +1491,7 @@ export function buildBot(
       const minutes = Number(ctx.match[2]);
 
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1520,7 +1527,7 @@ export function buildBot(
         return;
       }
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1541,7 +1548,7 @@ export function buildBot(
       const monitorId = Number(ctx.match[1]);
       const minutes = Number(ctx.match[2]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1561,7 +1568,7 @@ export function buildBot(
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1582,7 +1589,7 @@ export function buildBot(
     const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
       const monitor = store.monitors.get(Number(ctx.match[1]));
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1603,7 +1610,7 @@ export function buildBot(
     const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
       const monitor = store.monitors.get(Number(ctx.match[1]));
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1627,7 +1634,7 @@ export function buildBot(
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1648,7 +1655,7 @@ export function buildBot(
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1666,7 +1673,7 @@ export function buildBot(
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1693,7 +1700,7 @@ export function buildBot(
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1711,7 +1718,7 @@ export function buildBot(
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1896,7 +1903,7 @@ export function buildBot(
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1914,7 +1921,7 @@ export function buildBot(
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1933,7 +1940,7 @@ export function buildBot(
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) {
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
         await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
         return;
       }
@@ -1951,7 +1958,7 @@ export function buildBot(
       const monitorId = Number(ctx.match[1]);
       const what = ctx.match[2];
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
       if (what === 'type') {
         pendingAttrRange.set(ctx.chat?.id ?? monitor.chatId, monitorId);
         await ctx.answerCallbackQuery();
@@ -1980,7 +1987,7 @@ export function buildBot(
       const attr = ctx.match[2] as 'year' | 'km' | 'area';
       const value = Number(ctx.match[3]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || monitor.chatId !== (ctx.chat?.id ?? NaN)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
       const ranges = { ...(monitor.filters.attrRanges ?? {}) };
       if (value === 0) delete ranges[attr];
       else ranges[attr] = attr === 'km' ? { max: value } : { min: value };

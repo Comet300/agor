@@ -409,6 +409,16 @@ describe('WatchSubscribersRepo', () => {
     store.watchSubscribers.removeAll(1);
     expect(store.watchSubscribers.count(1)).toBe(0);
   });
+
+  it('tracks the editor (collaborator) role and can upgrade a viewer', () => {
+    const store = freshStore();
+    store.watchSubscribers.add(1, 777, 100); // viewer by default
+    expect(store.watchSubscribers.isEditor(1, 777)).toBe(false);
+    store.watchSubscribers.add(1, 777, 200, true); // re-share as editor → upgrade
+    expect(store.watchSubscribers.isEditor(1, 777)).toBe(true);
+    expect(store.watchSubscribers.count(1)).toBe(1); // still one row
+    expect(store.watchSubscribers.isEditor(1, 555)).toBe(false); // unknown chat
+  });
 });
 
 describe('PriceHistoryRepo', () => {

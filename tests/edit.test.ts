@@ -240,6 +240,28 @@ describe('/edit', () => {
     expect(h.store.monitors.get(m.id)!.filters.attrRanges).toEqual({ year: { min: 2019 }, km: { max: 120000 } });
   });
 
+  it('a collaborator (editor subscriber) can change a watch they do NOT own', async () => {
+    const OWNER = 999;
+    const m = h.store.monitors.create({
+      type: 'search', chatId: OWNER, vendor: 'OLX', url: 'https://www.olx.ro/x',
+      filters: { sellerVisibility: 'both', exclusionKeywords: [] }, intervalMs: 600000, nextDueAt: 0,
+    });
+    h.store.watchSubscribers.add(m.id, USER, 1, true); // USER promoted to editor
+    await tap(h.bot, `esv:${m.id}:private`); // tapped by USER
+    expect(h.store.monitors.get(m.id)!.filters.sellerVisibility).toBe('private');
+  });
+
+  it('a viewer subscriber CANNOT change a watch they do not own', async () => {
+    const OWNER = 999;
+    const m = h.store.monitors.create({
+      type: 'search', chatId: OWNER, vendor: 'OLX', url: 'https://www.olx.ro/y',
+      filters: { sellerVisibility: 'both', exclusionKeywords: [] }, intervalMs: 600000, nextDueAt: 0,
+    });
+    h.store.watchSubscribers.add(m.id, USER, 1, false); // viewer only
+    await tap(h.bot, `esv:${m.id}:company`);
+    expect(h.store.monitors.get(m.id)!.filters.sellerVisibility).toBe('both'); // unchanged
+  });
+
   it('ear → year preset sets a one-tap lower bound', async () => {
     const m = mkMonitor(h.store, 'search');
     await cmd(h.bot, `/edit ${m.id}`);

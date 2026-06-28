@@ -9,15 +9,27 @@ import type { DB } from './db';
 export class WatchSubscribersRepo {
   constructor(private readonly db: DB) {}
 
-  /** Subscribe a chat to a watch's alerts (idempotent). */
-  add(monitorId: number, chatId: number, now: number): void {
+  /**
+   * Subscribe a chat to a watch's alerts (idempotent). `canEdit` promotes the
+   * subscriber to a collaborator who may also manage the watch's filters; on a
+   * repeat call the role is updated (so /share … edit can upgrade a viewer).
+   */
+  add(monitorId: number, chatId: number, now: number, canEdit = false): void {
     this.db
       .prepare(
-        `INSERT INTO watch_subscribers (monitor_id, chat_id, created_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(monitor_id, chat_id) DO NOTHING`,
+        `INSERT INTO watch_subscribers (monitor_id, chat_id, created_at, can_edit)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(monitor_id, chat_id) DO UPDATE SET can_edit = excluded.can_edit`,
       )
-      .run(monitorId, chatId, now);
+      .run(monitorId, chatId, now, canEdit ? 1 : 0);
+  }
+
+  /** Whether a chat is a collaborator (editor) on a watch. */
+  isEditor(monitorId: number, chatId: number): boolean {
+    const row = this.db
+      .prepare(`SELECT can_edit FROM watch_subscribers WHERE monitor_id = ? AND chat_id = ?`)
+      .get(monitorId, chatId) as { can_edit: number } | undefined;
+    return row?.can_edit === 1;
   }
 
   /** Unsubscribe a chat from a watch. Returns true if a row was removed. */
