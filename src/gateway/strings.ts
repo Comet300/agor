@@ -280,6 +280,8 @@ export interface Catalog {
   back_in_stock_title: string;
   /** Banner prepended to a new-listing card when multiple "hot" signals coincide. */
   hot_lead_title: string;
+  /** Warning on a listing whose too-good price coincides with weak seller signals. */
+  scam_warn: string;
   /** Digest summary header (count + vendor) and the market-stats line. */
   digest_intro: (a: { count: number; vendor: string }) => string;
   digest_stats: (a: { median: string; range: string }) => string;
@@ -594,6 +596,7 @@ const ro: Catalog = {
     `📉 Scădere de preț la ${title}: ${oldPrice} → ${newPrice} (economisești ${savings})`,
   back_in_stock_title: '🟢 REVENIT ÎN STOC',
   hot_lead_title: '🔥 OFERTĂ FIERBINTE — semnale multiple',
+  scam_warn: '⚠️ Posibilă înșelătorie — preț prea mic și semnale slabe de vânzător. Verifică înainte de plată.',
   digest_intro: ({ count, vendor }) => `📰 Rezumat — ${count} anunțuri noi pe ${vendor}`,
   digest_stats: ({ median, range }) => `Mediană ${median} · interval ${range}`,
   report_title: (vendor) => `📅 Raport săptămânal — ${vendor}`,
@@ -909,6 +912,7 @@ const en: Catalog = {
     `📉 Price drop on ${title}: ${oldPrice} → ${newPrice} (save ${savings})`,
   back_in_stock_title: '🟢 BACK IN STOCK',
   hot_lead_title: '🔥 HOT LEAD — multiple signals',
+  scam_warn: '⚠️ Possible scam — too cheap with weak seller signals. Verify before paying.',
   digest_intro: ({ count, vendor }) => `📰 Digest — ${count} new listings on ${vendor}`,
   digest_stats: ({ median, range }) => `Median ${median} · range ${range}`,
   report_title: (vendor) => `📅 Weekly report — ${vendor}`,
@@ -1219,6 +1223,7 @@ const de: Catalog = {
     `📉 Preissenkung bei ${title}: ${oldPrice} → ${newPrice} (spare ${savings})`,
   back_in_stock_title: '🟢 WIEDER VERFÜGBAR',
   hot_lead_title: '🔥 HEISSER TIPP — mehrere Signale',
+  scam_warn: '⚠️ Möglicher Betrug — zu billig bei schwachen Verkäufersignalen. Vor Zahlung prüfen.',
   digest_intro: ({ count, vendor }) => `📰 Zusammenfassung — ${count} neue Anzeigen auf ${vendor}`,
   digest_stats: ({ median, range }) => `Median ${median} · Spanne ${range}`,
   report_title: (vendor) => `📅 Wochenbericht — ${vendor}`,
@@ -1529,6 +1534,7 @@ const it: Catalog = {
     `📉 Calo di prezzo su ${title}: ${oldPrice} → ${newPrice} (risparmi ${savings})`,
   back_in_stock_title: '🟢 DI NUOVO DISPONIBILE',
   hot_lead_title: '🔥 OCCASIONE CALDA — più segnali',
+  scam_warn: '⚠️ Possibile truffa — troppo economico con segnali venditore deboli. Verifica prima di pagare.',
   digest_intro: ({ count, vendor }) => `📰 Riepilogo — ${count} nuovi annunci su ${vendor}`,
   digest_stats: ({ median, range }) => `Mediana ${median} · intervallo ${range}`,
   report_title: (vendor) => `📅 Report settimanale — ${vendor}`,
@@ -1839,6 +1845,7 @@ const es: Catalog = {
     `📉 Bajada de precio en ${title}: ${oldPrice} → ${newPrice} (ahorra ${savings})`,
   back_in_stock_title: '🟢 DE NUEVO EN STOCK',
   hot_lead_title: '🔥 CHOLLO CALIENTE — varias señales',
+  scam_warn: '⚠️ Posible estafa — demasiado barato con señales de vendedor débiles. Verifica antes de pagar.',
   digest_intro: ({ count, vendor }) => `📰 Resumen — ${count} anuncios nuevos en ${vendor}`,
   digest_stats: ({ median, range }) => `Mediana ${median} · rango ${range}`,
   report_title: (vendor) => `📅 Informe semanal — ${vendor}`,
@@ -2149,6 +2156,7 @@ const fr: Catalog = {
     `📉 Baisse de prix sur ${title} : ${oldPrice} → ${newPrice} (économie ${savings})`,
   back_in_stock_title: '🟢 DE RETOUR EN STOCK',
   hot_lead_title: '🔥 BON PLAN — plusieurs signaux',
+  scam_warn: '⚠️ Arnaque possible — trop bon marché avec de faibles signaux vendeur. Vérifiez avant de payer.',
   digest_intro: ({ count, vendor }) => `📰 Résumé — ${count} nouvelles annonces sur ${vendor}`,
   digest_stats: ({ median, range }) => `Médiane ${median} · plage ${range}`,
   report_title: (vendor) => `📅 Rapport hebdomadaire — ${vendor}`,

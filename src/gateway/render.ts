@@ -16,6 +16,7 @@
  */
 import type { EnrichedItem, Monitor, Notification, DealTag, SellerVisibility, MarketInsight, DigestSummary, WeeklyReportData } from '../contracts';
 import { rankDigest, digestStats } from '../features/digest';
+import { scamRisk } from '../features/scamRisk';
 import type { ItemSnapshot } from '../persistence';
 import type { InlineKeyboard } from 'grammy';
 import { formatMoney } from '../util/money';
@@ -145,6 +146,9 @@ function renderNewListing(item: EnrichedItem, lang: Lang, fairValue?: FairValue,
       }));
     }
   }
+
+  // Scam-risk warning: a too-good price paired with weak seller signals.
+  if (scamRisk(item, fairValue).flagged) lines.push(t.scam_warn);
 
   // Seller type + optional location.
   lines.push(sellerLine(item, lang));
