@@ -79,7 +79,10 @@ export class Orchestrator {
     this.deps = deps;
     this.now = deps.now ?? (() => Date.now());
 
-    this.breaker = new CircuitBreaker(deps.config.circuitBreakerThreshold);
+    this.breaker = new CircuitBreaker(
+      deps.config.circuitBreakerThreshold,
+      deps.config.circuitBreakerCooldownMs,
+    );
 
     this.registration = new RegistrationService({
       registry: deps.registry,
@@ -184,7 +187,7 @@ export class Orchestrator {
     // Circuit breaker: a vendor tripped open is not polled at all (it is blocked
     // or persistently failing — polling it is pure cost and ban risk). The watch
     // stays registered and resumes when the breaker is reset.
-    if (this.breaker.isOpen(monitor.vendor)) {
+    if (this.breaker.isOpen(monitor.vendor, this.now())) {
       log("orchestrator").debug(
         {
           monitorId: monitor.id,
@@ -209,18 +212,17 @@ export class Orchestrator {
     // Feed the breaker: a blocked or failed cycle is unhealthy. The user was
     // already told the watch is failing at `failureAlertThreshold` (a lower
     // count); the breaker is internal cost-control that pauses polling once a
-    // higher threshold of consecutive failures is reached, so it only logs.
+    // higher threshold of consecutive failures is reached. This cycle may also be
+    // the auto-probe of a half-open breaker, so its result can heal or re-open it.
     const healthy = result.ok && !result.blocked;
-    const tripped = this.breaker.record(monitor.vendor, { healthy });
-    if (tripped) {
-      log("orchestrator").warn(
-        {
-          monitorId: monitor.id,
-          vendor: monitor.vendor,
-          event: "CIRCUIT-TRIPPED",
-        },
-        "vendor circuit breaker tripped — pausing polls until re-enabled",
-      );
+    const event = this.breaker.record(monitor.vendor, { healthy }, this.now());
+    const v = { monitorId: monitor.id, vendor: monitor.vendor };
+    if (event === "tripped") {
+      log("orchestrator").warn({ ...v, event: "CIRCUIT-TRIPPED" }, "vendor circuit breaker tripped — auto-probe after cooldown");
+    } else if (event === "healed") {
+      log("orchestrator").info({ ...v, event: "CIRCUIT-HEALED" }, "vendor recovered on auto-probe — breaker closed");
+    } else if (event === "reopened") {
+      log("orchestrator").warn({ ...v, event: "CIRCUIT-REOPENED" }, "vendor auto-probe failed — breaker re-opened with longer cooldown");
     }
     return result;
   }
