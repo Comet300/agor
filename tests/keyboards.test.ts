@@ -8,6 +8,7 @@ import {
   pickerKeyboard,
   frequencyPickerKeyboard,
   homeKeyboard,
+  langPickerKeyboard,
   sellerMenuKeyboard,
   reportsMenuKeyboard,
   type PickerSession,
@@ -224,6 +225,15 @@ describe('editKeyboard', () => {
     const l = sellerMenuKeyboard(monitor({ id: 7, type: 'search', filters: { sellerVisibility: 'company', exclusionKeywords: [] } }), 'en')
       .inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
     expect(l).toContain(`✅ ${tr('en').btn_company}`);
+  });
+
+  it('language picker lists all 6 langs (active ticked) + back to home, via setlang', () => {
+    const d = dataOf(langPickerKeyboard('de'));
+    for (const code of ['ro', 'en', 'de', 'fr', 'it', 'es']) expect(d).toContain(`setlang:${code}`);
+    expect(d).toContain('idx:home'); // back arrow returns to the index
+    const l = langPickerKeyboard('de').inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
+    expect(l).toContain(`✅ ${tr('de').lang_name}`); // active language is ticked
+    expect(l).toContain(tr('ro').lang_name); // each shown in its own name
   });
 
   it('reports submenu has digest + report toggles and a back button', () => {
