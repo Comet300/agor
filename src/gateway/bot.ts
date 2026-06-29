@@ -2306,6 +2306,16 @@ export function buildBot(
     }
   });
 
+  // Browse Done → back to the /start home index.
+  bot.callbackQuery(/^bdone$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      await ctx.answerCallbackQuery();
+      if (chatId !== undefined) await renderHome(ctx, chatId, lang);
+    } catch { /* expired */ }
+  });
+
   // Browse scope select: bs:all | bs:<monitorId> — load that scope and show item 0.
   bot.callbackQuery(/^bs:(all|\d+)$/, async (ctx) => {
     const chatId = ctx.chat?.id;

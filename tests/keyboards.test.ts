@@ -125,6 +125,7 @@ describe('browseKeyboard nav affordances', () => {
     expect(d).toContain('bsv:2'); // ⭐ star (save + track), merged
     expect(d.some((x) => x.startsWith('tk:'))).toBe(false); // separate Track button is gone
     expect(d.some((x) => x.startsWith('url:https://x/2'))).toBe(true); // Open
+    expect(d).toContain('bdone'); // Done → home index
   });
 
   it('omits the Open button when the item has no url (legacy snapshot)', () => {
