@@ -39,7 +39,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, langPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -1741,22 +1741,65 @@ export function buildBot(
     }
   });
 
-  // Edit-card group: egr:<monitorId> → prompt for a collection name + remember it.
+  // Distinct, sorted collection names across a chat's watches — the option list
+  // for the group picker. Selection is by index, so the egs: handler re-derives
+  // this same list to resolve a tapped index back to a name.
+  const groupNames = (chatId: number): string[] =>
+    [...new Set(store.monitors.listByChat(chatId).map((m) => m.collection).filter((c): c is string => !!c))].sort();
+
+  // Edit-card group: egr:<monitorId> → show a picker of existing groups (one tap
+  // to join) instead of prompting. Only "new group" (egn:) asks for text.
   bot.callbackQuery(/^egr:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      const monitor = store.monitors.get(Number(ctx.match[1]));
+      if (!monitor || !canManage(monitor, chatId)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageReplyMarkup({ reply_markup: groupPickerKeyboard(monitor, groupNames(chatId ?? monitor.chatId), lang) });
+    } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
+  });
+
+  // Group picker "new group": egn:<monitorId> → drop to the text prompt.
+  bot.callbackQuery(/^egn:(\d+)$/, async (ctx) => {
     const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
       const monitorId = Number(ctx.match[1]);
       const monitor = store.monitors.get(monitorId);
-      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
-        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
-        return;
-      }
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
       pendingGroup.set(ctx.chat?.id ?? monitor.chatId, monitorId);
       await ctx.answerCallbackQuery();
       await ctx.reply(tr(lang).group_prompt);
-    } catch (err) {
-      await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
-    }
+    } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
+  });
+
+  // Group picker selection: egs:<monitorId>:<index> joins an existing group by
+  // index (index -1 clears the group). Then restores the edit card.
+  bot.callbackQuery(/^egs:(\d+):(-?\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      const monitorId = Number(ctx.match[1]);
+      const idx = Number(ctx.match[2]);
+      const monitor = store.monitors.get(monitorId);
+      if (!monitor || !canManage(monitor, chatId)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      if (idx === -1) {
+        store.monitors.setCollection(monitorId, '');
+        await ctx.answerCallbackQuery(tr(lang).group_cleared);
+      } else {
+        const name = groupNames(chatId ?? monitor.chatId)[idx];
+        if (name === undefined) {
+          // List shifted since render — re-show the current picker.
+          await ctx.answerCallbackQuery();
+          await ctx.editMessageReplyMarkup({ reply_markup: groupPickerKeyboard(monitor, groupNames(chatId ?? monitor.chatId), lang) });
+          return;
+        }
+        store.monitors.setCollection(monitorId, name);
+        await ctx.answerCallbackQuery(tr(lang).group_set(name));
+      }
+      const fresh = store.monitors.get(monitorId) ?? monitor;
+      await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(fresh, lang) });
+    } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
   });
 
   // Edit done: ed — acknowledge and collapse the editor (clear its keyboard).

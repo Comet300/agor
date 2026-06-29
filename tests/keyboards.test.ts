@@ -9,6 +9,7 @@ import {
   frequencyPickerKeyboard,
   homeKeyboard,
   langPickerKeyboard,
+  groupPickerKeyboard,
   sellerMenuKeyboard,
   reportsMenuKeyboard,
   type PickerSession,
@@ -234,6 +235,25 @@ describe('editKeyboard', () => {
     const l = langPickerKeyboard('de').inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
     expect(l).toContain(`✅ ${tr('de').lang_name}`); // active language is ticked
     expect(l).toContain(tr('ro').lang_name); // each shown in its own name
+  });
+
+  it('group picker lists existing groups (active ticked) + new/clear/back, selection by index', () => {
+    const m = monitor({ id: 5, type: 'search', collection: 'Mașini' });
+    const d = dataOf(groupPickerKeyboard(m, ['Apartamente', 'Mașini'], 'ro'));
+    expect(d).toContain('egs:5:0'); // Apartamente by index
+    expect(d).toContain('egs:5:1'); // Mașini by index
+    expect(d).toContain('egs:5:-1'); // clear (watch is grouped)
+    expect(d).toContain('egn:5'); // new group → text prompt
+    expect(d).toContain('efb:5'); // back to the edit card
+    const l = groupPickerKeyboard(m, ['Apartamente', 'Mașini'], 'ro').inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
+    expect(l).toContain('✅ 📁 Mașini'); // active group ticked
+  });
+
+  it('group picker hides the clear button when the watch is ungrouped', () => {
+    const d = dataOf(groupPickerKeyboard(monitor({ id: 6, type: 'search' }), ['Mașini'], 'ro'));
+    expect(d).toContain('egs:6:0');
+    expect(d.some((x) => x === 'egs:6:-1')).toBe(false); // nothing to clear
+    expect(d).toContain('egn:6');
   });
 
   it('reports submenu has digest + report toggles and a back button', () => {
