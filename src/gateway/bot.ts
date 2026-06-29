@@ -27,7 +27,7 @@ import type { MessageRef, Monitor, Notification, SellerVisibility } from '../con
 import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput, phoneKey } from '../pipeline';
-import { renderNotification, renderRegistrationCard, renderBrowseCard, renderBrowseScope, renderEditCard, renderListRow, renderPicker } from './render';
+import { renderNotification, renderRegistrationCard, renderBrowseCard, renderDelistCard, renderBrowseScope, renderEditCard, renderListRow, renderPicker } from './render';
 import { computeTrend, renderTrendBadge } from '../features/trend';
 import { buildWeeklyReport } from '../features/weeklyReport';
 import { runBackup, stageRestore } from '../features/backup';
@@ -102,6 +102,9 @@ const EXPORT_ROW_CAP = 5000;
  * expire so an abandoned carousel cannot leak.
  */
 const browseSessions = new ExpiringMap<number, ItemSnapshot[]>(PENDING_TTL_MS);
+
+/** Per-chat de-listing review carousel: the snapshots of the items that dropped. */
+const delistSessions = new ExpiringMap<number, ItemSnapshot[]>(PENDING_TTL_MS);
 
 /**
  * Chats awaiting an exclusion-keyword reply, keyed by chat id → monitor id.
@@ -2035,6 +2038,28 @@ export function buildBot(
     }
   });
 
+  // De-listing review nav: dlb:<index> — prev/next across the dropped items.
+  bot.callbackQuery(/^dlb:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      await ctx.answerCallbackQuery();
+      if (chatId === undefined) return;
+      const snaps = delistSessions.get(chatId);
+      if (!snaps || snaps.length === 0) { await ctx.reply(tr(lang).browse_empty); return; }
+      const i = Math.max(0, Math.min(Number(ctx.match[1]), snaps.length - 1));
+      const view = renderDelistCard(snaps[i]!, i, snaps.length, lang);
+      const markup = view.keyboard ? { reply_markup: view.keyboard } : undefined;
+      if (view.photoUrl) {
+        try { await ctx.replyWithPhoto(new InputFile(new URL(view.photoUrl)), { caption: view.text, ...markup }); return; }
+        catch { /* bad image → text fallback */ }
+      }
+      await ctx.reply(view.text, markup);
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
   // Browse track: tk:<index> — turn the browsed item into a tracked product watch.
   bot.callbackQuery(/^tk:(\d+)$/, async (ctx) => {
     const chatId = ctx.chat?.id;
@@ -2522,6 +2547,29 @@ export function makeNotifier(
 ): (n: Notification) => Promise<MessageRef | void> {
   return async (n: Notification) => {
     const lang = resolveLang(store.chatPrefs.getLang(n.chatId));
+
+    // De-listing: show a browse-style carousel (photo + specs) of the gone items,
+    // seeded into a per-chat session the dlb: nav pages through.
+    if (n.kind === 'listings_dropped' && n.dropped) {
+      const snaps = n.dropped.itemIds
+        .map((id) => store.items.getSnapshot(n.dropped!.monitorId, id))
+        .filter((s): s is ItemSnapshot => s !== undefined);
+      if (snaps.length === 0) {
+        try { await bot.api.sendMessage(n.chatId, tr(lang).listings_dropped_title(n.dropped.count, n.dropped.vendor)); } catch { /* blocked */ }
+        return;
+      }
+      delistSessions.set(n.chatId, snaps);
+      const view = renderDelistCard(snaps[0]!, 0, snaps.length, lang);
+      const markup = view.keyboard ? { reply_markup: view.keyboard } : undefined;
+      try {
+        if (view.photoUrl) await bot.api.sendPhoto(n.chatId, new InputFile(new URL(view.photoUrl)), { caption: view.text, ...markup });
+        else await bot.api.sendMessage(n.chatId, view.text, markup);
+      } catch {
+        try { await bot.api.sendMessage(n.chatId, view.text, markup); } catch { /* blocked */ }
+      }
+      return;
+    }
+
     const rendered = renderNotification(n, lang);
     const { keyboard } = rendered;
     // Surface a saved-item note on its alerts (price drop / back in stock / re-list),

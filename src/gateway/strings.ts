@@ -136,6 +136,8 @@ export interface Catalog {
   delisted_last_price: (price: string) => string;
   /** Search monitor's per-cycle drop-off roll-up header. */
   listings_dropped_title: (count: number, vendor: string) => string;
+  /** Title atop each de-listed item's browse card. */
+  delisted_card_title: string;
   /** A delisted item reappeared. */
   re_listed_title: string;
 
@@ -455,6 +457,7 @@ const ro: Catalog = {
   listings_dropped_title: (count, vendor) =>
     `🗑️ ${count} ${count === 1 ? 'anunț a dispărut' : 'anunțuri au dispărut'} de pe ${vendor}`,
   re_listed_title: '♻️ Anunț reapărut',
+  delisted_card_title: '🔻 Anunț retras 🔻',
 
   reg_watching: (v) => `✅ Urmăresc ${v}`,
   reg_baseline: (c) => `📦 Bază: ${c} anunț${c === 1 ? '' : 'uri'} înregistrat${c === 1 ? '' : 'e'}.`,
@@ -764,6 +767,7 @@ const en: Catalog = {
   listings_dropped_title: (count, vendor) =>
     `🗑️ ${count} ${count === 1 ? 'listing dropped' : 'listings dropped'} off ${vendor}`,
   re_listed_title: '♻️ Listing reappeared',
+  delisted_card_title: '🔻 Listing removed 🔻',
 
   reg_watching: (v) => `✅ Watching ${v}`,
   reg_baseline: (c) => `📦 Baseline: ${c} listing${c === 1 ? '' : 's'} recorded.`,
@@ -1068,6 +1072,7 @@ const de: Catalog = {
   listings_dropped_title: (count, vendor) =>
     `🗑️ ${count} ${count === 1 ? 'Anzeige entfernt' : 'Anzeigen entfernt'} bei ${vendor}`,
   re_listed_title: '♻️ Anzeige wieder da',
+  delisted_card_title: '🔻 Anzeige entfernt 🔻',
 
   reg_watching: (v) => `✅ Beobachte ${v}`,
   reg_baseline: (c) => `📦 Ausgangsbestand: ${c} Anzeige${c === 1 ? '' : 'n'} erfasst.`,
@@ -1372,6 +1377,7 @@ const it: Catalog = {
   listings_dropped_title: (count, vendor) =>
     `🗑️ ${count} ${count === 1 ? 'annuncio rimosso' : 'annunci rimossi'} da ${vendor}`,
   re_listed_title: '♻️ Annuncio ricomparso',
+  delisted_card_title: '🔻 Annuncio rimosso 🔻',
 
   reg_watching: (v) => `✅ Sto monitorando ${v}`,
   reg_baseline: (c) => `📦 Base: ${c} ${c === 1 ? 'annuncio registrato' : 'annunci registrati'}.`,
@@ -1676,6 +1682,7 @@ const es: Catalog = {
   listings_dropped_title: (count, vendor) =>
     `🗑️ ${count} ${count === 1 ? 'anuncio desaparecido' : 'anuncios desaparecidos'} de ${vendor}`,
   re_listed_title: '♻️ Anuncio reaparecido',
+  delisted_card_title: '🔻 Anuncio retirado 🔻',
 
   reg_watching: (v) => `✅ Vigilando ${v}`,
   reg_baseline: (c) => `📦 Base inicial: ${c} anuncio${c === 1 ? '' : 's'} registrado${c === 1 ? '' : 's'}.`,
@@ -1980,6 +1987,7 @@ const fr: Catalog = {
   listings_dropped_title: (count, vendor) =>
     `🗑️ ${count} ${count === 1 ? 'annonce disparue' : 'annonces disparues'} sur ${vendor}`,
   re_listed_title: '♻️ Annonce réapparue',
+  delisted_card_title: '🔻 Annonce retirée 🔻',
 
   reg_watching: (v) => `✅ Surveillance de ${v}`,
   reg_baseline: (c) => `📦 Référence : ${c} annonce${c === 1 ? '' : 's'} enregistrée${c === 1 ? '' : 's'}.`,

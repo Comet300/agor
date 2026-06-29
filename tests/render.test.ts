@@ -9,8 +9,10 @@ import { draftOffer } from '../src/features/contactOffer';
 import {
   renderNotification,
   renderRegistrationCard,
+  renderDelistCard,
   type RenderedMessage,
 } from '../src/gateway/render';
+import type { ItemSnapshot } from '../src/persistence';
 import { tr } from '../src/gateway/strings';
 
 /** Minimal enriched-item factory; tests override only what they assert on. */
@@ -256,16 +258,31 @@ describe('renderNotification — browse/track/de-listing kinds', () => {
     expect(msg.text).toContain(tr('en').delisted_reason_search_dropped);
   });
 
-  it('listings_dropped renders a count header and sample titles, no keyboard', () => {
+  it('listings_dropped text fallback shows count + vendor, no keyboard', () => {
     const msg = renderNotification(
       { kind: 'listings_dropped', chatId: 1,
-        dropped: { monitorId: 7, vendor: 'olx.ro', count: 3, titles: ['Golf', 'Passat', 'Octavia'] } },
+        dropped: { monitorId: 7, vendor: 'olx.ro', count: 3, itemIds: ['a', 'b', 'c'] } },
       'en',
     );
     expect(msg.text).toContain('3');
     expect(msg.text).toContain('olx.ro');
-    expect(msg.text).toContain('Golf');
-    expect(msg.keyboard).toBeUndefined(); // button-less summary
+    expect(msg.keyboard).toBeUndefined(); // text fallback (the bot normally shows a browse carousel)
+  });
+
+  it('renderDelistCard shows the delist title + specs + photo + prev/next nav', () => {
+    const snap = {
+      monitorId: 7, itemId: 'a', inStock: false, lastPrice: 17000, currency: 'EUR',
+      firstSeen: 1, lastSeen: 2, title: 'Toyota Corolla Hybrid 2023', url: 'https://x/a',
+      imageUrl: 'https://img/a.jpg', attributes: { year: '2023', km: '40000' },
+    } as ItemSnapshot;
+    const view = renderDelistCard(snap, 0, 3, 'en');
+    expect(view.text).toContain(tr('en').delisted_card_title);
+    expect(view.text).toContain('Toyota Corolla Hybrid 2023');
+    expect(view.text).toContain('year: 2023');
+    expect(view.photoUrl).toBe('https://img/a.jpg');
+    const data = view.keyboard!.inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : ''));
+    expect(data).toContain('dlb:1');           // next (index 0 of 3)
+    expect(data).not.toContain('dlb:-1');       // no prev at the first card
   });
 
   it('re_listed renders a reappear card with quick actions', () => {

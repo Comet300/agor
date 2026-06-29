@@ -111,6 +111,19 @@ export function openOnlyKeyboard(item: EnrichedItem, lang: Lang): InlineKeyboard
  * the chat's browse session, so the payload stays tiny and well under Telegram's
  * 64-byte callback limit.
  */
+/**
+ * Navigation-only carousel for the de-listing review: prev/next across the gone
+ * listings. No track/save/dismiss — the items are already removed; the prev/next
+ * post a fresh card (dlb:<index>) like /browse.
+ */
+export function delistBrowseKeyboard(index: number, total: number, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  const kb = new InlineKeyboard();
+  if (index > 0) kb.text(t.btn_prev, `dlb:${index - 1}`);
+  if (index < total - 1) kb.text(t.btn_next, `dlb:${index + 1}`);
+  return kb;
+}
+
 export function browseKeyboard(
   index: number,
   total: number,
