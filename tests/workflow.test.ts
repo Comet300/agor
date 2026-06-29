@@ -150,6 +150,21 @@ describe('workflow commands', () => {
     expect(fav.data).toContain('lw:back'); // back to /list
   });
 
+  it('/list shows a 📁 collection folder; entering it lists that collection’s watches', async () => {
+    const m = mkSearch(h.store);
+    h.store.monitors.setCollection(m.id, 'New Car');
+    await cmd(h.bot, '/list');
+    const list = h.sent.at(-1)!;
+    expect(list.data).toContain('lcf:0'); // a collection folder, not the watch inline
+    expect(list.data.some((d) => d === `lw:${m.id}`)).toBe(false);
+
+    await tap(h.bot, 'lcf:0');
+    const folder = h.sent.at(-1)!;
+    expect(folder.text).toContain('New Car'); // folder header
+    expect(folder.data).toContain(`lw:${m.id}`); // the collection's watch
+    expect(folder.data).toContain('lw:back'); // back to /list
+  });
+
   it('ep toggles pause in place on the edit card', async () => {
     const m = mkSearch(h.store);
     await cmd(h.bot, '/list');
