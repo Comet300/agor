@@ -19,6 +19,7 @@ search_mapping:
   fields:
     id: "url"
     title: "name"
+    description: "description"
     price: "offers.price"
     currency: "offers.priceCurrency"
     url: "https://www.publi24.ro/{url}"
@@ -36,6 +37,7 @@ product_mapping:
   fields:
     id: "url"
     title: "name"
+    description: "description"
     price: "offers.price"
     currency: "offers.priceCurrency"
     url: "url"

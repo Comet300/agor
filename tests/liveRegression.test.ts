@@ -53,6 +53,14 @@ describe('live-shape regression (real vendor payloads, PII anonymized)', () => {
     }
   });
 
+  it('publi24: the SERP description is scraped (so body-only keywords can match)', async () => {
+    const items = await scrape('publi24.ro', 'publi24-live-ldjson.html');
+    // At least one listing carries a non-trivial body, distinct from its title.
+    const withBody = items.filter((it) => (it.description ?? '').length > 20);
+    expect(withBody.length).toBeGreaterThanOrEqual(1);
+    expect(withBody[0]!.description).not.toBe(withBody[0]!.title);
+  });
+
   it('lajumate: lowercase live "eur" is canonicalized to EUR', async () => {
     const items = await scrape('lajumate.ro', 'lajumate-live-next.html');
     expect(items.length).toBeGreaterThanOrEqual(2);
