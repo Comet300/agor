@@ -116,7 +116,7 @@ function hotLeadSignals(item: EnrichedItem, fairValue?: FairValue, insight?: Mar
   return n;
 }
 
-function renderNewListing(item: EnrichedItem, lang: Lang, fairValue?: FairValue, insight?: MarketInsight): RenderedMessage {
+function renderNewListing(item: EnrichedItem, lang: Lang, fairValue?: FairValue, insight?: MarketInsight, monitorId?: number): RenderedMessage {
   const t = tr(lang);
   const lines: string[] = [];
 
@@ -177,7 +177,8 @@ function renderNewListing(item: EnrichedItem, lang: Lang, fairValue?: FairValue,
   lines.push('');
   lines.push(draftOffer(item, lang));
 
-  return { text: lines.join('\n'), keyboard: quickActionsKeyboard(item, lang) };
+  const save = monitorId !== undefined ? { monitorId, itemId: item.id } : undefined;
+  return { text: lines.join('\n'), keyboard: quickActionsKeyboard(item, lang, save) };
 }
 
 /** Most listings shown in one digest message (the rest are summarized as "+N"). */
@@ -298,7 +299,7 @@ export function renderNotification(n: Notification, lang: Lang): RenderedMessage
 function renderByKind(n: Notification, lang: Lang): RenderedMessage {
   switch (n.kind) {
     case 'new_listing':
-      return renderNewListing(n.item!, lang, n.fairValue, n.insight);
+      return renderNewListing(n.item!, lang, n.fairValue, n.insight, n.monitorId);
     case 'price_drop':
       return renderPriceDrop(n.item!, n.priceDrop, lang);
     case 'back_in_stock':

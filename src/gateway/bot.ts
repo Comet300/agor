@@ -23,7 +23,7 @@
  * friendly error instead of crashing the polling loop.
  */
 import { Bot, InlineKeyboard, InputFile } from 'grammy';
-import type { MessageRef, Monitor, Notification, SellerVisibility } from '../contracts';
+import type { MessageRef, Monitor, Notification, SellerVisibility, EnrichedItem } from '../contracts';
 import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput, phoneKey, snapshotHidden } from '../pipeline';
@@ -39,7 +39,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, backHomeKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, listKeyboard, favoritesKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, backHomeKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, listKeyboard, favoritesKeyboard, quickActionsKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -2373,6 +2373,44 @@ export function buildBot(
         catch { /* bad image → text fallback */ }
       }
       await ctx.reply(view.text, markup);
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // New-listing alert ⭐ Save: nsv:<monitorId>:<itemId>. Same star = save + track
+  // as browse's bsv:, but keyed by the stored item ref (an alert has no browse
+  // session). Replaces the useless empty price history on a fresh listing.
+  bot.callbackQuery(/^nsv:(\d+):(.+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      const monitorId = Number(ctx.match[1]);
+      const itemId = ctx.match[2]!;
+      const snap = store.items.getSnapshot(monitorId, itemId);
+      if (!snap) { await ctx.answerCallbackQuery(tr(lang).browse_gone); return; }
+      const trackedFor = (url: string): Monitor | undefined =>
+        store.monitors.listByChat(chatId).find((m) => m.origin === 'tracked' && m.url === url);
+      const nowSaved = !store.itemFlags.has(chatId, itemId, 'saved');
+      let toast = nowSaved ? tr(lang).cb_saved : tr(lang).cb_unsaved;
+      if (nowSaved) {
+        store.itemFlags.set(chatId, itemId, monitorId, 'saved', Date.now());
+        if (snap.url && !trackedFor(snap.url)) {
+          const result = await orchestrator.register({ chatId, rawUrl: snap.url, type: 'product', origin: 'tracked' });
+          if (!result.ok) toast = result.reason === 'quota' ? tr(lang).quota_reached(maxMonitorsPerChat) : tr(lang).track_error;
+        }
+      } else {
+        store.itemFlags.unset(chatId, itemId, 'saved');
+        if (snap.url) { const m = trackedFor(snap.url); if (m) store.monitors.delete(m.id); }
+      }
+      await ctx.answerCallbackQuery(toast);
+      // Flip the alert's ⭐ button in place (a minimal item carries what the
+      // keyboard reads: id / url / phone).
+      const item = { id: itemId, url: snap.url ?? '', ...(snap.phone ? { phone: snap.phone } : {}) } as EnrichedItem;
+      try {
+        await ctx.editMessageReplyMarkup({ reply_markup: quickActionsKeyboard(item, lang, { monitorId, itemId, saved: nowSaved }) });
+      } catch { /* not modified / expired */ }
     } catch {
       try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }

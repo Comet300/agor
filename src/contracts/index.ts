@@ -372,6 +372,9 @@ export interface WatchHealth {
 export interface Notification {
   kind: NotificationKind;
   chatId: number;
+  /** The watch this alert came from (set for listing kinds) — lets an alert's
+   *  ⭐ Save button reference the stored item. */
+  monitorId?: number;
   /** Present for listing kinds (new_listing/price_drop/back_in_stock/cross_post/
    *  price_change/item_delisted/re_listed). */
   item?: EnrichedItem;

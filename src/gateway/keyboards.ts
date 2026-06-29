@@ -88,7 +88,11 @@ export function priceHistoryData(item: EnrichedItem): string {
  *   - 📞 Call  (tel: URL button, only when a phone is present & parseable),
  *   - 📊 Price history (callback button -> {@link priceHistoryData}).
  */
-export function quickActionsKeyboard(item: EnrichedItem, lang: Lang): InlineKeyboard {
+export function quickActionsKeyboard(
+  item: EnrichedItem,
+  lang: Lang,
+  save?: { monitorId: number; itemId: string; saved?: boolean },
+): InlineKeyboard {
   const t = tr(lang);
   const kb = new InlineKeyboard();
   kb.url(t.btn_open, item.url);
@@ -96,7 +100,12 @@ export function quickActionsKeyboard(item: EnrichedItem, lang: Lang): InlineKeyb
   const tel = buildCallLink(item.phone);
   if (tel) kb.url(t.btn_call, tel);
 
-  kb.text(t.btn_price_history, priceHistoryData(item));
+  // On a brand-new listing a price history is empty/useless — offer a ⭐ Save
+  // (save + track) instead. Falls back to price history if the ref won't fit the
+  // 64-byte callback budget, or when no save target is given (price_drop, etc.).
+  const saveCb = save ? `nsv:${save.monitorId}:${save.itemId}` : '';
+  if (save && saveCb.length <= 64) kb.text(save.saved ? t.btn_saved : t.btn_save, saveCb);
+  else kb.text(t.btn_price_history, priceHistoryData(item));
   return kb;
 }
 
