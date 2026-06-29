@@ -649,20 +649,18 @@ export function buildBot(
     }
   });
 
-  /** Build the (rich) /stats summary text for a chat. */
+  /** Build the /stats summary text for a chat. Only chat-wide-meaningful metrics
+   *  live here (counts, recency, seller mix). Price/value stats are NOT global —
+   *  a car and a t-shirt don't average — they belong to per-watch best-deals. */
   const buildStatsText = (chatId: number, lang: Lang): string => {
     const monitors = store.monitors.listByChat(chatId);
     const filtersByMonitor = new Map(monitors.map((m) => [m.id, m.filters]));
     const vendorByMonitor = new Map(monitors.map((m) => [m.id, m.vendor]));
     const now = Date.now();
     const DAY = 86_400_000;
-    // One pass over stored items: filtered count, per-vendor + per-currency breakdown,
-    // recency (24h/7d), seller split and availability.
-    let filtered = 0, new24 = 0, new7 = 0, priv = 0, comp = 0, inStock = 0, total = 0;
+    let filtered = 0, new24 = 0, new7 = 0, priv = 0, comp = 0;
     const perVendor = new Map<string, number>();
-    const pricesByCcy = new Map<string, number[]>();
     for (const s of store.items.browse(chatId, EXPORT_ROW_CAP, 0)) {
-      total++;
       const f = filtersByMonitor.get(s.monitorId);
       if (f && snapshotHidden(s, f)) filtered++;
       const v = vendorByMonitor.get(s.monitorId);
@@ -670,19 +668,8 @@ export function buildBot(
       if (s.firstSeen >= now - DAY) new24++;
       if (s.firstSeen >= now - 7 * DAY) new7++;
       if (s.sellerPrivate === true) priv++; else if (s.sellerPrivate === false) comp++;
-      if (s.inStock) inStock++;
-      if (s.lastPrice > 0) (pricesByCcy.get(s.currency) ?? pricesByCcy.set(s.currency, []).get(s.currency)!).push(s.lastPrice);
     }
     const vendors = [...perVendor.entries()].sort((a, b) => b[1] - a[1]).map(([v, n]) => `${v}: ${n}`).join(' · ');
-    // Price range in the dominant (most-collected) currency.
-    const dom = [...pricesByCcy.entries()].sort((a, b) => b[1].length - a[1].length)[0];
-    let priceRange = '';
-    if (dom) {
-      const sorted = [...dom[1]].sort((a, b) => a - b);
-      const med = sorted[Math.floor(sorted.length / 2)]!;
-      priceRange = `${dom[0]} ${formatMoney(sorted[0]!, dom[0])} – ${formatMoney(sorted[sorted.length - 1]!, dom[0])} (med ${formatMoney(med, dom[0])})`;
-    }
-
     const summary = tr(lang).stats_summary({
       watches: monitors.length,
       search: monitors.filter((m) => m.type === 'search').length,
@@ -694,16 +681,24 @@ export function buildBot(
       saved: store.itemFlags.listSaved(chatId).length,
       vendors,
     });
-    const extra = tr(lang).stats_extra({ new24, new7, priv, comp, inStock, total, priceRange });
+    const extra = tr(lang).stats_extra({ new24, new7, priv, comp });
     return extra ? `${summary}\n${extra}` : summary;
   };
 
-  /** The "best deals" view: statistically cheapest listings in the pool. */
+  /** Best-deals view: ranked PER WATCH so comps are homogeneous (a Corolla search
+   *  only contains Corollas). Each item is rated against its OWN watch's pool;
+   *  results merge across watches, sorted by % below that watch's median, and each
+   *  line is tagged with its watch so a car is never compared to a t-shirt. */
   const buildBestDealsText = (chatId: number, lang: Lang): string => {
-    const deals = bestDeals(store.items.browse(chatId, EXPORT_ROW_CAP, 0), 8);
-    if (deals.length === 0) return tr(lang).best_deals_empty;
-    const lines = deals.map((d, i) =>
-      tr(lang).best_deals_line({ rank: i + 1, title: d.title, price: formatMoney(d.price, d.currency), discount: d.discountPct, n: d.n, url: d.url ?? '' }),
+    const tagged: Array<{ watch: string; d: ReturnType<typeof bestDeals>[number] }> = [];
+    for (const m of store.monitors.listByChat(chatId).filter((mon) => mon.type === 'search')) {
+      const watch = m.label ?? browseScopeLabel(m.vendor, m.url);
+      for (const d of bestDeals(store.items.browseByMonitor(m.id, EXPORT_ROW_CAP, 0), 5)) tagged.push({ watch, d });
+    }
+    if (tagged.length === 0) return tr(lang).best_deals_empty;
+    tagged.sort((a, b) => b.d.discountPct - a.d.discountPct);
+    const lines = tagged.slice(0, 8).map(({ watch, d }, i) =>
+      tr(lang).best_deals_line({ rank: i + 1, watch, title: d.title, price: formatMoney(d.price, d.currency), discount: d.discountPct, n: d.n, url: d.url ?? '' }),
     );
     return `${tr(lang).best_deals_intro}\n\n${lines.join('\n\n')}`;
   };
