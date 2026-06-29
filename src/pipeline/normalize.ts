@@ -165,6 +165,22 @@ function coerceString(value: unknown): string {
 }
 
 /**
+ * Coerce a description, which often carries inline HTML from the listing body:
+ * turn `<br>` / `</p>` into real newlines, strip any remaining tags, and collapse
+ * the resulting blank-line runs — so the card shows clean text, not raw `<br />`.
+ */
+function coerceDescription(value: unknown): string {
+  return coerceString(value)
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n') // <br>, <br/>, <br /> → newline
+    .replace(/<\s*\/\s*p\s*>/gi, '\n') // paragraph close → newline
+    .replace(/<[^>]+>/g, '') // strip any other tags
+    .replace(/[ \t]+\n/g, '\n') // drop spaces before a newline
+    .replace(/\n[ \t]+/g, '\n') // drop spaces after a newline
+    .replace(/\n{3,}/g, '\n\n') // collapse 3+ blank lines to one
+    .trim();
+}
+
+/**
  * Parse a vendor's posted-at date into epoch ms, or `undefined` when absent /
  * unparseable. Handles ISO 8601 (OLX `createdTime`, ld+json `datePublished`) and
  * a space-separated `YYYY-MM-DD HH:MM:SS` (Storia `dateCreated`) by normalizing
@@ -254,7 +270,7 @@ function buildItem(
   const phone = coerceString(get('phone').value);
   const sellerName = coerceString(get('sellerName').value);
 
-  const description = coerceString(get('description').value);
+  const description = coerceDescription(get('description').value);
   const postedAt = parseDate(get('postedAt').value);
 
   const item: IScrapedItem = {
