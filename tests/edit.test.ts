@@ -97,13 +97,14 @@ describe('/edit', () => {
     const m = mkMonitor(h.store, 'search');
     await cmd(h.bot, `/edit ${m.id}`);
     const card = h.sent.at(-1)!;
-    expect(card.text).toMatch(new RegExp(`Editing watch #${m.id}`));
+    expect(card.text).toMatch(new RegExp(`#${m.id} ·`)); // rich list-style summary (merged with the list)
     expect(card.data).toContain(`esm:${m.id}`); // seller submenu opener
     expect(card.data).toContain(`erm:${m.id}`); // reports submenu opener
     expect(card.data).toContain(`efi:${m.id}`); // collapsed check-interval button
+    expect(card.data).toContain(`ep:${m.id}`); // pause/resume (under interval)
     expect(card.data).toContain(`ex:${m.id}`);
     expect(card.data).toContain(`rm:${m.id}`);
-    expect(card.data).toContain('ed');
+    expect(card.data).toContain('lw:back'); // Gata → back to the list picker
   });
 
   it('renders a product watch card without seller/exclusion', async () => {

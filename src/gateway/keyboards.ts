@@ -191,19 +191,6 @@ export function browseKeyboard(
 }
 
 /**
- * The action row under a /list watch line: [✏️ Edit] [⏸/▶️ Pause-Resume] [🗑 Remove].
- * Edit opens the edit card (`le:`), pause toggles in place (`lp:`), remove reuses
- * the confirm flow (`rm:`).
- */
-export function listRowKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
-  const t = tr(lang);
-  return new InlineKeyboard()
-    .text(t.btn_edit, `le:${monitor.id}`)
-    .text(monitor.paused ? t.btn_resume : t.btn_pause, `lp:${monitor.id}`)
-    .text(t.btn_remove, `rm:${monitor.id}`);
-}
-
-/**
  * The /list watch picker: one button per watch (its summary line), routing to
  * `lw:<id>` which opens that watch's detail + action row. Replaces the old
  * one-card-per-watch spam with a single compact, app-style index.
@@ -216,19 +203,6 @@ export function listKeyboard(rows: ReadonlyArray<{ id: number; label: string }>,
   return kb;
 }
 
-/**
- * The per-watch detail action row reached from the /list picker: Edit / Pause /
- * Remove (same callbacks as before) plus a back arrow to the watch list.
- */
-export function listDetailKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
-  const t = tr(lang);
-  return new InlineKeyboard()
-    .text(t.btn_edit, `le:${monitor.id}`)
-    .text(monitor.paused ? t.btn_resume : t.btn_pause, `lp:${monitor.id}`)
-    .text(t.btn_remove, `rm:${monitor.id}`)
-    .row()
-    .text('◀️', 'lw:back');
-}
 
 /** Max options per picker page (paginated when more). */
 export const PICKER_PAGE_SIZE = 15;
@@ -474,6 +448,8 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
   }
   // Check interval — collapsed behind one button (opens the freq picker).
   kb.text(t.btn_interval(fmtInterval(activeMinutes)), `efi:${id}`).row();
+  // Pause/resume sits right under the interval (cadence controls together).
+  kb.text(monitor.paused ? t.btn_resume : t.btn_pause, `ep:${id}`).row();
   // Filters that only make sense for a multi-result search.
   if (isSearch) {
     kb.text(t.btn_exclusion, `ex:${id}`)
@@ -487,12 +463,11 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
     // A single tracked listing: a target-price alert is the meaningful control.
     kb.text(mark(monitor.filters.targetPrice !== undefined, t.btn_target), `et:${id}`).row();
   }
-  // Rename + group + pause/resume on their own row, then remove + done.
+  // Rename + group, then remove + back (◀️ → the /list picker).
   kb.text(t.btn_rename, `er:${id}`)
     .text(t.btn_group, `egr:${id}`)
-    .text(monitor.paused ? t.btn_resume : t.btn_pause, `ep:${id}`)
     .row()
     .text(t.btn_remove, `rm:${id}`)
-    .text(t.btn_done, 'ed');
+    .text('◀️', 'lw:back');
   return kb;
 }

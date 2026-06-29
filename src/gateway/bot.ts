@@ -27,7 +27,7 @@ import type { MessageRef, Monitor, Notification, SellerVisibility } from '../con
 import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput, phoneKey, snapshotHidden } from '../pipeline';
-import { renderNotification, renderRegistrationCard, renderBrowseCard, renderDelistCard, renderBrowseScope, renderEditCard, renderListRow, listSummaryLine, renderPicker } from './render';
+import { renderNotification, renderRegistrationCard, renderBrowseCard, renderDelistCard, renderBrowseScope, renderEditCard, listSummaryLine, renderPicker } from './render';
 import { computeTrend, renderTrendBadge } from '../features/trend';
 import { buildWeeklyReport } from '../features/weeklyReport';
 import { runBackup, stageRestore } from '../features/backup';
@@ -39,7 +39,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, listKeyboard, listDetailKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, listKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -439,7 +439,7 @@ export function buildBot(
       await ctx.answerCallbackQuery();
       switch (ctx.match[1]) {
         case 'home': await renderHome(ctx, chatId, lang); break;
-        case 'list': await runList(ctx, chatId); break;
+        case 'list': await editListPicker(ctx, chatId, langFor(store, chatId)); break;
         case 'browse': await runBrowse(ctx, chatId); break;
         case 'saved': await runSaved(ctx, chatId); break;
         case 'stats': await runStats(ctx, chatId); break;
@@ -539,6 +539,20 @@ export function buildBot(
     }
   };
   bot.command('list', (ctx) => runList(ctx, ctx.chat.id));
+
+  /** Render the /list picker by EDITING the current message in place (used from
+   *  the home index and the edit card's back button — no new card spawned). */
+  const editListPicker = async (
+    ctx: { editMessageText: (t: string, o?: object) => Promise<unknown>; reply: (t: string, o?: object) => Promise<unknown> },
+    chatId: number,
+    lang: Lang,
+  ): Promise<void> => {
+    const rows = listRowsFor(chatId, lang, Date.now());
+    const markup = rows.length ? { reply_markup: listKeyboard(rows, lang) } : undefined;
+    const text = rows.length ? tr(lang).list_intro : tr(lang).list_empty;
+    try { await ctx.editMessageText(text, markup); }
+    catch { try { await ctx.reply(text, markup); } catch { /* expired */ } }
+  };
 
   // /group <pause|resume|remove> <name> — bulk action on every watch in a collection.
   bot.command('group', async (ctx) => {
@@ -1044,7 +1058,7 @@ export function buildBot(
       case 'edit': {
         const monitor = store.monitors.get(id);
         if (!monitor || !canManage(monitor, chatId)) { await ctx.reply(tr(lang).edit_not_found); return; }
-        const view = renderEditCard(monitor, lang);
+        const view = renderEditCard(monitor, lang, trendBadgeFor(monitor, Date.now()));
         await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
         return;
       }
@@ -1716,7 +1730,7 @@ export function buildBot(
       const monitor = store.monitors.get(Number(ctx.match[1]));
       if (!monitor || !canManage(monitor, ctx.chat?.id)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
       await ctx.answerCallbackQuery();
-      const view = renderEditCard(monitor, lang);
+      const view = renderEditCard(monitor, lang, trendBadgeFor(monitor, Date.now()));
       try { await ctx.editMessageText(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined); }
       catch { try { await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) }); } catch { /* unchanged */ } }
     } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
@@ -1805,7 +1819,10 @@ export function buildBot(
       if (!nowPaused) store.monitors.setSchedule(monitorId, Date.now(), monitor.fastTier);
       monitor.paused = nowPaused;
       await ctx.answerCallbackQuery(nowPaused ? tr(lang).cb_paused : tr(lang).cb_resumed);
-      await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) });
+      // Re-render the whole card: the ⏸ marker in the summary text + the button
+      // label both reflect the new state.
+      const view = renderEditCard(monitor, lang, trendBadgeFor(monitor, Date.now()));
+      await ctx.editMessageText(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
     } catch (err) {
       await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
     }
@@ -1902,8 +1919,9 @@ export function buildBot(
   });
 
   // /list row → open the edit card: le:<monitorId>.
-  // /list picker: lw:<id> opens a watch's detail + action row; lw:back returns to
-  // the watch list. Both edit the single /list message in place (no new cards).
+  // /list picker: lw:<id> opens the watch's edit card directly (rich summary +
+  // controls — the list detail and the edit card are now one screen); lw:back
+  // returns to the picker. Both edit the single message in place (no new cards).
   bot.callbackQuery(/^lw:(back|\d+)$/, async (ctx) => {
     const chatId = ctx.chat?.id;
     const lang = langFor(store, chatId ?? 0);
@@ -1911,21 +1929,20 @@ export function buildBot(
       if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
       if (ctx.match[1] === 'back') {
         await ctx.answerCallbackQuery();
-        const rows = listRowsFor(chatId, lang, Date.now());
-        if (rows.length === 0) { await ctx.editMessageText(tr(lang).list_empty); return; }
-        await ctx.editMessageText(tr(lang).list_intro, { reply_markup: listKeyboard(rows, lang) });
+        await editListPicker(ctx, chatId, lang);
         return;
       }
       const monitor = store.monitors.get(Number(ctx.match[1]));
       if (!monitor || !canManage(monitor, chatId)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
       await ctx.answerCallbackQuery();
-      const view = renderListRow(monitor, lang, trendBadgeFor(monitor, Date.now()));
-      await ctx.editMessageText(view.text, { reply_markup: listDetailKeyboard(monitor, lang) });
+      const view = renderEditCard(monitor, lang, trendBadgeFor(monitor, Date.now()));
+      await ctx.editMessageText(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
     } catch {
       try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }
   });
 
+  // le:<id> — open the edit card as a fresh message (used by the /edit picker).
   bot.callbackQuery(/^le:(\d+)$/, async (ctx) => {
     const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
@@ -1936,31 +1953,8 @@ export function buildBot(
         return;
       }
       await ctx.answerCallbackQuery();
-      const view = renderEditCard(monitor, lang);
+      const view = renderEditCard(monitor, lang, trendBadgeFor(monitor, Date.now()));
       await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
-    } catch {
-      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
-    }
-  });
-
-  // /list row → toggle pause in place: lp:<monitorId> (re-renders the same row).
-  bot.callbackQuery(/^lp:(\d+)$/, async (ctx) => {
-    const lang = langFor(store, ctx.chat?.id ?? 0);
-    try {
-      const monitorId = Number(ctx.match[1]);
-      const monitor = store.monitors.get(monitorId);
-      if (!monitor || !canManage(monitor, ctx.chat?.id)) {
-        await ctx.answerCallbackQuery(tr(lang).cb_watch_gone);
-        return;
-      }
-      const nowPaused = !monitor.paused;
-      store.monitors.setPaused(monitorId, nowPaused);
-      if (!nowPaused) store.monitors.setSchedule(monitorId, Date.now(), monitor.fastTier);
-      monitor.paused = nowPaused;
-      await ctx.answerCallbackQuery(nowPaused ? tr(lang).cb_paused : tr(lang).cb_resumed);
-      // Re-render the detail view in place (paused state shows in text + button).
-      const view = renderListRow(monitor, lang, trendBadgeFor(monitor, Date.now()));
-      await ctx.editMessageText(view.text, { reply_markup: listDetailKeyboard(monitor, lang) });
     } catch {
       try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }
