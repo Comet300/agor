@@ -210,6 +210,16 @@ export function migrate(db: DB): void {
       updated_at INTEGER,
       PRIMARY KEY (category, currency)
     );
+
+    -- Self-healing DOM selectors: structural fingerprint of the last good match
+    -- per (vendor, role), used to relocate a broken dom-selector. See selfHeal.ts.
+    CREATE TABLE IF NOT EXISTS dom_fingerprints (
+      vendor          TEXT,
+      role            TEXT,
+      fingerprint     TEXT NOT NULL,
+      updated_at      INTEGER NOT NULL,
+      PRIMARY KEY (vendor, role)
+    );
   `);
 
   // Idempotent column additions for databases created before these columns existed.

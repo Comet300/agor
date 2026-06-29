@@ -16,6 +16,14 @@
  */
 import { parse, type HTMLElement } from 'node-html-parser';
 import type { IVendorPlugin } from '../contracts';
+import { fingerprintElements, relocate, type HealInfo, type SelfHealer } from './selfHeal';
+
+/** Result of a dom-selector extraction: the records plus any self-heal report. */
+export interface DomExtractResult {
+  records: Record<string, unknown>[];
+  /** Present when the pinned selector was empty and a fingerprint relocated it. */
+  healed?: HealInfo;
+}
 
 interface ParsedSelector {
   selector: string;
@@ -77,19 +85,90 @@ function extractRecord(el: HTMLElement, fields: Record<string, string>): Record<
   return record;
 }
 
-/** Extract every search-result item record from a page's HTML. */
-export function domExtractSearch(html: string, plugin: IVendorPlugin): Record<string, unknown>[] {
+/**
+ * Extract every search-result item record from a page's HTML.
+ *
+ * When a `healer` is supplied this self-heals: a successful match refreshes the
+ * stored fingerprint of the listing cards; an empty match (the pinned selector
+ * broke) relocates via the last-good fingerprint so the cycle keeps working, and
+ * reports the relocation through {@link DomExtractResult.healed}.
+ */
+export function domExtractSearch(
+  html: string,
+  plugin: IVendorPlugin,
+  healer?: SelfHealer,
+): DomExtractResult {
   const root = parse(html);
   const container = plugin.search_mapping.json_path_to_items;
-  const elements = container ? root.querySelectorAll(container) : [];
-  return elements.map((el) => extractRecord(el, plugin.search_mapping.fields));
+  let elements = container ? root.querySelectorAll(container) : [];
+  let healed: HealInfo | undefined;
+
+  if (healer && container) {
+    if (elements.length > 0) {
+      // Good scrape → remember what the cards look like for next time.
+      healer.save(plugin.vendor, 'search', fingerprintElements(elements));
+    } else {
+      // Selector matched nothing → try to relocate from the stored fingerprint.
+      const fp = healer.load(plugin.vendor, 'search');
+      const found = fp ? relocate(root, fp, { minGroup: 2 }) : undefined;
+      if (found) {
+        elements = found.elements;
+        healed = {
+          role: 'search',
+          fromSelector: container,
+          toSelector: found.selector,
+          count: found.elements.length,
+          score: found.score,
+        };
+      }
+    }
+  }
+
+  return {
+    records: elements.map((el) => extractRecord(el, plugin.search_mapping.fields)),
+    healed,
+  };
 }
 
-/** Extract the single product record from a page's HTML (wrapped as an array). */
-export function domExtractProduct(html: string, plugin: IVendorPlugin): Record<string, unknown>[] {
+/**
+ * Extract the single product record from a page's HTML (wrapped as an array).
+ * Self-heals the product-root selector the same way as the search container,
+ * relocating to the single best-matching element when the pinned selector breaks.
+ */
+export function domExtractProduct(
+  html: string,
+  plugin: IVendorPlugin,
+  healer?: SelfHealer,
+): DomExtractResult {
   const root = parse(html);
   const rootSelector = plugin.product_mapping.json_path;
-  const el = rootSelector ? root.querySelector(rootSelector) : root;
-  if (!el) return [];
-  return [extractRecord(el, plugin.product_mapping.fields)];
+  // No root selector = whole document; nothing to heal.
+  if (!rootSelector) {
+    return { records: [extractRecord(root, plugin.product_mapping.fields)] };
+  }
+
+  let el = root.querySelector(rootSelector);
+  let healed: HealInfo | undefined;
+
+  if (healer) {
+    if (el) {
+      healer.save(plugin.vendor, 'product', fingerprintElements([el]));
+    } else {
+      const fp = healer.load(plugin.vendor, 'product');
+      const found = fp ? relocate(root, fp, { minGroup: 1 }) : undefined;
+      if (found) {
+        el = found.elements[0]!;
+        healed = {
+          role: 'product',
+          fromSelector: rootSelector,
+          toSelector: found.selector,
+          count: 1,
+          score: found.score,
+        };
+      }
+    }
+  }
+
+  if (!el) return { records: [] };
+  return { records: [extractRecord(el, plugin.product_mapping.fields)], healed };
 }
