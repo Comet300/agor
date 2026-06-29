@@ -171,9 +171,8 @@ export function browseKeyboard(
   const t = tr(lang);
   const kb = new InlineKeyboard();
   if (index > 0) kb.text(t.btn_prev, `br:${index - 1}`);
-  kb.text(t.btn_track, `tk:${index}`);
   if (index < total - 1) kb.text(t.btn_next, `br:${index + 1}`);
-  kb.row();
+  if (index > 0 || index < total - 1) kb.row();
   // Jump is only meaningful when there is more than one item to jump between.
   if (total > 1) kb.text(t.btn_jump, 'bj');
   if (canSwitch) kb.text(t.btn_switch, 'bw');

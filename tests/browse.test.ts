@@ -152,7 +152,8 @@ describe('/browse carousel', () => {
     expect(first.kind).toBe('photo'); // newest has an image → photo card
     expect(first.text).toContain('Newest');
     expect(first.text).toContain('item 1 of 2');
-    expect(first.data).toContain('tk:0');
+    expect(first.data).toContain('bsv:0');          // ⭐ star (save + track), merged
+    expect(first.data.some((d) => d.startsWith('tk:'))).toBe(false); // separate Track button is gone
     expect(first.data).toContain('br:1');           // Next
     expect(first.data.some((d) => d.startsWith('br:-'))).toBe(false); // no Prev at the start
   });
@@ -171,30 +172,31 @@ describe('/browse carousel', () => {
     expect(card.data.some((d) => d.startsWith('br:2'))).toBe(false); // no Next past the end
   });
 
-  it('tk:<index> creates a tracked product monitor and confirms', async () => {
-    // The Track flow registers a product watch → baseline scrape returns this node.
-    // (engine fetcher returns empty by default; provide a product body via a real
-    // monitor URL the registry matches.)
+  it('bsv:<index> stars the item: saves it AND creates a tracked product monitor', async () => {
+    // Star = save + track (starred ⇒ tracked). Registering a product watch runs a
+    // baseline scrape; the engine fetcher returns empty by default, which still
+    // yields a tracked monitor row for the URL.
     seedItems([item({ id: 'b', title: 'Track me', url: 'https://synth.test/b' })]);
     await cmd(h.bot, '/browse');
-    await tap(h.bot, 'tk:0');
+    await tap(h.bot, 'bsv:0');
 
-    // A tracked product monitor now exists for that URL.
+    expect(h.store.itemFlags.has(USER, 'b', 'saved')).toBe(true); // shortlisted
     const tracked = h.store.monitors.listByChat(USER).filter((m) => m.origin === 'tracked');
-    expect(tracked).toHaveLength(1);
+    expect(tracked).toHaveLength(1); // and tracked
     expect(tracked[0]!.url).toBe('https://synth.test/b');
     expect(tracked[0]!.type).toBe('product');
-    expect(h.sent.at(-1)!.text).toMatch(/now tracking/i);
+    expect(h.answered.some((a) => /tracking/i.test(a))).toBe(true);
   });
 
-  it('tk: on an already-tracked URL does not duplicate and says so', async () => {
+  it('un-starring removes the tracked watch again (no duplicate / orphan)', async () => {
     seedItems([item({ id: 'b', title: 'Track me', url: 'https://synth.test/b' })]);
     await cmd(h.bot, '/browse');
-    await tap(h.bot, 'tk:0');
-    await cmd(h.bot, '/browse'); // refresh session
-    await tap(h.bot, 'tk:0');
+    await tap(h.bot, 'bsv:0'); // star on → 1 tracked watch
     expect(h.store.monitors.listByChat(USER).filter((m) => m.origin === 'tracked')).toHaveLength(1);
-    expect(h.answered.some((a) => /already tracking/i.test(a))).toBe(true);
+    await cmd(h.bot, '/browse'); // refresh session (item still at index 0, now saved)
+    await tap(h.bot, 'bsv:0'); // star off → watch removed
+    expect(h.store.monitors.listByChat(USER).filter((m) => m.origin === 'tracked')).toHaveLength(0);
+    expect(h.store.itemFlags.has(USER, 'b', 'saved')).toBe(false);
   });
 
   /** Seed a second search monitor (own URL) with item snapshots for USER. */

@@ -118,11 +118,12 @@ describe('browseKeyboard nav affordances', () => {
     expect(dataOf(browseKeyboard(2, 9, 'https://x/2', 'en', false))).not.toContain('bw');
   });
 
-  it('keeps Prev/Next/Track/Open intact alongside the new buttons', () => {
+  it('keeps Prev/Next/Star/Open intact alongside the new buttons', () => {
     const d = dataOf(browseKeyboard(2, 9, 'https://x/2', 'en', true));
     expect(d).toContain('br:1');  // Prev
     expect(d).toContain('br:3');  // Next
-    expect(d).toContain('tk:2');  // Track
+    expect(d).toContain('bsv:2'); // ⭐ star (save + track), merged
+    expect(d.some((x) => x.startsWith('tk:'))).toBe(false); // separate Track button is gone
     expect(d.some((x) => x.startsWith('url:https://x/2'))).toBe(true); // Open
   });
 
@@ -131,7 +132,7 @@ describe('browseKeyboard nav affordances', () => {
     // send — a url-less row must simply drop Open, not crash the card.
     const d = dataOf(browseKeyboard(3, 9, '', 'en', true));
     expect(d.some((x) => x.startsWith('url:'))).toBe(false);
-    expect(d).toContain('tk:3'); // the rest of the card is intact
+    expect(d).toContain('bsv:3'); // the rest of the card is intact
     expect(d).toContain('bj');
   });
 });

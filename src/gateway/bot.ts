@@ -2194,39 +2194,10 @@ export function buildBot(
     }
   });
 
-  // Browse track: tk:<index> — turn the browsed item into a tracked product watch.
-  bot.callbackQuery(/^tk:(\d+)$/, async (ctx) => {
-    const chatId = ctx.chat?.id;
-    const lang = langFor(store, chatId ?? 0);
-    try {
-      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
-      const items = browseSessions.get(chatId);
-      const item = items?.[Number(ctx.match[1])];
-      if (!item || !item.url) {
-        await ctx.answerCallbackQuery(tr(lang).browse_gone);
-        return;
-      }
-      // Already tracking this exact URL? Don't create a duplicate watch.
-      const dup = store.monitors
-        .listByChat(chatId)
-        .some((m) => m.origin === 'tracked' && m.url === item.url);
-      if (dup) {
-        await ctx.answerCallbackQuery(tr(lang).browse_track_exists);
-        return;
-      }
-      const result = await orchestrator.register({ chatId, rawUrl: item.url, type: 'product', origin: 'tracked' });
-      await ctx.answerCallbackQuery();
-      if (!result.ok) {
-        await ctx.reply(result.reason === 'quota' ? tr(lang).quota_reached(maxMonitorsPerChat) : tr(lang).track_error);
-        return;
-      }
-      await ctx.reply(tr(lang).browse_track_done(item.title ?? item.itemId));
-    } catch {
-      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
-    }
-  });
-
-  // Browse save toggle: bsv:<index> — add/remove the item from the shortlist.
+  // Browse star toggle: bsv:<index>. Star = save + track (starred ⇒ tracked):
+  // turning it on shortlists the item AND registers a tracked product watch;
+  // turning it off un-shortlists AND removes that watch. Quota failures keep the
+  // shortlist flag (favoriting is local) and report the limit.
   bot.callbackQuery(/^bsv:(\d+)$/, async (ctx) => {
     const chatId = ctx.chat?.id;
     const lang = langFor(store, chatId ?? 0);
@@ -2237,9 +2208,22 @@ export function buildBot(
       const snap = items?.[idx];
       if (!snap) { await ctx.answerCallbackQuery(tr(lang).browse_gone); return; }
       const nowSaved = !store.itemFlags.has(chatId, snap.itemId, 'saved');
-      if (nowSaved) store.itemFlags.set(chatId, snap.itemId, snap.monitorId, 'saved', Date.now());
-      else store.itemFlags.unset(chatId, snap.itemId, 'saved');
-      await ctx.answerCallbackQuery(nowSaved ? tr(lang).cb_saved : tr(lang).cb_unsaved);
+      const trackedFor = (url: string) =>
+        store.monitors.listByChat(chatId).find((m) => m.origin === 'tracked' && m.url === url);
+      let toast = nowSaved ? tr(lang).cb_saved : tr(lang).cb_unsaved;
+      if (nowSaved) {
+        store.itemFlags.set(chatId, snap.itemId, snap.monitorId, 'saved', Date.now());
+        // Start tracking too, unless this URL is already a tracked watch.
+        if (snap.url && !trackedFor(snap.url)) {
+          const result = await orchestrator.register({ chatId, rawUrl: snap.url, type: 'product', origin: 'tracked' });
+          if (!result.ok) toast = result.reason === 'quota' ? tr(lang).quota_reached(maxMonitorsPerChat) : tr(lang).track_error;
+        }
+      } else {
+        store.itemFlags.unset(chatId, snap.itemId, 'saved');
+        // Stop tracking the matching watch, if any.
+        if (snap.url) { const m = trackedFor(snap.url); if (m) store.monitors.delete(m.id); }
+      }
+      await ctx.answerCallbackQuery(toast);
       const canSwitch = store.monitors.listByChat(chatId).length > 1;
       try {
         await ctx.editMessageReplyMarkup({ reply_markup: browseKeyboard(idx, items!.length, snap.url ?? '', lang, canSwitch, nowSaved) });
