@@ -112,6 +112,25 @@ export function openOnlyKeyboard(item: EnrichedItem, lang: Lang): InlineKeyboard
  * 64-byte callback limit.
  */
 /**
+ * The /start home/index menu: one button per top-level action, routing via
+ * idx:<action>. The "request access" button shows only when the chat isn't
+ * allowed yet (an allowed chat has nothing to request).
+ */
+export function homeKeyboard(lang: Lang, allowed: boolean): InlineKeyboard {
+  const t = tr(lang);
+  const kb = new InlineKeyboard()
+    .text(t.home_watches, 'idx:list')
+    .text(t.home_browse, 'idx:browse')
+    .text(t.home_saved, 'idx:saved')
+    .row()
+    .text(t.home_stats, 'idx:stats')
+    .text(t.home_lang, 'idx:lang')
+    .text(t.home_help, 'idx:help');
+  if (!allowed) kb.row().text(t.home_access, 'idx:access');
+  return kb;
+}
+
+/**
  * Navigation-only carousel for the de-listing review: prev/next across the gone
  * listings. No track/save/dismiss — the items are already removed; the prev/next
  * post a fresh card (dlb:<index>) like /browse.

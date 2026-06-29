@@ -39,7 +39,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -391,7 +391,9 @@ export function buildBot(
     const isChatId = text.startsWith('/chatid');
     const midFlow = pendingAccess.has(chatId);
     // Let the request_access entry points and an in-flight name/email reply through.
-    if (isStart || isRequest || isChatId || (midFlow && !text.startsWith('/'))) return next();
+    // The home menu's "request access" button (idx:access) is also a request entry.
+    const isAccessBtn = ctx.callbackQuery?.data === 'idx:access';
+    if (isStart || isRequest || isChatId || isAccessBtn || (midFlow && !text.startsWith('/'))) return next();
 
     // Refuse everything else. Answer callback queries so the spinner clears.
     if (ctx.callbackQuery) {
@@ -405,8 +407,32 @@ export function buildBot(
   // ── Commands ──────────────────────────────────────────────────────────────
 
   bot.command('start', async (ctx) => {
-    const lang = langFor(store, ctx.chat.id);
-    await ctx.reply(tr(lang).start_welcome);
+    const chatId = ctx.chat.id;
+    const lang = langFor(store, chatId);
+    // The index/home menu: action buttons routing to each command. Request-access
+    // is offered only when the chat isn't allowed yet.
+    await ctx.reply(tr(lang).start_welcome, { reply_markup: homeKeyboard(lang, hasAccess(chatId)) });
+  });
+
+  // Home/index router: idx:<action> runs the matching command's flow in place.
+  bot.callbackQuery(/^idx:(list|browse|saved|stats|help|lang|access)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      await ctx.answerCallbackQuery();
+      switch (ctx.match[1]) {
+        case 'list': await runList(ctx, chatId); break;
+        case 'browse': await runBrowse(ctx, chatId); break;
+        case 'saved': await runSaved(ctx, chatId); break;
+        case 'stats': await runStats(ctx, chatId); break;
+        case 'help': await ctx.reply(tr(lang).help_body); break;
+        case 'lang': await ctx.reply(tr(lang).lang_current(tr(lang).lang_name)); break;
+        case 'access': await runRequestAccess(ctx, chatId); break;
+      }
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
   });
 
   bot.command('help', async (ctx) => {
@@ -439,10 +465,10 @@ export function buildBot(
     }
   });
 
-  bot.command('list', async (ctx) => {
-    const lang = langFor(store, ctx.chat.id);
+  const runList = async (ctx: IdCtx, chatId: number): Promise<void> => {
+    const lang = langFor(store, chatId);
     try {
-      const monitors = store.monitors.listByChat(ctx.chat.id);
+      const monitors = store.monitors.listByChat(chatId);
       if (monitors.length === 0) {
         await ctx.reply(tr(lang).list_empty);
         return;
@@ -471,7 +497,8 @@ export function buildBot(
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
-  });
+  };
+  bot.command('list', (ctx) => runList(ctx, ctx.chat.id));
 
   // /group <pause|resume|remove> <name> — bulk action on every watch in a collection.
   bot.command('group', async (ctx) => {
@@ -503,8 +530,7 @@ export function buildBot(
     }
   });
 
-  bot.command('stats', async (ctx) => {
-    const chatId = ctx.chat.id;
+  const runStats = async (ctx: IdCtx, chatId: number): Promise<void> => {
     const lang = langFor(store, chatId);
     try {
       const monitors = store.monitors.listByChat(chatId);
@@ -523,7 +549,8 @@ export function buildBot(
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
-  });
+  };
+  bot.command('stats', (ctx) => runStats(ctx, ctx.chat.id));
 
   bot.command('export', async (ctx) => {
     const chatId = ctx.chat.id;
@@ -555,8 +582,7 @@ export function buildBot(
     }
   });
 
-  bot.command('saved', async (ctx) => {
-    const chatId = ctx.chat.id;
+  const runSaved = async (ctx: IdCtx, chatId: number): Promise<void> => {
     const lang = langFor(store, chatId);
     try {
       const lines: string[] = [];
@@ -571,7 +597,8 @@ export function buildBot(
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
-  });
+  };
+  bot.command('saved', (ctx) => runSaved(ctx, ctx.chat.id));
 
   bot.command('history', async (ctx) => {
     const chatId = ctx.chat.id;
@@ -1001,8 +1028,7 @@ export function buildBot(
     }
   };
 
-  bot.command('browse', async (ctx) => {
-    const chatId = ctx.chat.id;
+  const runBrowse = async (ctx: Parameters<typeof startBrowseSession>[0], chatId: number): Promise<void> => {
     const lang = langFor(store, chatId);
     try {
       const { total, scopes } = buildBrowseScopes(chatId);
@@ -1021,7 +1047,8 @@ export function buildBot(
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
-  });
+  };
+  bot.command('browse', (ctx) => runBrowse(ctx, ctx.chat.id));
 
   bot.command('remove', async (ctx) => {
     const chatId = ctx.chat.id;
@@ -1196,8 +1223,7 @@ export function buildBot(
   // ── Access control ──────────────────────────────────────────────────────────
 
   // /request_access — start the name → email capture flow (non-allowed users).
-  bot.command('request_access', async (ctx) => {
-    const chatId = ctx.chat.id;
+  const runRequestAccess = async (ctx: IdCtx, chatId: number): Promise<void> => {
     const lang = langFor(store, chatId);
     try {
       // Already allowed? Nothing to request.
@@ -1222,7 +1248,8 @@ export function buildBot(
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
-  });
+  };
+  bot.command('request_access', (ctx) => runRequestAccess(ctx, ctx.chat.id));
 
   /** Parse a leading numeric chat-id argument from a command match. */
   const parseId = (raw: string): number | undefined => {

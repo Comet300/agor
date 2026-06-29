@@ -25,6 +25,14 @@ export interface Catalog {
   // ── Commands / conversational ────────────────────────────────────────────
   start_welcome: string;
   help_body: string;
+  // /start home/index menu buttons.
+  home_watches: string;
+  home_browse: string;
+  home_saved: string;
+  home_stats: string;
+  home_lang: string;
+  home_help: string;
+  home_access: string;
   track_usage: string;
   track_error: string;
   list_empty: string;
@@ -371,6 +379,13 @@ const ro: Catalog = {
     '• /lang ro|en|de|fr|it|es — schimbă limba.\n' +
     '• Apasă „Istoric preț” pe orice alertă pentru un grafic.',
   track_usage: 'Folosire: /track <link>',
+  home_watches: '📋 Urmăriri',
+  home_browse: '🔎 Răsfoiește',
+  home_saved: '⭐ Salvate',
+  home_stats: '📊 Statistici',
+  home_lang: '🌐 Limbă',
+  home_help: '❓ Ajutor',
+  home_access: '🔓 Cere acces',
   track_error: 'Nu am putut înregistra urmărirea. Te rog încearcă din nou.',
   list_empty: 'Nicio urmărire încă. Trimite un link de anunț ca să creezi una.',
   list_intro: 'Urmăririle tale:',
@@ -681,6 +696,13 @@ const en: Catalog = {
     '• /lang ro|en|de|fr|it|es — change language.\n' +
     '• Tap “Price history” on any alert for a chart.',
   track_usage: 'Usage: /track <url>',
+  home_watches: '📋 Watches',
+  home_browse: '🔎 Browse',
+  home_saved: '⭐ Saved',
+  home_stats: '📊 Stats',
+  home_lang: '🌐 Language',
+  home_help: '❓ Help',
+  home_access: '🔓 Request access',
   track_error: 'Sorry — I could not register that watch. Please try again.',
   list_empty: 'No watches yet. Send a listing link to create one.',
   list_intro: 'Your watches:',
@@ -988,6 +1010,13 @@ const de: Catalog = {
     '• /lang ro|en|de|fr|it|es — Sprache ändern.\n' +
     '• Tippe bei jeder Benachrichtigung auf „Preisverlauf“ für ein Diagramm.',
   track_usage: 'Verwendung: /track <url>',
+  home_watches: '📋 Beobachtungen',
+  home_browse: '🔎 Stöbern',
+  home_saved: '⭐ Gemerkt',
+  home_stats: '📊 Statistik',
+  home_lang: '🌐 Sprache',
+  home_help: '❓ Hilfe',
+  home_access: '🔓 Zugang anfragen',
   track_error: 'Entschuldigung — diese Beobachtung konnte nicht registriert werden. Bitte versuche es erneut.',
   list_empty: 'Noch keine Beobachtungen. Schicke einen Anzeigenlink, um eine zu erstellen.',
   list_intro: 'Deine Beobachtungen:',
@@ -1293,6 +1322,13 @@ const it: Catalog = {
     '• /lang ro|en|de|fr|it|es — cambia lingua.\n' +
     '• Tocca „Cronologia prezzi“ su qualsiasi avviso per un grafico.',
   track_usage: 'Uso: /track <url>',
+  home_watches: '📋 Monitoraggi',
+  home_browse: '🔎 Sfoglia',
+  home_saved: '⭐ Salvati',
+  home_stats: '📊 Statistiche',
+  home_lang: '🌐 Lingua',
+  home_help: '❓ Aiuto',
+  home_access: '🔓 Richiedi accesso',
   track_error: 'Spiacente — non sono riuscito a registrare il monitoraggio. Riprova.',
   list_empty: 'Nessun monitoraggio. Invia il link di un annuncio per crearne uno.',
   list_intro: 'I tuoi monitoraggi:',
@@ -1598,6 +1634,13 @@ const es: Catalog = {
     '• /lang ro|en|de|fr|it|es — cambia el idioma.\n' +
     '• Pulsa „Historial de precios“ en cualquier alerta para ver un gráfico.',
   track_usage: 'Uso: /track <url>',
+  home_watches: '📋 Seguimientos',
+  home_browse: '🔎 Explorar',
+  home_saved: '⭐ Guardados',
+  home_stats: '📊 Estadísticas',
+  home_lang: '🌐 Idioma',
+  home_help: '❓ Ayuda',
+  home_access: '🔓 Solicitar acceso',
   track_error: 'Lo siento — no pude registrar ese seguimiento. Inténtalo de nuevo.',
   list_empty: 'Aún no hay seguimientos. Envía un enlace de anuncio para crear uno.',
   list_intro: 'Tus seguimientos:',
@@ -1903,6 +1946,13 @@ const fr: Catalog = {
     '• /lang ro|en|de|fr|it|es — change la langue.\n' +
     '• Tapez “Historique des prix” sur une alerte pour un graphique.',
   track_usage: 'Utilisation : /track <url>',
+  home_watches: '📋 Suivis',
+  home_browse: '🔎 Parcourir',
+  home_saved: '⭐ Enregistrés',
+  home_stats: '📊 Statistiques',
+  home_lang: '🌐 Langue',
+  home_help: '❓ Aide',
+  home_access: '🔓 Demander l’accès',
   track_error: 'Désolé — je n’ai pas pu enregistrer ce suivi. Veuillez réessayer.',
   list_empty: 'Aucun suivi pour l’instant. Envoyez un lien d’annonce pour en créer un.',
   list_intro: 'Vos suivis :',
