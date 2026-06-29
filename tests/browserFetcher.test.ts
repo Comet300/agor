@@ -4,7 +4,7 @@
  * real Chromium is needed.
  */
 import { describe, it, expect } from 'vitest';
-import { createBrowserFetcher, type BrowserLauncher } from '../src/scraping/browserFetcher';
+import { createBrowserFetcher, isChallengePage, type BrowserLauncher } from '../src/scraping/browserFetcher';
 
 /** A fake page whose content()/goto behaviour each test controls. */
 function fakePage(opts: { content?: () => Promise<string>; gotoStatus?: number } = {}) {
@@ -103,5 +103,37 @@ describe('createBrowserFetcher resilience', () => {
     });
     expect(initScript).toContain('navigator');
     expect(initScript).toContain('WebGLRenderingContext'); // WebGL vendor spoof present
+  });
+
+  it('isChallengePage detects interstitials but not a normal page', () => {
+    expect(isChallengePage('<title>Just a moment...</title>')).toBe(true);
+    expect(isChallengePage('<div class="cf-chl-widget"></div>')).toBe(true);
+    expect(isChallengePage('<html><body>VW Golf, 4300 lei</body></html>')).toBe(false);
+  });
+
+  it('waits through a non-interactive interstitial and returns the resolved page', async () => {
+    const closed = { context: false };
+    let call = 0;
+    // First two content reads are the challenge; then it auto-resolves.
+    const page = fakePage({
+      content: async () => (++call <= 2 ? '<title>Just a moment...</title>' : '<html>real page</html>'),
+    });
+    const launcher: BrowserLauncher = async () => fakeBrowser(page, closed) as never;
+    const fetch = createBrowserFetcher({ launcher, challengePollMs: 5, sleep: async () => {} });
+
+    const r = await fetch('https://x', { headers });
+    expect(r.body).toBe('<html>real page</html>');
+    expect(call).toBeGreaterThanOrEqual(3);
+  });
+
+  it('gives up after the budget and returns the challenge body (no throw)', async () => {
+    const closed = { context: false };
+    const page = fakePage({ content: async () => '<title>Just a moment...</title>' }); // never clears
+    const launcher: BrowserLauncher = async () => fakeBrowser(page, closed) as never;
+    const fetch = createBrowserFetcher({ launcher, challengeWaitMs: 20, challengePollMs: 5, sleep: async () => {} });
+
+    const r = await fetch('https://x', { headers });
+    expect(isChallengePage(r.body)).toBe(true); // surfaced for block detection
+    expect(closed.context).toBe(true);
   });
 });

@@ -68,6 +68,35 @@ export interface BrowserFetcherOptions {
   timezoneId?: string;
   /** Context locale (default ro-RO). */
   locale?: string;
+  /**
+   * Max time (ms) to wait for a JS interstitial (Cloudflare "Just a moment",
+   * managed challenge) to auto-resolve before giving up. Default 12s; 0 disables.
+   */
+  challengeWaitMs?: number;
+  /** Poll interval (ms) while waiting for an interstitial to clear (default 1.5s). */
+  challengePollMs?: number;
+  /** Sleep seam for the interstitial wait loop; injected in tests. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/** Substrings that mark a JS interstitial / anti-bot challenge holding page. */
+const CHALLENGE_SIGNATURES = [
+  'just a moment',
+  'checking your browser before accessing',
+  'cf-chl', // Cloudflare challenge token markup
+  'challenge-platform',
+  'challenge-running',
+  'cf_chl_opt',
+  'turnstile',
+];
+
+/**
+ * Heuristic: does this HTML look like an interstitial rather than the real page?
+ * Signature substrings are matched case-insensitively. Exported for tests.
+ */
+export function isChallengePage(html: string): boolean {
+  const h = html.toLowerCase();
+  return CHALLENGE_SIGNATURES.some((sig) => h.includes(sig));
 }
 
 /**
@@ -182,6 +211,9 @@ export function createBrowserFetcher(options: BrowserFetcherOptions = {}): Fetch
   const launcher = options.launcher ?? launchBrowser;
   const timezoneId = options.timezoneId ?? 'Europe/Bucharest';
   const locale = options.locale ?? 'ro-RO';
+  const challengeWaitMs = options.challengeWaitMs ?? 12_000;
+  const challengePollMs = options.challengePollMs ?? 1_500;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
   return async (url, { headers }) => {
     const browser = await launcher();
@@ -202,7 +234,32 @@ export function createBrowserFetcher(options: BrowserFetcherOptions = {}): Fetch
       const response = await page.goto(url, { waitUntil, timeout: timeoutMs });
       // Bound the content read too: page.goto's timeout does not cover it, and a
       // wedged renderer could otherwise hang the whole polling cycle.
-      const raw = await withDeadline(page.content(), timeoutMs, 'content read');
+      let raw = await withDeadline(page.content(), timeoutMs, 'content read');
+
+      // Interstitial wait-through: a NON-interactive JS challenge (Cloudflare
+      // "Just a moment", managed challenge) clears itself in a few seconds and
+      // navigates to the real page. Keep the page alive and re-read content until
+      // the challenge markup disappears or the budget runs out. An INTERACTIVE
+      // Turnstile checkbox cannot be solved here — that needs a captcha-solving
+      // service; we surface the challenge body and let block detection handle it.
+      if (challengeWaitMs > 0 && isChallengePage(raw)) {
+        log('browser').info({ url, event: 'INTERSTITIAL-WAIT' }, 'interstitial detected — waiting for auto-resolution');
+        let waited = 0;
+        while (isChallengePage(raw) && waited < challengeWaitMs) {
+          await sleep(challengePollMs);
+          waited += challengePollMs;
+          raw = await withDeadline(page.content(), timeoutMs, 'content read');
+        }
+        if (isChallengePage(raw)) {
+          log('browser').warn(
+            { url, waited, event: 'INTERSTITIAL-UNCLEARED' },
+            'interstitial did not clear (interactive Turnstile needs a captcha-solving service)',
+          );
+        } else {
+          log('browser').info({ url, waited, event: 'INTERSTITIAL-CLEARED' }, 'interstitial auto-resolved');
+        }
+      }
+
       const body = raw.length > maxBodyBytes ? raw.slice(0, maxBodyBytes) : raw;
       return {
         status: response?.status() ?? 0,
