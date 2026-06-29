@@ -4,7 +4,7 @@
  * real Chromium is needed.
  */
 import { describe, it, expect } from 'vitest';
-import { createBrowserFetcher, isChallengePage, type BrowserLauncher } from '../src/scraping/browserFetcher';
+import { createBrowserFetcher, isChallengePage, isTrackerUrl, type BrowserLauncher } from '../src/scraping/browserFetcher';
 
 /** A fake page whose content()/goto behaviour each test controls. */
 function fakePage(opts: { content?: () => Promise<string>; gotoStatus?: number } = {}) {
@@ -124,6 +124,42 @@ describe('createBrowserFetcher resilience', () => {
     const r = await fetch('https://x', { headers });
     expect(r.body).toBe('<html>real page</html>');
     expect(call).toBeGreaterThanOrEqual(3);
+  });
+
+  it('isTrackerUrl matches ad/analytics hosts (incl. subdomains) but not the vendor', () => {
+    expect(isTrackerUrl('https://www.google-analytics.com/g/collect')).toBe(true);
+    expect(isTrackerUrl('https://stats.g.doubleclick.net/x')).toBe(true);
+    expect(isTrackerUrl('https://olx.ro/d/oferta/123')).toBe(false);
+    expect(isTrackerUrl('https://extra.example.com/x', ['example.com'])).toBe(true); // extra host
+    expect(isTrackerUrl('not a url')).toBe(false);
+  });
+
+  it('aborts tracker requests and lets real ones through (route interception)', async () => {
+    const closed = { context: false };
+    let handler: ((r: { request(): { url(): string }; abort(): Promise<void>; continue(): Promise<void> }) => void) | undefined;
+    const launcher: BrowserLauncher = async () =>
+      ({
+        newContext: async () => ({
+          newPage: async () => fakePage(),
+          route: async (_p: string, h: typeof handler) => { handler = h; },
+          close: async () => { closed.context = true; },
+        }),
+        close: async () => {},
+      }) as never;
+
+    await createBrowserFetcher({ launcher })('https://olx.ro/s', { headers });
+    expect(handler).toBeDefined();
+
+    const calls = { aborted: 0, continued: 0 };
+    const mkRoute = (u: string) => ({
+      request: () => ({ url: () => u }),
+      abort: async () => { calls.aborted++; },
+      continue: async () => { calls.continued++; },
+    });
+    handler!(mkRoute('https://www.googletagmanager.com/gtm.js'));
+    handler!(mkRoute('https://olx.ro/listings.json'));
+    expect(calls.aborted).toBe(1);
+    expect(calls.continued).toBe(1);
   });
 
   it('gives up after the budget and returns the challenge body (no throw)', async () => {
