@@ -185,6 +185,8 @@ export function browseKeyboard(
     .text(saved ? t.btn_saved : t.btn_save, `bsv:${index}`)
     .text(t.btn_note, `bnt:${index}`)
     .text(t.btn_dismiss, `bdm:${index}`);
+  // Done → back to the /start home index.
+  kb.row().text(t.btn_done, 'bdone');
   return kb;
 }
 
