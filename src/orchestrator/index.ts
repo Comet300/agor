@@ -21,6 +21,7 @@ import type { Store } from "../persistence";
 import { maintainDb } from "../persistence";
 import type { PluginRegistry } from "../registry";
 import type { ScrapingEngine } from "../scraping/engine";
+import type { HealInfo } from "../scraping/selfHeal";
 import { CircuitBreaker } from "../scraping/circuitBreaker";
 import { DedupBuffer } from "../pipeline";
 import { Scheduler } from "../scheduler";
@@ -50,8 +51,21 @@ export interface OrchestratorDeps {
    * other return (void) simply disables that enrichment for the notification.
    */
   notify: (n: Notification) => Promise<MessageRef | void>;
+  /**
+   * Optional admin-alert sink for vendor-health events the operator should act
+   * on (currently: a dom-selector that self-healed and needs a manifest fix).
+   * Best-effort and fire-and-forget — failures must not affect the cycle.
+   */
+  alert?: (event: VendorAlert) => void;
   /** Clock seam; defaults to the real epoch-ms wall clock for production use. */
   now?: () => number;
+}
+
+/** An operator-facing vendor-health alert (delivered out-of-band to admins). */
+export interface VendorAlert {
+  kind: 'selector_healed';
+  vendor: string;
+  heal: HealInfo;
 }
 
 export class Orchestrator {
@@ -208,6 +222,20 @@ export class Orchestrator {
     const result = await this.cycle.run(monitor);
     await this.dispatch(result.notifications, monitor);
     await this.trackHealth(monitor, result);
+
+    // A self-healed dom-selector keeps the cycle working, but the manifest is now
+    // stale — log prominently and alert admins so a human pins the new selector.
+    if (result.healed) {
+      log("orchestrator").warn(
+        { monitorId: monitor.id, vendor: monitor.vendor, event: "SELECTOR-HEALED", ...result.healed },
+        "dom-selector self-healed — manifest needs updating",
+      );
+      try {
+        this.deps.alert?.({ kind: "selector_healed", vendor: monitor.vendor, heal: result.healed });
+      } catch {
+        /* admin alert is best-effort */
+      }
+    }
 
     // Feed the breaker: a blocked or failed cycle is unhealthy. The user was
     // already told the watch is failing at `failureAlertThreshold` (a lower

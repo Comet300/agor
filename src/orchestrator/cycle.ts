@@ -16,6 +16,7 @@ import type { IScrapedItem, Monitor, Notification } from '../contracts';
 import type { ItemSnapshot, Store } from '../persistence';
 import type { PluginRegistry } from '../registry';
 import type { ScrapingEngine } from '../scraping/engine';
+import type { HealInfo } from '../scraping/selfHeal';
 import {
   runPipeline,
   normalizeItems,
@@ -76,6 +77,8 @@ export interface CycleResult {
   newItems: number;
   /** True when the scrape was a recognised anti-bot hard block (circuit breaker). */
   blocked?: boolean;
+  /** Present when a dom-selector was relocated by self-healing this cycle. */
+  healed?: HealInfo;
 }
 
 export class MonitorCycle {
@@ -267,6 +270,7 @@ export class MonitorCycle {
       status: outcome.status,
       itemsActive: out.active.length,
       newItems: out.newEnriched.length,
+      healed: outcome.healed,
     };
   }
 
@@ -454,6 +458,7 @@ export class MonitorCycle {
       status: outcome.status,
       itemsActive: 1,
       newItems: notifications.length,
+      healed: outcome.healed,
     };
   }
 

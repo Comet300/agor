@@ -20,6 +20,7 @@ import { resolvePath } from '../util/jsonPath';
 import { browserHeaders } from './headers';
 import { extractPayload, extractCandidates, ExtractionError } from './extract';
 import { domExtractSearch, domExtractProduct } from './domExtract';
+import type { HealInfo, SelfHealer } from './selfHeal';
 import { classifyResponse, type BlockProvider } from './blockDetection';
 import { ProxyPool } from './proxyPool';
 import { log } from '../logging/logger';
@@ -56,6 +57,8 @@ export interface ScrapeOutcome {
   finalUrl?: string;
   /** True when the browser fallback produced this outcome. */
   usedBrowser: boolean;
+  /** Present when a dom-selector was relocated by self-healing this scrape. */
+  healed?: HealInfo;
 }
 
 /** HTTP statuses that indicate a proxy-level soft ban worth rotating away from. */
@@ -189,6 +192,8 @@ export class ScrapingEngine {
   private readonly browserFetcher?: Fetcher;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly rateLimit: boolean;
+  /** Optional self-healing store for `dom-selector` manifests. */
+  private readonly selfHealer?: SelfHealer;
   /** ms epoch of the last request issued per vendor (for rate limiting). */
   private readonly lastHit = new Map<string, number>();
 
@@ -200,11 +205,14 @@ export class ScrapingEngine {
     browserFetcher?: Fetcher;
     sleep?: (ms: number) => Promise<void>;
     rateLimit?: boolean;
+    /** Fingerprint store enabling self-healing of broken dom-selectors. */
+    selfHealer?: SelfHealer;
   }) {
     this.pool = opts.pool;
     this.fetcher = opts.fetcher ?? defaultFetcher;
     this.browserFetcher = opts.browserFetcher;
     this.sleep = opts.sleep ?? defaultSleep;
+    this.selfHealer = opts.selfHealer;
     // Rate limiting is on unless explicitly disabled.
     this.rateLimit = opts.rateLimit !== false;
   }
@@ -283,7 +291,7 @@ export class ScrapingEngine {
     plugin: IVendorPlugin,
     url: string,
     now: number,
-    extract: (body: string) => unknown[],
+    extract: (body: string) => { nodes: unknown[]; healed?: HealInfo },
   ): Promise<ScrapeOutcome> {
     await this.respectRateLimit(plugin, now);
 
@@ -349,8 +357,11 @@ export class ScrapingEngine {
     // that as a soft failure (empty, retriable cycle) rather than throwing into
     // the scheduler.
     let rawNodes: unknown[];
+    let healed: HealInfo | undefined;
     try {
-      rawNodes = extract(result.body);
+      const extracted = extract(result.body);
+      rawNodes = extracted.nodes;
+      healed = extracted.healed;
     } catch (err) {
       // Distinguish WHY extraction failed (vendor layout change vs. malformed
       // response vs. a bad manifest) via the ExtractionError's machine-readable
@@ -363,11 +374,17 @@ export class ScrapingEngine {
       return { ok: false, status: result.status, rawNodes: [], benched, ...blockFields };
     }
 
+    if (healed) {
+      log('engine').warn(
+        { vendor: plugin.vendor, url, event: 'SELECTOR-HEALED', ...healed },
+        'dom-selector relocated by self-healing — update the manifest',
+      );
+    }
     log('engine').debug(
       { vendor: plugin.vendor, url, status: result.status, items: rawNodes.length, usedBrowser },
       'fetch ok',
     );
-    return { ok: true, status: result.status, rawNodes, benched, ...blockFields };
+    return { ok: true, status: result.status, rawNodes, benched, ...blockFields, healed };
   }
 
   /**
@@ -381,12 +398,15 @@ export class ScrapingEngine {
     now: number,
   ): Promise<ScrapeOutcome> {
     if (plugin.engine === 'dom-selector') {
-      return this.scrape(plugin, url, now, (body) => domExtractSearch(body, plugin));
+      return this.scrape(plugin, url, now, (body) => {
+        const r = domExtractSearch(body, plugin, this.selfHealer);
+        return { nodes: r.records, healed: r.healed };
+      });
     }
     const { payload_locator, json_path_to_items } = plugin.search_mapping;
     return this.scrape(plugin, url, now, (body) => {
       const located = locate(body, payload_locator, json_path_to_items);
-      return Array.isArray(located) ? located : [];
+      return { nodes: Array.isArray(located) ? located : [] };
     });
   }
 
@@ -401,12 +421,15 @@ export class ScrapingEngine {
     now: number,
   ): Promise<ScrapeOutcome> {
     if (plugin.engine === 'dom-selector') {
-      return this.scrape(plugin, url, now, (body) => domExtractProduct(body, plugin));
+      return this.scrape(plugin, url, now, (body) => {
+        const r = domExtractProduct(body, plugin, this.selfHealer);
+        return { nodes: r.records, healed: r.healed };
+      });
     }
     const { payload_locator, json_path } = plugin.product_mapping;
     return this.scrape(plugin, url, now, (body) => {
       const located = locate(body, payload_locator, json_path);
-      return located == null ? [] : [located];
+      return { nodes: located == null ? [] : [located] };
     });
   }
 }

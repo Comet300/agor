@@ -16,6 +16,7 @@ import { ItemFlagsRepo } from "./itemFlags";
 import { WatchSubscribersRepo } from "./watchSubscribers";
 import { DigestQueueRepo } from "./digestQueue";
 import { ReportStateRepo } from "./reportState";
+import { DomFingerprintsRepo } from "./domFingerprints";
 
 export { MonitorRepo } from "./monitors";
 export { ItemRepo } from "./items";
@@ -28,6 +29,7 @@ export { ItemFlagsRepo, type ItemFlag } from "./itemFlags";
 export { WatchSubscribersRepo } from "./watchSubscribers";
 export { DigestQueueRepo, type DigestRow, type DigestPending } from "./digestQueue";
 export { ReportStateRepo, type ReportStateRow } from "./reportState";
+export { DomFingerprintsRepo } from "./domFingerprints";
 export { AuditRepo } from "./audit";
 export type { DedupStore, PersistedDedupEntry } from "./dedupStore";
 export type { AuditAction, AuditEntry } from "./audit";
@@ -65,6 +67,8 @@ export interface Store {
   digestQueue: DigestQueueRepo;
   /** Weekly-report opt-in + delivery cadence, per watch. */
   reportState: ReportStateRepo;
+  /** Self-healing DOM selectors: last-good element fingerprint per (vendor, role). */
+  domFingerprints: DomFingerprintsRepo;
   /**
    * Run `fn`'s writes inside a single SQLite transaction (atomic + faster):
    * either every write commits or, on a thrown error, all roll back. Used to
@@ -92,6 +96,7 @@ export function openStore(path: string): Store {
     watchSubscribers: new WatchSubscribersRepo(db),
     digestQueue: new DigestQueueRepo(db),
     reportState: new ReportStateRepo(db),
+    domFingerprints: new DomFingerprintsRepo(db),
     transaction: <T>(fn: () => T): T => db.transaction(fn)(),
   };
 }

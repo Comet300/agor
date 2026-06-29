@@ -102,7 +102,7 @@ describe('parseFieldSelector', () => {
 
 describe('domExtractSearch', () => {
   it('emits a field-name-keyed record per item with @attr and ! resolved', () => {
-    const records = domExtractSearch(SEARCH_HTML, DOM_PLUGIN);
+    const { records } = domExtractSearch(SEARCH_HTML, DOM_PLUGIN);
     expect(records).toHaveLength(2);
     expect(records[0]).toMatchObject({
       id: 'A1',
@@ -182,7 +182,7 @@ describe('dom-selector engine end-to-end (engine -> pipeline)', () => {
   it('skips an item missing a required field (no title)', () => {
     const html = `<ul><li class="card" data-id="X"><span class="price">10</span>
       <a class="link" href="https://domvendor.test/X">x</a></li></ul>`;
-    const items = normalizeItems(domExtractSearch(html, DOM_PLUGIN), DOM_PLUGIN, 'search');
+    const items = normalizeItems(domExtractSearch(html, DOM_PLUGIN).records, DOM_PLUGIN, 'search');
     expect(items).toHaveLength(0);
   });
 });

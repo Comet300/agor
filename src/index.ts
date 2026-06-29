@@ -22,9 +22,10 @@ import { unlink } from 'node:fs/promises';
 import { PluginRegistry } from './registry';
 import { ProxyPool } from './scraping/proxyPool';
 import { ScrapingEngine, closeAgentPool, type Fetcher } from './scraping/engine';
-import { Orchestrator } from './orchestrator';
+import { Orchestrator, type VendorAlert } from './orchestrator';
 import { buildBot, makeNotifier } from './gateway/bot';
-import { commandMenu } from './gateway/strings';
+import { commandMenu, tr } from './gateway/strings';
+import { resolveLang } from './gateway/lang';
 import { selectMode, startWebhook } from './gateway/webhook';
 import { healthHandler, startHealthServer, type HealthDeps } from './gateway/health';
 import { configureLogging, hasLoki, log } from './logging/logger';
@@ -167,6 +168,9 @@ async function main(): Promise<void> {
     pool,
     cooldownMs: config.proxyBenchCooldownMs,
     browserFetcher,
+    // Self-healing for dom-selector manifests: relocate broken selectors from a
+    // stored structural fingerprint instead of silently yielding zero items.
+    selfHealer: store.domFingerprints,
   });
 
   // 4. Telegram bot — only when a token is configured. Without one we still run
@@ -196,6 +200,11 @@ async function main(): Promise<void> {
     };
   }
 
+  // Admin alert sink for vendor-health events (e.g. a self-healed selector).
+  // Assigned once the bot exists (it is the delivery channel); the orchestrator
+  // holds a thin indirection so it can be constructed first.
+  let onVendorAlert: ((event: VendorAlert) => void) | undefined;
+
   // 5. Orchestrator: the engine that registration and polling drive through.
   const orchestrator = new Orchestrator({
     registry,
@@ -203,6 +212,7 @@ async function main(): Promise<void> {
     engine,
     config,
     notify,
+    alert: (event) => onVendorAlert?.(event),
   });
 
   // Now that the orchestrator exists, build the bot that drives it (and the
@@ -217,6 +227,24 @@ async function main(): Promise<void> {
       ...(config.backupLocalDir ? { backupLocalDir: config.backupLocalDir } : {}),
     });
     botNotifier = makeNotifier(bot, store);
+    // Now the bot exists: deliver vendor-health alerts as a DM to every admin,
+    // localized to each admin's language. Best-effort (unreachable admins skip).
+    onVendorAlert = (event: VendorAlert): void => {
+      if (!bot) return;
+      const ids = new Set<number>(config.adminChatIds);
+      for (const u of store.access.list()) if (u.isAdmin) ids.add(u.chatId);
+      for (const id of ids) {
+        const lang = resolveLang(store.chatPrefs.getLang(id));
+        const text = tr(lang).admin_selector_healed({
+          vendor: event.vendor,
+          from: event.heal.fromSelector,
+          to: event.heal.toSelector,
+        });
+        void bot.api.sendMessage(id, text).catch(() => {
+          /* admin unreachable */
+        });
+      }
+    };
     // Register the localized "/" command menu (Romanian default, English for
     // en-locale Telegram clients). Best-effort: a failure must not abort boot.
     try {

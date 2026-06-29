@@ -115,6 +115,8 @@ export interface Catalog {
   lang_usage: string;
   lang_name: string; // this language's own name, e.g. "Română" / "English"
   lang_pick_intro: string; // header above the home-menu language button picker
+  /** Admin DM when a dom-selector self-heals; prompts a manifest fix. */
+  admin_selector_healed: (p: { vendor: string; from: string; to: string }) => string;
   // Group/shared watches: fan a watch's alerts out to other chats.
   share_prompt: string;
   share_added: (a: { chatId: number; count: number }) => string;
@@ -450,6 +452,8 @@ const ro: Catalog = {
   lang_usage: 'Folosire: /lang ro|en|de|fr|it|es',
   lang_name: 'Română',
   lang_pick_intro: '🌐 Alege limba:',
+  admin_selector_healed: ({ vendor, from, to }) =>
+    `⚠️ Selector auto-reparat pentru ${vendor}.\nSelectorul fixat „${from}” nu mai potrivea; relocalizat la „${to}”.\nActualizează manifestul ca să fie permanent.`,
   share_prompt: 'Trimite id-ul chatului cu care să partajez această urmărire (folosește /chatid în celălalt chat ca să-l afli). „-” anulează.',
   share_added: ({ chatId, count }) => `Partajat cu ${chatId}. Urmărirea trimite acum alerte și către ${count} chat(uri) suplimentare.`,
   share_removed: ({ count }) => `Oprit. Urmărirea mai este partajată cu ${count} chat(uri).`,
@@ -770,6 +774,8 @@ const en: Catalog = {
   lang_usage: 'Usage: /lang ro|en|de|fr|it|es',
   lang_name: 'English',
   lang_pick_intro: '🌐 Choose your language:',
+  admin_selector_healed: ({ vendor, from, to }) =>
+    `⚠️ Self-healed selector for ${vendor}.\nThe pinned selector "${from}" stopped matching; relocated to "${to}".\nUpdate the manifest to make this permanent.`,
   share_prompt: 'Send the chat id to share this watch with (use /chatid in the other chat to get it). “-” cancels.',
   share_added: ({ chatId, count }) => `Shared with ${chatId}. This watch now also alerts ${count} extra chat(s).`,
   share_removed: ({ count }) => `Stopped. This watch is now shared with ${count} chat(s).`,
@@ -1085,6 +1091,8 @@ const de: Catalog = {
   lang_usage: 'Verwendung: /lang ro|en|de|fr|it|es',
   lang_name: 'Deutsch',
   lang_pick_intro: '🌐 Sprache wählen:',
+  admin_selector_healed: ({ vendor, from, to }) =>
+    `⚠️ Selbstreparierter Selektor für ${vendor}.\nDer fixierte Selektor „${from}“ passte nicht mehr; verlegt auf „${to}“.\nManifest aktualisieren, damit es dauerhaft wird.`,
   share_prompt: 'Schicke die Chat-ID, mit der diese Beobachtung geteilt werden soll (nutze /chatid im anderen Chat, um sie zu erhalten). „-“ bricht ab.',
   share_added: ({ chatId, count }) => `Geteilt mit ${chatId}. Diese Beobachtung benachrichtigt jetzt auch ${count} weitere(n) Chat(s).`,
   share_removed: ({ count }) => `Gestoppt. Diese Beobachtung ist jetzt mit ${count} Chat(s) geteilt.`,
@@ -1400,6 +1408,8 @@ const it: Catalog = {
   lang_usage: 'Uso: /lang ro|en|de|fr|it|es',
   lang_name: 'Italiano',
   lang_pick_intro: '🌐 Scegli la lingua:',
+  admin_selector_healed: ({ vendor, from, to }) =>
+    `⚠️ Selettore auto-riparato per ${vendor}.\nIl selettore fissato “${from}” non corrispondeva più; rilocato su “${to}”.\nAggiorna il manifest per renderlo permanente.`,
   share_prompt: 'Invia l’id della chat con cui condividere questo monitoraggio (usa /chatid nell’altra chat per ottenerlo). „-“ annulla.',
   share_added: ({ chatId, count }) => `Condiviso con ${chatId}. Questo monitoraggio ora avvisa anche ${count} chat in più.`,
   share_removed: ({ count }) => `Interrotto. Questo monitoraggio è ora condiviso con ${count} chat.`,
@@ -1715,6 +1725,8 @@ const es: Catalog = {
   lang_usage: 'Uso: /lang ro|en|de|fr|it|es',
   lang_name: 'Español',
   lang_pick_intro: '🌐 Elige el idioma:',
+  admin_selector_healed: ({ vendor, from, to }) =>
+    `⚠️ Selector auto-reparado para ${vendor}.\nEl selector fijado «${from}» dejó de coincidir; reubicado a «${to}».\nActualiza el manifest para hacerlo permanente.`,
   share_prompt: 'Envía el id del chat con el que compartir este seguimiento (usa /chatid en el otro chat para obtenerlo). “-” cancela.',
   share_added: ({ chatId, count }) => `Compartido con ${chatId}. Este seguimiento ahora también avisa a ${count} chat(s) más.`,
   share_removed: ({ count }) => `Detenido. Este seguimiento ahora se comparte con ${count} chat(s).`,
@@ -2030,6 +2042,8 @@ const fr: Catalog = {
   lang_usage: 'Utilisation : /lang ro|en|de|fr|it|es',
   lang_name: 'Français',
   lang_pick_intro: '🌐 Choisissez la langue :',
+  admin_selector_healed: ({ vendor, from, to }) =>
+    `⚠️ Sélecteur auto-réparé pour ${vendor}.\nLe sélecteur fixé « ${from} » ne correspondait plus ; relocalisé vers « ${to} ».\nMettez à jour le manifeste pour le rendre permanent.`,
   share_prompt: 'Envoyez l’id du chat avec lequel partager ce suivi (utilisez /chatid dans l’autre chat pour l’obtenir). « - » annule.',
   share_added: ({ chatId, count }) => `Partagé avec ${chatId}. Ce suivi alerte désormais aussi ${count} chat(s) supplémentaire(s).`,
   share_removed: ({ count }) => `Arrêté. Ce suivi est désormais partagé avec ${count} chat(s).`,
