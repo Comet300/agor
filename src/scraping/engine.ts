@@ -21,6 +21,7 @@ import { browserHeaders } from './headers';
 import { extractPayload, extractCandidates, ExtractionError } from './extract';
 import { domExtractSearch, domExtractProduct } from './domExtract';
 import type { HealInfo, SelfHealer } from './selfHeal';
+import type { CookieJar } from './cookieJar';
 import { classifyResponse, type BlockProvider } from './blockDetection';
 import { ProxyPool } from './proxyPool';
 import { log } from '../logging/logger';
@@ -33,12 +34,14 @@ export interface FetchResult {
   headers?: Record<string, string | string[] | undefined>;
   /** The URL the request finally resolved to after following redirects. */
   finalUrl?: string;
+  /** Raw `Set-Cookie` header lines, for the per-vendor cookie jar. */
+  setCookie?: string[];
 }
 
 /** Injectable transport: resolves a URL (optionally via a proxy) to a body. */
 export type Fetcher = (
   url: string,
-  opts: { headers: Record<string, string>; proxyUrl?: string },
+  opts: { headers: Record<string, string>; proxyUrl?: string; cookie?: string },
 ) => Promise<FetchResult>;
 
 /** Result of a scrape: the raw vendor item nodes plus transport/health metadata. */
@@ -168,17 +171,21 @@ export async function closeAgentPool(): Promise<void> {
  * URL for block detection and canonical persistence. The body is read with a
  * size cap so an oversized response cannot exhaust memory.
  */
-export const defaultFetcher: Fetcher = async (url, { headers, proxyUrl }) => {
+export const defaultFetcher: Fetcher = async (url, { headers, proxyUrl, cookie }) => {
   const base = getOrCreateAgent(proxyUrl);
   const dispatcher = base.compose(interceptors.redirect({ maxRedirections: MAX_REDIRECTS }));
-  const res = await request(url, { method: 'GET', headers, dispatcher });
+  // Attach the persisted session cookies for this domain, if any.
+  const reqHeaders = cookie ? { ...headers, Cookie: cookie } : headers;
+  const res = await request(url, { method: 'GET', headers: reqHeaders, dispatcher });
   const body = await readCappedText(res);
   // The redirect interceptor records the hop chain on res.context.history; the
   // last entry is the URL the request finally resolved to.
   const history = (res.context as { history?: URL[] } | undefined)?.history;
   const finalUrl =
     history && history.length > 0 ? String(history[history.length - 1]) : url;
-  return { status: res.statusCode, body, headers: res.headers, finalUrl };
+  const sc = res.headers['set-cookie'];
+  const setCookie = sc === undefined ? undefined : Array.isArray(sc) ? sc : [sc];
+  return { status: res.statusCode, body, headers: res.headers, finalUrl, setCookie };
 };
 
 /** Default no-op-respecting sleep used when none is injected. */
@@ -194,6 +201,8 @@ export class ScrapingEngine {
   private readonly rateLimit: boolean;
   /** Optional self-healing store for `dom-selector` manifests. */
   private readonly selfHealer?: SelfHealer;
+  /** Optional per-vendor cookie jar (session/clearance cookie reuse). */
+  private readonly cookieJar?: CookieJar;
   /** ms epoch of the last request issued per vendor (for rate limiting). */
   private readonly lastHit = new Map<string, number>();
 
@@ -207,12 +216,15 @@ export class ScrapingEngine {
     rateLimit?: boolean;
     /** Fingerprint store enabling self-healing of broken dom-selectors. */
     selfHealer?: SelfHealer;
+    /** Per-vendor cookie jar; when present, sessions persist across polls. */
+    cookieJar?: CookieJar;
   }) {
     this.pool = opts.pool;
     this.fetcher = opts.fetcher ?? defaultFetcher;
     this.browserFetcher = opts.browserFetcher;
     this.sleep = opts.sleep ?? defaultSleep;
     this.selfHealer = opts.selfHealer;
+    this.cookieJar = opts.cookieJar;
     // Rate limiting is on unless explicitly disabled.
     this.rateLimit = opts.rateLimit !== false;
   }
@@ -246,6 +258,7 @@ export class ScrapingEngine {
   private async fetchWithRotation(
     url: string,
     now: number,
+    domain?: string,
   ): Promise<{ result?: FetchResult; benched: string[] }> {
     const benched: string[] = [];
     const headers = browserHeaders();
@@ -258,7 +271,10 @@ export class ScrapingEngine {
         return { benched };
       }
 
-      const result = await this.fetcher(url, { headers, proxyUrl });
+      // Replay persisted session cookies for this domain; capture any updates.
+      const cookie = domain && this.cookieJar ? this.cookieJar.cookieHeader(domain, now) : undefined;
+      const result = await this.fetcher(url, { headers, proxyUrl, ...(cookie ? { cookie } : {}) });
+      if (domain && this.cookieJar) this.cookieJar.ingestSetCookie(domain, result.setCookie, now);
 
       if (SOFT_BAN_STATUSES.has(result.status)) {
         log('engine').warn(
@@ -295,7 +311,7 @@ export class ScrapingEngine {
   ): Promise<ScrapeOutcome> {
     await this.respectRateLimit(plugin, now);
 
-    let { result, benched } = await this.fetchWithRotation(url, now);
+    let { result, benched } = await this.fetchWithRotation(url, now, plugin.domain);
     let usedBrowser = false;
 
     // Classify the response against provider block signatures (header-based,
@@ -318,9 +334,14 @@ export class ScrapingEngine {
         'hard block — escalating to headless browser',
       );
       try {
-        const browserResult = await this.browserFetcher(url, { headers: browserHeaders() });
+        // The browser pass is where a Cloudflare challenge actually clears, so
+        // replay + capture cookies here too — the resulting clearance cookie then
+        // rides the cheap HTTP transport on subsequent polls.
+        const cookie = this.cookieJar ? this.cookieJar.cookieHeader(plugin.domain, now) : undefined;
+        const browserResult = await this.browserFetcher(url, { headers: browserHeaders(), ...(cookie ? { cookie } : {}) });
         usedBrowser = true;
         result = browserResult;
+        if (this.cookieJar) this.cookieJar.ingestSetCookie(plugin.domain, browserResult.setCookie, now);
         classification = classifyResponse(browserResult.status, browserResult.headers ?? {});
       } catch (err) {
         log('engine').warn(

@@ -65,6 +65,26 @@ describe('createImpersonateFetcher', () => {
     expect(seen.join(' ')).not.toContain('sec-ch-ua');
   });
 
+  it('sends a Cookie header when one is supplied', async () => {
+    let seen: string[] = [];
+    const f = createImpersonateFetcher({
+      binary: 'b',
+      runner: fakeRunner({ stdout: Buffer.from(`x${META}200\turl`), onArgs: (a) => (seen = a) }),
+    });
+    await f('https://x.test', { headers: {}, cookie: 'sid=abc; t=1' });
+    expect(seen.join(' ')).toContain('Cookie: sid=abc; t=1');
+  });
+
+  it('captures Set-Cookie lines from the final header block', async () => {
+    const headerText = 'HTTP/2 200\r\nset-cookie: sid=abc; Path=/\r\nset-cookie: cf_clearance=xyz; Max-Age=3600\r\n';
+    const f = createImpersonateFetcher({
+      binary: 'b',
+      runner: fakeRunner({ stdout: Buffer.from(`x${META}200\turl`), headerText }),
+    });
+    const res = await f('https://x.test', { headers: {} });
+    expect(res.setCookie).toEqual(['sid=abc; Path=/', 'cf_clearance=xyz; Max-Age=3600']);
+  });
+
   it('throws on a non-zero curl exit so the caller can fall back', async () => {
     const f = createImpersonateFetcher({
       binary: 'b',

@@ -220,6 +220,14 @@ export function migrate(db: DB): void {
       updated_at      INTEGER NOT NULL,
       PRIMARY KEY (vendor, role)
     );
+
+    -- Per-vendor cookie jar (JSON: name → {value, expiresAt}) so a session /
+    -- clearance cookie survives across polls and restarts. See cookieJar.ts.
+    CREATE TABLE IF NOT EXISTS cookies (
+      domain      TEXT PRIMARY KEY,
+      jar         TEXT NOT NULL,
+      updated_at  INTEGER NOT NULL
+    );
   `);
 
   // Idempotent column additions for databases created before these columns existed.

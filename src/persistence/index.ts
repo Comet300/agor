@@ -17,6 +17,7 @@ import { WatchSubscribersRepo } from "./watchSubscribers";
 import { DigestQueueRepo } from "./digestQueue";
 import { ReportStateRepo } from "./reportState";
 import { DomFingerprintsRepo } from "./domFingerprints";
+import { CookieStoreRepo } from "./cookieStore";
 
 export { MonitorRepo } from "./monitors";
 export { ItemRepo } from "./items";
@@ -30,6 +31,7 @@ export { WatchSubscribersRepo } from "./watchSubscribers";
 export { DigestQueueRepo, type DigestRow, type DigestPending } from "./digestQueue";
 export { ReportStateRepo, type ReportStateRow } from "./reportState";
 export { DomFingerprintsRepo } from "./domFingerprints";
+export { CookieStoreRepo } from "./cookieStore";
 export { AuditRepo } from "./audit";
 export type { DedupStore, PersistedDedupEntry } from "./dedupStore";
 export type { AuditAction, AuditEntry } from "./audit";
@@ -69,6 +71,8 @@ export interface Store {
   reportState: ReportStateRepo;
   /** Self-healing DOM selectors: last-good element fingerprint per (vendor, role). */
   domFingerprints: DomFingerprintsRepo;
+  /** Per-vendor cookie jar persistence (session/clearance cookie reuse). */
+  cookies: CookieStoreRepo;
   /**
    * Run `fn`'s writes inside a single SQLite transaction (atomic + faster):
    * either every write commits or, on a thrown error, all roll back. Used to
@@ -97,6 +101,7 @@ export function openStore(path: string): Store {
     digestQueue: new DigestQueueRepo(db),
     reportState: new ReportStateRepo(db),
     domFingerprints: new DomFingerprintsRepo(db),
+    cookies: new CookieStoreRepo(db),
     transaction: <T>(fn: () => T): T => db.transaction(fn)(),
   };
 }
