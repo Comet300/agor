@@ -68,6 +68,14 @@ export interface IPluginSearchMapping {
   attributes_from?: AttributesFrom;
 }
 
+/**
+ * Pagination scheme for multi-page search scraping. Currently query-param style:
+ * page K is the search URL with `?<param>=K` set. Absent ⇒ single-page scrape.
+ */
+export interface PaginationConfig {
+  param: string;
+}
+
 export interface IVendorPlugin {
   vendor: string;
   domain: string;
@@ -75,6 +83,8 @@ export interface IVendorPlugin {
   /** Transport strategy; defaults to `http` when the manifest omits it. */
   fetch_strategy?: FetchStrategy;
   rate_limit_ms: number;
+  /** Multi-page search pagination; when set, the engine walks pages up to a cap. */
+  pagination?: PaginationConfig;
   search_mapping: IPluginSearchMapping;
   product_mapping: IPluginMapping;
 }

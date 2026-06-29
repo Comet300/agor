@@ -75,6 +75,10 @@ const EnvSchema = z.object({
   // Path/name of the curl-impersonate binary (e.g. `curl_chrome116`). Only used
   // when ENABLE_TLS_IMPERSONATION is true.
   CURL_IMPERSONATE_PATH: z.string().default("curl_chrome116"),
+  // Max search pages walked per cycle for vendors with a pagination config.
+  // Each extra page is another rate-limited request, so keep this modest to stay
+  // ban-safe. 1 disables multi-page. Default 3.
+  MAX_SEARCH_PAGES: z.coerce.number().int().positive().max(10).default(3),
   // Consecutive blocked/failed cycles before a vendor is circuit-broken (polling
   // paused until manual re-enable). Deliberately higher than
   // FAILURE_ALERT_THRESHOLD: telling the user a watch is failing is cheap and
@@ -145,6 +149,8 @@ export interface AppConfig {
   enableTlsImpersonation: boolean;
   /** Path/name of the curl-impersonate binary (used when impersonation is on). */
   curlImpersonatePath: string;
+  /** Max search pages walked per cycle for paginated vendors (1 = single page). */
+  maxSearchPages: number;
   /** Consecutive blocked/failed cycles before a vendor is circuit-broken. */
   circuitBreakerThreshold: number;
   /** Cooldown (ms) before an open vendor breaker auto-probes (half-open). */
@@ -201,6 +207,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     enableBrowserFallback: parsed.ENABLE_BROWSER_FALLBACK,
     enableTlsImpersonation: parsed.ENABLE_TLS_IMPERSONATION,
     curlImpersonatePath: parsed.CURL_IMPERSONATE_PATH,
+    maxSearchPages: parsed.MAX_SEARCH_PAGES,
     circuitBreakerThreshold: parsed.CIRCUIT_BREAKER_THRESHOLD,
     circuitBreakerCooldownMs: parsed.CIRCUIT_BREAKER_COOLDOWN_MS,
     backupIntervalMs: parsed.BACKUP_INTERVAL_MS,

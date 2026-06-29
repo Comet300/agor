@@ -12,6 +12,11 @@ vendor: Publi24
 domain: publi24.ro
 engine: json-extractor
 rate_limit_ms: 3000
+# SERP pagination is the `pag` query param (?...&pag=2). Verified against a live
+# search 2026-06: results span multiple pages, so a watch must walk them to see
+# listings beyond page 1 (e.g. a Swace that ranks onto page 2).
+pagination:
+  param: pag
 
 search_mapping:
   payload_locator: "ldjson"
