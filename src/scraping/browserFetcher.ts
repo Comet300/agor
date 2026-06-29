@@ -31,6 +31,10 @@ interface ContextHandle {
   newPage(): Promise<PageHandle>;
   /** Run a script in every page before its own scripts (fingerprint hardening). */
   addInitScript?(script: string): Promise<void>;
+  /** Seed the context with persisted session cookies before navigating. */
+  addCookies?(cookies: { name: string; value: string; url: string }[]): Promise<void>;
+  /** Read the context's cookies after navigation (to persist into the jar). */
+  cookies?(): Promise<{ name: string; value: string; expires?: number }[]>;
   close(): Promise<void>;
 }
 interface PageHandle {
@@ -215,7 +219,7 @@ export function createBrowserFetcher(options: BrowserFetcherOptions = {}): Fetch
   const challengePollMs = options.challengePollMs ?? 1_500;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
-  return async (url, { headers }) => {
+  return async (url, { headers, cookie }) => {
     const browser = await launcher();
     // A coherent desktop identity: UA + locale + timezone + a real viewport so a
     // fingerprint probe sees a consistent profile, not a default headless one.
@@ -228,6 +232,14 @@ export function createBrowserFetcher(options: BrowserFetcherOptions = {}): Fetch
     try {
       // Reinforce the JS fingerprint before any page script runs (best-effort).
       await context.addInitScript?.(HARDENING_SCRIPT);
+      // Seed persisted session cookies so the browser arrives as a returning visitor.
+      if (cookie && context.addCookies) {
+        const seeded = cookie
+          .split('; ')
+          .map((p) => { const i = p.indexOf('='); return i > 0 ? { name: p.slice(0, i), value: p.slice(i + 1), url } : undefined; })
+          .filter((c): c is { name: string; value: string; url: string } => c !== undefined);
+        if (seeded.length) await context.addCookies(seeded).catch(() => undefined);
+      }
       const page = await context.newPage();
       // Carry the same accept/client-hint headers the HTTP path sends.
       await page.setExtraHTTPHeaders(headers);
@@ -261,11 +273,26 @@ export function createBrowserFetcher(options: BrowserFetcherOptions = {}): Fetch
       }
 
       const body = raw.length > maxBodyBytes ? raw.slice(0, maxBodyBytes) : raw;
+      // Persist whatever cookies the browser ended up with (esp. a freshly minted
+      // cf_clearance) as Set-Cookie lines, so the cheap HTTP transport can reuse
+      // them on subsequent polls.
+      let setCookie: string[] | undefined;
+      if (context.cookies) {
+        try {
+          const jarCookies = await context.cookies();
+          setCookie = jarCookies.map((c) =>
+            c.expires !== undefined && c.expires > 0
+              ? `${c.name}=${c.value}; Expires=${new Date(c.expires * 1000).toUTCString()}`
+              : `${c.name}=${c.value}`,
+          );
+        } catch { /* cookie read is best-effort */ }
+      }
       return {
         status: response?.status() ?? 0,
         body,
         headers: response?.headers() ?? {},
         finalUrl: response?.url() ?? url,
+        ...(setCookie && setCookie.length ? { setCookie } : {}),
       };
     } finally {
       // Teardown is also deadline-bounded so a stuck close cannot wedge the cycle.

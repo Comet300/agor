@@ -22,6 +22,7 @@ import { unlink } from 'node:fs/promises';
 import { PluginRegistry } from './registry';
 import { ProxyPool } from './scraping/proxyPool';
 import { ScrapingEngine, closeAgentPool, type Fetcher } from './scraping/engine';
+import { CookieJar } from './scraping/cookieJar';
 import { Orchestrator, type VendorAlert } from './orchestrator';
 import { buildBot, makeNotifier } from './gateway/bot';
 import { commandMenu, tr } from './gateway/strings';
@@ -178,6 +179,10 @@ async function main(): Promise<void> {
     log('boot').info({ binary: config.curlImpersonatePath }, 'TLS impersonation enabled (curl-impersonate → undici fallback)');
   }
 
+  // Per-vendor cookie jar: a session/clearance cookie set on one poll rides the
+  // next (and survives a restart via SQLite), cutting repeat challenges.
+  const cookieJar = new CookieJar(store.cookies);
+
   const engine = new ScrapingEngine({
     pool,
     cooldownMs: config.proxyBenchCooldownMs,
@@ -186,6 +191,7 @@ async function main(): Promise<void> {
     // Self-healing for dom-selector manifests: relocate broken selectors from a
     // stored structural fingerprint instead of silently yielding zero items.
     selfHealer: store.domFingerprints,
+    cookieJar,
   });
 
   // 4. Telegram bot — only when a token is configured. Without one we still run

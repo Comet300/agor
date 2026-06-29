@@ -93,17 +93,32 @@ const defaultRunner: CurlRunner = async (binary, args, timeoutMs) => {
   }
 };
 
+/** The final (post-redirect) header block of a `-D` dump. */
+function finalHeaderBlock(headerText: string): string {
+  const blocks = headerText.split(/\r?\n\r?\n/).map((b) => b.trim()).filter(Boolean);
+  return blocks[blocks.length - 1] ?? '';
+}
+
 /** Parse the final header block of a `-D` dump into a lower-cased header map. */
 function parseHeaders(headerText: string): Record<string, string> {
-  const blocks = headerText.split(/\r?\n\r?\n/).map((b) => b.trim()).filter(Boolean);
-  const last = blocks[blocks.length - 1] ?? '';
   const headers: Record<string, string> = {};
-  for (const line of last.split(/\r?\n/)) {
+  for (const line of finalHeaderBlock(headerText).split(/\r?\n/)) {
     const idx = line.indexOf(':');
     if (idx <= 0) continue; // skip the "HTTP/2 200" status line and blanks
     headers[line.slice(0, idx).trim().toLowerCase()] = line.slice(idx + 1).trim();
   }
   return headers;
+}
+
+/** Collect every `Set-Cookie` line from the final header block (map loses dupes). */
+function parseSetCookieLines(headerText: string): string[] {
+  const lines: string[] = [];
+  for (const line of finalHeaderBlock(headerText).split(/\r?\n/)) {
+    const idx = line.indexOf(':');
+    if (idx <= 0) continue;
+    if (line.slice(0, idx).trim().toLowerCase() === 'set-cookie') lines.push(line.slice(idx + 1).trim());
+  }
+  return lines;
 }
 
 /**
@@ -118,7 +133,7 @@ export function createImpersonateFetcher(options: ImpersonateOptions): Fetcher {
   const maxBodyBytes = options.maxBodyBytes ?? MAX_BODY_BYTES;
   const runner = options.runner ?? defaultRunner;
 
-  return async (url, { headers, proxyUrl }): Promise<FetchResult> => {
+  return async (url, { headers, proxyUrl, cookie }): Promise<FetchResult> => {
     const args = [
       '-sS', // silent but surface errors on stderr
       '--compressed',
@@ -130,6 +145,8 @@ export function createImpersonateFetcher(options: ImpersonateOptions): Fetcher {
     // Carry the language preference only; the binary owns UA / client-hint order.
     const lang = headers['Accept-Language'] ?? headers['accept-language'];
     if (lang) args.push('-H', `Accept-Language: ${lang}`);
+    // Replay persisted session cookies for this domain.
+    if (cookie) args.push('-H', `Cookie: ${cookie}`);
     // Status + post-redirect URL appended after the body, behind a sentinel.
     args.push('-w', `${META}%{http_code}\t%{url_effective}`, url);
 
@@ -145,11 +162,13 @@ export function createImpersonateFetcher(options: ImpersonateOptions): Fetcher {
     const [statusStr, finalUrl] = meta.split('\t');
 
     const body = rawBody.length > maxBodyBytes ? rawBody.slice(0, maxBodyBytes) : rawBody;
+    const setCookie = parseSetCookieLines(run.headerText);
     return {
       status: Number(statusStr) || 0,
       body,
       headers: parseHeaders(run.headerText),
       finalUrl: finalUrl?.trim() || url,
+      ...(setCookie.length ? { setCookie } : {}),
     };
   };
 }
