@@ -6,7 +6,7 @@ describe('loadConfig', () => {
     const cfg = loadConfig({});
     expect(cfg.databasePath).toBe('./agor.db');
     expect(cfg.proxyUrls).toEqual([]);
-    expect(cfg.defaultCheckIntervalMs).toBe(600_000);
+    expect(cfg.defaultCheckIntervalMs).toBe(21_600_000); // 6h default
     expect(cfg.benchmarkMinSample).toBe(4);
     expect(cfg.botToken).toBeUndefined();
     // Browser fallback is OFF by default so the base install never needs Chromium.
