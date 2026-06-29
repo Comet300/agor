@@ -192,6 +192,17 @@ export const defaultFetcher: Fetcher = async (url, { headers, proxyUrl, cookie }
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Build page-K's URL by setting the vendor's pagination query param. */
+function withPageParam(url: string, param: string, page: number): string {
+  try {
+    const u = new URL(url);
+    u.searchParams.set(param, String(page));
+    return u.toString();
+  } catch {
+    return url; // non-absolute URL (shouldn't happen for a registered watch)
+  }
+}
+
 export class ScrapingEngine {
   private readonly pool: ProxyPool;
   private readonly fetcher: Fetcher;
@@ -203,6 +214,8 @@ export class ScrapingEngine {
   private readonly selfHealer?: SelfHealer;
   /** Optional per-vendor cookie jar (session/clearance cookie reuse). */
   private readonly cookieJar?: CookieJar;
+  /** Max search pages to walk for paginated vendors (1 = single page). */
+  private readonly maxSearchPages: number;
   /** ms epoch of the last request issued per vendor (for rate limiting). */
   private readonly lastHit = new Map<string, number>();
 
@@ -218,6 +231,8 @@ export class ScrapingEngine {
     selfHealer?: SelfHealer;
     /** Per-vendor cookie jar; when present, sessions persist across polls. */
     cookieJar?: CookieJar;
+    /** Max search pages to walk for paginated vendors (default 1 = single page). */
+    maxSearchPages?: number;
   }) {
     this.pool = opts.pool;
     this.fetcher = opts.fetcher ?? defaultFetcher;
@@ -225,6 +240,7 @@ export class ScrapingEngine {
     this.sleep = opts.sleep ?? defaultSleep;
     this.selfHealer = opts.selfHealer;
     this.cookieJar = opts.cookieJar;
+    this.maxSearchPages = Math.max(1, opts.maxSearchPages ?? 1);
     // Rate limiting is on unless explicitly disabled.
     this.rateLimit = opts.rateLimit !== false;
   }
@@ -413,22 +429,47 @@ export class ScrapingEngine {
    * `json_path_to_items` to an array; for `dom-selector` plugins it extracts
    * item records via CSS selectors. Both yield raw nodes the normalizer consumes.
    */
-  scrapeSearch(
+  async scrapeSearch(
     plugin: IVendorPlugin,
     url: string,
     now: number,
   ): Promise<ScrapeOutcome> {
-    if (plugin.engine === 'dom-selector') {
-      return this.scrape(plugin, url, now, (body) => {
-        const r = domExtractSearch(body, plugin, this.selfHealer);
-        return { nodes: r.records, healed: r.healed };
-      });
+    const extract =
+      plugin.engine === 'dom-selector'
+        ? (body: string) => {
+            const r = domExtractSearch(body, plugin, this.selfHealer);
+            return { nodes: r.records, healed: r.healed };
+          }
+        : (body: string) => {
+            const located = locate(body, plugin.search_mapping.payload_locator, plugin.search_mapping.json_path_to_items);
+            return { nodes: Array.isArray(located) ? located : [] };
+          };
+
+    const first = await this.scrape(plugin, url, now, extract);
+    // Single page unless the vendor opts into pagination and the page-1 scrape
+    // succeeded with a full page worth of items.
+    if (!first.ok || !plugin.pagination || this.maxSearchPages <= 1 || first.rawNodes.length === 0) {
+      return first;
     }
-    const { payload_locator, json_path_to_items } = plugin.search_mapping;
-    return this.scrape(plugin, url, now, (body) => {
-      const located = locate(body, payload_locator, json_path_to_items);
-      return { nodes: Array.isArray(located) ? located : [] };
-    });
+
+    // Walk further pages, accumulating raw nodes. Each page goes through the same
+    // rate-limited, proxy-rotated fetch (so vendor spacing is respected — ban-safe),
+    // and we stop as soon as a page is empty or short (the last page) to avoid
+    // over-fetching. The page cap is the hard ceiling.
+    const merged = [...first.rawNodes];
+    const pageSize = first.rawNodes.length;
+    for (let page = 2; page <= this.maxSearchPages; page++) {
+      const pageUrl = withPageParam(url, plugin.pagination.param, page);
+      const r = await this.scrape(plugin, pageUrl, now, extract);
+      if (!r.ok || r.rawNodes.length === 0) break;
+      merged.push(...r.rawNodes);
+      if (r.rawNodes.length < pageSize) break; // short page ⇒ last page
+    }
+    log('engine').debug(
+      { vendor: plugin.vendor, url, pages: Math.ceil(merged.length / Math.max(1, pageSize)), items: merged.length },
+      'paged search complete',
+    );
+    return { ...first, rawNodes: merged };
   }
 
   /**

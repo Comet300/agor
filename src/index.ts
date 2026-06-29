@@ -192,6 +192,7 @@ async function main(): Promise<void> {
     // stored structural fingerprint instead of silently yielding zero items.
     selfHealer: store.domFingerprints,
     cookieJar,
+    maxSearchPages: config.maxSearchPages,
   });
 
   // 4. Telegram bot — only when a token is configured. Without one we still run
