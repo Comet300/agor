@@ -79,6 +79,13 @@ export interface CycleResult {
   blocked?: boolean;
   /** Present when a dom-selector was relocated by self-healing this cycle. */
   healed?: HealInfo;
+  /**
+   * Raw items the SCRAPE returned, BEFORE any user filter. Distinguishes a
+   * genuinely empty/blocked vendor (0 found) from a working watch whose filters
+   * removed everything (found > 0, active 0) — so health alerts don't fire on a
+   * strict required keyword.
+   */
+  itemsFound?: number;
 }
 
 export class MonitorCycle {
@@ -271,6 +278,7 @@ export class MonitorCycle {
       itemsActive: out.active.length,
       newItems: out.newEnriched.length,
       healed: outcome.healed,
+      itemsFound: outcome.rawNodes.length,
     };
   }
 

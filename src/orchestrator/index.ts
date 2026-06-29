@@ -401,11 +401,15 @@ export class Orchestrator {
     result: CycleResult,
   ): Promise<void> {
     const priorListings = this.deps.store.items.knownIds(monitor.id).size;
+    // "Found nothing" must mean the SCRAPE returned nothing (empty/blocked) — NOT
+    // that the user's filters removed everything. A watch with a strict required
+    // keyword that legitimately matches no current listing is healthy, not failing.
+    // itemsFound is the pre-filter scrape count; fall back to itemsActive on older
+    // results that predate the field.
+    const scrapeFound = result.itemsFound ?? result.itemsActive;
     const unhealthy =
       !result.ok ||
-      (monitor.type === "search" &&
-        result.itemsActive === 0 &&
-        priorListings > 0);
+      (monitor.type === "search" && scrapeFound === 0 && priorListings > 0);
     const threshold = this.deps.config.failureAlertThreshold;
 
     // Health notices are best-effort: a delivery failure (blocked chat, Telegram
