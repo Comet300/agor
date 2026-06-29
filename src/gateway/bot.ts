@@ -39,7 +39,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, langPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -406,6 +406,22 @@ export function buildBot(
 
   // ── Commands ──────────────────────────────────────────────────────────────
 
+  // Render the home/index menu in place (used by /start, the home back arrow,
+  // and the language picker). Edits the current message; falls back to a fresh
+  // reply when there's nothing editable (or the edit is a no-op).
+  const renderHome = async (
+    ctx: {
+      editMessageText: (t: string, o?: object) => Promise<unknown>;
+      reply: (t: string, o?: object) => Promise<unknown>;
+    },
+    chatId: number,
+    lang: Lang,
+  ): Promise<void> => {
+    const markup = { reply_markup: homeKeyboard(lang, hasAccess(chatId)) };
+    try { await ctx.editMessageText(tr(lang).start_welcome, markup); }
+    catch { try { await ctx.reply(tr(lang).start_welcome, markup); } catch { /* expired */ } }
+  };
+
   bot.command('start', async (ctx) => {
     const chatId = ctx.chat.id;
     const lang = langFor(store, chatId);
@@ -415,23 +431,42 @@ export function buildBot(
   });
 
   // Home/index router: idx:<action> runs the matching command's flow in place.
-  bot.callbackQuery(/^idx:(list|browse|saved|stats|help|lang|access)$/, async (ctx) => {
+  bot.callbackQuery(/^idx:(home|list|browse|saved|stats|help|lang|access)$/, async (ctx) => {
     const chatId = ctx.chat?.id;
     const lang = langFor(store, chatId ?? 0);
     try {
       if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
       await ctx.answerCallbackQuery();
       switch (ctx.match[1]) {
+        case 'home': await renderHome(ctx, chatId, lang); break;
         case 'list': await runList(ctx, chatId); break;
         case 'browse': await runBrowse(ctx, chatId); break;
         case 'saved': await runSaved(ctx, chatId); break;
         case 'stats': await runStats(ctx, chatId); break;
         case 'help': await ctx.reply(tr(lang).help_body); break;
-        case 'lang': await ctx.reply(tr(lang).lang_current(tr(lang).lang_name)); break;
+        // Language is a fixed set → show a button picker in place, not a text hint.
+        case 'lang': await ctx.editMessageText(tr(lang).lang_pick_intro, { reply_markup: langPickerKeyboard(lang) }); break;
         case 'access': await runRequestAccess(ctx, chatId); break;
       }
     } catch {
       try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
+  // Language picker selection: setlang:<code> sets the chat language and
+  // re-renders the home menu in the new language.
+  bot.callbackQuery(/^setlang:([a-z]{2})$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const prev = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      const code = ctx.match[1];
+      if (!isLang(code)) { await ctx.answerCallbackQuery(tr(prev).lang_usage); return; }
+      store.chatPrefs.setLang(chatId, code);
+      await ctx.answerCallbackQuery(tr(code).lang_set(tr(code).lang_name));
+      await renderHome(ctx, chatId, code);
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(prev).cb_setting_error); } catch { /* expired */ }
     }
   });
 
@@ -1731,9 +1766,7 @@ export function buildBot(
     const lang = langFor(store, chatId ?? 0);
     try {
       await ctx.answerCallbackQuery(tr(lang).cb_edit_done);
-      const markup = { reply_markup: homeKeyboard(lang, hasAccess(chatId ?? 0)) };
-      try { await ctx.editMessageText(tr(lang).start_welcome, markup); }
-      catch { try { await ctx.reply(tr(lang).start_welcome, markup); } catch { /* expired */ } }
+      if (chatId !== undefined) await renderHome(ctx, chatId, lang);
     } catch { /* expired */ }
   });
 

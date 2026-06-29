@@ -12,7 +12,7 @@
 import type { EnrichedItem, Monitor, SellerVisibility } from '../contracts';
 import { InlineKeyboard } from 'grammy';
 import { buildCallLink } from '../features/contactOffer';
-import { type Lang, tr } from './strings';
+import { type Lang, tr, LANGS } from './strings';
 
 /** Telegram hard-caps callback_data at 64 bytes. */
 const CALLBACK_DATA_LIMIT = 64;
@@ -127,6 +127,23 @@ export function homeKeyboard(lang: Lang, allowed: boolean): InlineKeyboard {
     .text(t.home_lang, 'idx:lang')
     .text(t.home_help, 'idx:help');
   if (!allowed) kb.row().text(t.home_access, 'idx:access');
+  return kb;
+}
+
+/**
+ * Language picker shown from the home menu's "Limbă" button. Each language in
+ * its own name (Română / English / …), the active one ticked, 2 per row, plus a
+ * back arrow to the home index. Tapping sets the language (setlang:<code>) — no
+ * text input needed.
+ */
+export function langPickerKeyboard(current: Lang): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  LANGS.forEach((code, i) => {
+    const label = code === current ? `✅ ${tr(code).lang_name}` : tr(code).lang_name;
+    kb.text(label, `setlang:${code}`);
+    if (i % 2 === 1) kb.row();
+  });
+  kb.row().text('◀️', 'idx:home');
   return kb;
 }
 
