@@ -94,6 +94,8 @@ export interface Catalog {
   rename_cleared: string;
   // Watch groups / collections.
   btn_group: string;
+  btn_group_new: string; // "new group" entry in the edit-card group picker (drops to a text prompt)
+  btn_group_clear: string; // "remove from group" entry in the edit-card group picker
   group_prompt: string;
   group_set: (name: string) => string;
   group_cleared: string;
@@ -436,6 +438,8 @@ const ro: Catalog = {
   rename_done: (label) => `Denumire setată: „${label}”.`,
   rename_cleared: 'Denumirea a fost ștearsă.',
   btn_group: '📁 Grup',
+  btn_group_new: '➕ Grup nou',
+  btn_group_clear: '✖️ Scoate din grup',
   group_prompt: 'Trimite numele grupului pentru această urmărire (sau „-” pentru a-l elimina).',
   group_set: (name) => `Grup setat: „${name}”.`,
   group_cleared: 'Grup eliminat.',
@@ -757,6 +761,8 @@ const en: Catalog = {
   rename_done: (label) => `Label set: “${label}”.`,
   rename_cleared: 'Label cleared.',
   btn_group: '📁 Group',
+  btn_group_new: '➕ New group',
+  btn_group_clear: '✖️ Remove from group',
   group_prompt: 'Send the group name for this watch (or "-" to remove it).',
   group_set: (name) => `Group set: "${name}".`,
   group_cleared: 'Group removed.',
@@ -1073,6 +1079,8 @@ const de: Catalog = {
   rename_done: (label) => `Bezeichnung gesetzt: „${label}“.`,
   rename_cleared: 'Bezeichnung gelöscht.',
   btn_group: '📁 Gruppe',
+  btn_group_new: '➕ Neue Gruppe',
+  btn_group_clear: '✖️ Aus Gruppe entfernen',
   group_prompt: 'Schicke den Gruppennamen für diese Beobachtung (oder „-“ zum Entfernen).',
   group_set: (name) => `Gruppe gesetzt: „${name}“.`,
   group_cleared: 'Gruppe entfernt.',
@@ -1389,6 +1397,8 @@ const it: Catalog = {
   rename_done: (label) => `Etichetta impostata: „${label}“.`,
   rename_cleared: 'Etichetta rimossa.',
   btn_group: '📁 Gruppo',
+  btn_group_new: '➕ Nuovo gruppo',
+  btn_group_clear: '✖️ Rimuovi dal gruppo',
   group_prompt: 'Invia il nome del gruppo per questo monitoraggio (oppure „-“ per rimuoverlo).',
   group_set: (name) => `Gruppo impostato: „${name}“.`,
   group_cleared: 'Gruppo rimosso.',
@@ -1705,6 +1715,8 @@ const es: Catalog = {
   rename_done: (label) => `Etiqueta establecida: „${label}“.`,
   rename_cleared: 'Etiqueta borrada.',
   btn_group: '📁 Grupo',
+  btn_group_new: '➕ Nuevo grupo',
+  btn_group_clear: '✖️ Quitar del grupo',
   group_prompt: 'Envía el nombre del grupo para este seguimiento (o "-" para quitarlo).',
   group_set: (name) => `Grupo establecido: "${name}".`,
   group_cleared: 'Grupo quitado.',
@@ -2021,6 +2033,8 @@ const fr: Catalog = {
   rename_done: (label) => `Étiquette définie : “${label}”.`,
   rename_cleared: 'Étiquette effacée.',
   btn_group: '📁 Groupe',
+  btn_group_new: '➕ Nouveau groupe',
+  btn_group_clear: '✖️ Retirer du groupe',
   group_prompt: 'Envoyez le nom du groupe pour ce suivi (ou « - » pour le retirer).',
   group_set: (name) => `Groupe défini : « ${name} ».`,
   group_cleared: 'Groupe retiré.',

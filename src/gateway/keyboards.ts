@@ -411,6 +411,26 @@ export function reportsMenuKeyboard(monitor: Monitor, lang: Lang): InlineKeyboar
     .text('◀️', `efb:${id}`);
 }
 
+/**
+ * Group picker for the edit card. Lists the chat's existing collections as
+ * buttons (the active one ticked) so a watch joins a group with one tap; only
+ * "➕ new group" (egn:) drops to a text prompt. `groups` must be the same sorted
+ * distinct-name list the egs: handler re-derives, since selection is by index.
+ */
+export function groupPickerKeyboard(monitor: Monitor, groups: readonly string[], lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  const id = monitor.id;
+  const cur = monitor.collection;
+  const kb = new InlineKeyboard();
+  groups.forEach((name, i) => {
+    kb.text(name === cur ? `✅ 📁 ${name}` : `📁 ${name}`, `egs:${id}:${i}`).row();
+  });
+  if (cur) kb.text(t.btn_group_clear, `egs:${id}:-1`).row();
+  kb.text(t.btn_group_new, `egn:${id}`).row();
+  kb.text('◀️', `efb:${id}`);
+  return kb;
+}
+
 export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
   const t = tr(lang);
   const id = monitor.id;
