@@ -110,6 +110,7 @@ export {
 } from './exclusionKeywords';
 export { applyBlocklist, phoneKey } from './sellerBlocklist';
 export { applySellerFilter } from './sellerTypeFilter';
+export { snapshotHidden, type FilterableSnapshot } from './snapshotFilter';
 export { computeDelta, newItems } from './delta';
 export {
   median,

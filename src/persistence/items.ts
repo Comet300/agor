@@ -31,6 +31,8 @@ export interface ItemSnapshot {
   imageUrl?: string;
   location?: string;
   sellerPrivate?: boolean;
+  sellerName?: string;
+  phone?: string;
   postedAt?: number;
   description?: string;
   attributes?: Record<string, string>;
@@ -57,6 +59,8 @@ interface ItemSnapshotRow {
   image_url: string | null;
   location: string | null;
   seller_private: number | null;
+  seller_name: string | null;
+  phone: string | null;
   posted_at: number | null;
   description: string | null;
   attributes_json: string | null;
@@ -371,6 +375,8 @@ function rowToSnapshot(r: ItemSnapshotRow): ItemSnapshot {
   if (r.image_url != null) snap.imageUrl = r.image_url;
   if (r.location != null) snap.location = r.location;
   if (r.seller_private != null) snap.sellerPrivate = r.seller_private === 1;
+  if (r.seller_name != null) snap.sellerName = r.seller_name;
+  if (r.phone != null) snap.phone = r.phone;
   if (r.posted_at != null) snap.postedAt = r.posted_at;
   if (r.description != null) snap.description = r.description;
   const attrs = parseAttributes(r.attributes_json);
