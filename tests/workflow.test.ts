@@ -145,9 +145,25 @@ describe('workflow commands', () => {
     const m2 = mkSearch(h.store);
     h.store.monitors.setPaused(m2.id, true);
     await cmd(h.bot, '/stats');
-    const txt = h.sent.at(-1)!.text;
-    expect(txt).toMatch(/Watches: 2/);
-    expect(txt).toMatch(/paused.*1/i);
+    const card = h.sent.at(-1)!;
+    expect(card.text).toMatch(/Watches: 2/);
+    expect(card.text).toMatch(/paused.*1/i);
+    expect(card.data).toContain('idx:home'); // back button (no longer a dead end)
+  });
+
+  it('/help and /saved carry a back-to-home button (no dead ends)', async () => {
+    await cmd(h.bot, '/help');
+    expect(h.sent.at(-1)!.data).toContain('idx:home');
+    await cmd(h.bot, '/saved'); // empty → still offers a way back
+    expect(h.sent.at(-1)!.data).toContain('idx:home');
+  });
+
+  it('/stats counts ⭐ saved items', async () => {
+    const m = mkSearch(h.store);
+    h.store.items.upsert(m.id, item({ id: 'a', title: 'Golf', url: 'https://synth.test/a' }), 1_000);
+    h.store.itemFlags.set(USER, 'a', m.id, 'saved', 1_000);
+    await cmd(h.bot, '/stats');
+    expect(h.sent.at(-1)!.text).toMatch(/Saved: 1/);
   });
 
   it('/export sends a CSV document, or says empty', async () => {

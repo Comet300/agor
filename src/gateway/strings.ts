@@ -69,6 +69,8 @@ export interface Catalog {
     items: number;
     /** Stored items the current filters would now hide. */
     filtered: number;
+    /** Number of ⭐ starred/saved items. */
+    saved: number;
     vendors: string;
   }) => string;
   /** Browse notice: how many items the watches' filters hid, with a per-watch breakdown. */
@@ -413,11 +415,12 @@ const ro: Catalog = {
   remove_usage: 'Folosire: /remove <id>',
   remove_done: (id) => `Urmărirea #${id} a fost oprită.`,
   remove_not_found: 'Urmărirea nu există sau nu îți aparține.',
-  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, vendors }) =>
+  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, saved, vendors }) =>
     `📊 Rezumat\n` +
     `• Urmăriri: ${watches} (${search} căutări, ${product} produse)\n` +
     `• Urmărite (📌): ${tracked} · pe pauză (⏸): ${paused}\n` +
     `• Anunțuri colectate: ${items}\n` +
+    (saved ? `• ⭐ Salvate: ${saved}\n` : '') +
     (filtered ? `• Ascunse de filtre: ${filtered}\n` : '') +
     (vendors ? `• Site-uri: ${vendors}` : ''),
   browse_filtered_notice: ({ total, breakdown }) =>
@@ -738,11 +741,12 @@ const en: Catalog = {
   remove_usage: 'Usage: /remove <id>',
   remove_done: (id) => `Watch #${id} stopped.`,
   remove_not_found: 'That watch does not exist or is not yours.',
-  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, vendors }) =>
+  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, saved, vendors }) =>
     `📊 Summary\n` +
     `• Watches: ${watches} (${search} searches, ${product} products)\n` +
     `• Tracked (📌): ${tracked} · paused (⏸): ${paused}\n` +
     `• Listings collected: ${items}\n` +
+    (saved ? `• ⭐ Saved: ${saved}\n` : '') +
     (filtered ? `• Hidden by filters: ${filtered}\n` : '') +
     (vendors ? `• Sites: ${vendors}` : ''),
   browse_filtered_notice: ({ total, breakdown }) =>
@@ -1058,11 +1062,12 @@ const de: Catalog = {
   remove_usage: 'Verwendung: /remove <id>',
   remove_done: (id) => `Beobachtung #${id} gestoppt.`,
   remove_not_found: 'Diese Beobachtung existiert nicht oder gehört dir nicht.',
-  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, vendors }) =>
+  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, saved, vendors }) =>
     `📊 Übersicht\n` +
     `• Beobachtungen: ${watches} (${search} Suchen, ${product} Produkte)\n` +
     `• Verfolgt (📌): ${tracked} · pausiert (⏸): ${paused}\n` +
     `• Gesammelte Anzeigen: ${items}\n` +
+    (saved ? `• ⭐ Gemerkt: ${saved}\n` : '') +
     (filtered ? `• Durch Filter ausgeblendet: ${filtered}\n` : '') +
     (vendors ? `• Seiten: ${vendors}` : ''),
   browse_filtered_notice: ({ total, breakdown }) =>
@@ -1378,11 +1383,12 @@ const it: Catalog = {
   remove_usage: 'Uso: /remove <id>',
   remove_done: (id) => `Monitoraggio #${id} interrotto.`,
   remove_not_found: 'Quel monitoraggio non esiste o non è tuo.',
-  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, vendors }) =>
+  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, saved, vendors }) =>
     `📊 Riepilogo\n` +
     `• Monitoraggi: ${watches} (${search} ricerche, ${product} prodotti)\n` +
     `• Monitorati (📌): ${tracked} · in pausa (⏸): ${paused}\n` +
     `• Annunci raccolti: ${items}\n` +
+    (saved ? `• ⭐ Salvati: ${saved}\n` : '') +
     (filtered ? `• Nascosti dai filtri: ${filtered}\n` : '') +
     (vendors ? `• Siti: ${vendors}` : ''),
   browse_filtered_notice: ({ total, breakdown }) =>
@@ -1698,11 +1704,12 @@ const es: Catalog = {
   remove_usage: 'Uso: /remove <id>',
   remove_done: (id) => `Seguimiento #${id} detenido.`,
   remove_not_found: 'Ese seguimiento no existe o no es tuyo.',
-  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, vendors }) =>
+  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, saved, vendors }) =>
     `📊 Resumen\n` +
     `• Seguimientos: ${watches} (${search} búsquedas, ${product} productos)\n` +
     `• Seguidos (📌): ${tracked} · pausados (⏸): ${paused}\n` +
     `• Anuncios recopilados: ${items}\n` +
+    (saved ? `• ⭐ Guardados: ${saved}\n` : '') +
     (filtered ? `• Ocultos por filtros: ${filtered}\n` : '') +
     (vendors ? `• Sitios: ${vendors}` : ''),
   browse_filtered_notice: ({ total, breakdown }) =>
@@ -2018,11 +2025,12 @@ const fr: Catalog = {
   remove_usage: 'Utilisation : /remove <id>',
   remove_done: (id) => `Suivi #${id} arrêté.`,
   remove_not_found: 'Ce suivi n’existe pas ou ne vous appartient pas.',
-  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, vendors }) =>
+  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, saved, vendors }) =>
     `📊 Résumé\n` +
     `• Suivis : ${watches} (${search} recherches, ${product} produits)\n` +
     `• Épinglés (📌) : ${tracked} · en pause (⏸) : ${paused}\n` +
     `• Annonces collectées : ${items}\n` +
+    (saved ? `• ⭐ Enregistrés : ${saved}\n` : '') +
     (filtered ? `• Masquées par les filtres : ${filtered}\n` : '') +
     (vendors ? `• Sites : ${vendors}` : ''),
   browse_filtered_notice: ({ total, breakdown }) =>

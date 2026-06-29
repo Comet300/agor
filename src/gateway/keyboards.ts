@@ -140,6 +140,11 @@ export function homeKeyboard(lang: Lang, allowed: boolean): InlineKeyboard {
   return kb;
 }
 
+/** A single full-width ◀️ row back to the /start home index (for leaf screens). */
+export function backHomeKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text('◀️', 'idx:home');
+}
+
 /**
  * Language picker shown from the home menu's "Limbă" button. Each language in
  * its own name (Română / English / …), the active one ticked, 2 per row, plus a
@@ -195,8 +200,8 @@ export function browseKeyboard(
     .text(saved ? t.btn_saved : t.btn_save, `bsv:${index}`)
     .text(t.btn_note, `bnt:${index}`)
     .text(t.btn_dismiss, `bdm:${index}`);
-  // Done → back to the /start home index.
-  kb.row().text(t.btn_done, 'bdone');
+  // Back to the /start home index.
+  kb.row().text('◀️', 'bdone');
   return kb;
 }
 
