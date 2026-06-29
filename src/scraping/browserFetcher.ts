@@ -27,10 +27,17 @@ interface BrowserHandle {
   newContext(opts: ContextOptions): Promise<ContextHandle>;
   close(): Promise<void>;
 }
+interface RouteHandle {
+  request(): { url(): string };
+  abort(): Promise<void>;
+  continue(): Promise<void>;
+}
 interface ContextHandle {
   newPage(): Promise<PageHandle>;
   /** Run a script in every page before its own scripts (fingerprint hardening). */
   addInitScript?(script: string): Promise<void>;
+  /** Intercept matching requests (used to block ad/tracker hosts). */
+  route?(pattern: string, handler: (route: RouteHandle) => void | Promise<void>): Promise<void>;
   /** Seed the context with persisted session cookies before navigating. */
   addCookies?(cookies: { name: string; value: string; url: string }[]): Promise<void>;
   /** Read the context's cookies after navigation (to persist into the jar). */
@@ -81,6 +88,56 @@ export interface BrowserFetcherOptions {
   challengePollMs?: number;
   /** Sleep seam for the interstitial wait loop; injected in tests. */
   sleep?: (ms: number) => Promise<void>;
+  /** Block known ad/tracker hosts in the browser context (default true). */
+  blockTrackers?: boolean;
+  /** Extra hostnames (suffix match) to block alongside the built-in list. */
+  extraBlockedHosts?: string[];
+}
+
+/**
+ * Built-in ad/analytics/tracker hosts blocked in the browser context: they cost
+ * bandwidth + render time, add fingerprinting beacons, and never contribute to
+ * the listing markup we extract. Matched by hostname suffix.
+ */
+const AD_TRACKER_HOSTS = [
+  'google-analytics.com',
+  'googletagmanager.com',
+  'googlesyndication.com',
+  'doubleclick.net',
+  'googleadservices.com',
+  'adservice.google.com',
+  'facebook.net',
+  'connect.facebook.net',
+  'analytics.tiktok.com',
+  'hotjar.com',
+  'hotjar.io',
+  'clarity.ms',
+  'scorecardresearch.com',
+  'criteo.com',
+  'criteo.net',
+  'adnxs.com',
+  'taboola.com',
+  'outbrain.com',
+  'amazon-adsystem.com',
+  'yandex.ru',
+  'mc.yandex.ru',
+  'segment.com',
+  'segment.io',
+  'mixpanel.com',
+  'fullstory.com',
+  'cdn.onesignal.com',
+];
+
+/** Does `url`'s host match a blocked tracker host (suffix), incl. `extra`? */
+export function isTrackerUrl(url: string, extra: readonly string[] = []): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  const blocked = [...AD_TRACKER_HOSTS, ...extra];
+  return blocked.some((h) => host === h || host.endsWith(`.${h}`));
 }
 
 /** Substrings that mark a JS interstitial / anti-bot challenge holding page. */
@@ -218,6 +275,8 @@ export function createBrowserFetcher(options: BrowserFetcherOptions = {}): Fetch
   const challengeWaitMs = options.challengeWaitMs ?? 12_000;
   const challengePollMs = options.challengePollMs ?? 1_500;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const blockTrackers = options.blockTrackers ?? true;
+  const extraBlockedHosts = options.extraBlockedHosts ?? [];
 
   return async (url, { headers, cookie }) => {
     const browser = await launcher();
@@ -230,6 +289,13 @@ export function createBrowserFetcher(options: BrowserFetcherOptions = {}): Fetch
       viewport: { width: 1920, height: 1080 },
     });
     try {
+      // Drop ad/tracker requests: less bandwidth, faster renders, fewer beacons.
+      if (blockTrackers && context.route) {
+        await context.route('**/*', (route) => {
+          if (isTrackerUrl(route.request().url(), extraBlockedHosts)) void route.abort();
+          else void route.continue();
+        });
+      }
       // Reinforce the JS fingerprint before any page script runs (best-effort).
       await context.addInitScript?.(HARDENING_SCRIPT);
       // Seed persisted session cookies so the browser arrives as a returning visitor.
