@@ -281,6 +281,16 @@ describe('normalizeItems enrichment', () => {
     expect(out[0]!.postedAt).toBe(Date.parse('2026-06-09T16:21:42+03:00'));
   });
 
+  it('converts <br> in a description to newlines and strips other tags', () => {
+    const nodes = [
+      { id: 'a', title: 't', price: '10', url: 'u', desc: 'Line 1 <br /> <br /> Line 2<br>Line 3 <b>bold</b>' },
+    ];
+    const out = normalizeItems(nodes, ENRICH, 'search');
+    expect(out[0]!.description).toBe('Line 1\n\nLine 2\nLine 3 bold');
+    expect(out[0]!.description).not.toContain('<br');
+    expect(out[0]!.description).not.toContain('<b>');
+  });
+
   it('parses postedAt from a space-separated datetime ("2026-06-11 16:05:52")', () => {
     const nodes = [{ id: 'a', title: 't', price: '10', url: 'u', createdTime: '2026-06-11 16:05:52' }];
     const out = normalizeItems(nodes, ENRICH, 'search');
