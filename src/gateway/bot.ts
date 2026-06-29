@@ -39,7 +39,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -1584,13 +1584,40 @@ export function buildBot(
       await ctx.editMessageReplyMarkup({ reply_markup: registrationKeyboard(monitor.id, lang, monitor.filters.sellerVisibility, curMinutes(monitor)) });
     } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
   });
+  // Back to the edit card from any submenu (freq / seller / reports). Restores
+  // the card's text+markup; falls back to markup-only when the text is unchanged
+  // (Telegram rejects a no-op editMessageText).
   bot.callbackQuery(/^efb:(\d+)$/, async (ctx) => {
     const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
       const monitor = store.monitors.get(Number(ctx.match[1]));
       if (!monitor || !canManage(monitor, ctx.chat?.id)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
       await ctx.answerCallbackQuery();
-      await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) });
+      const view = renderEditCard(monitor, lang);
+      try { await ctx.editMessageText(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined); }
+      catch { try { await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) }); } catch { /* unchanged */ } }
+    } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
+  });
+
+  // Edit-card seller submenu open: esm:<id> → swap to the 3 seller options.
+  bot.callbackQuery(/^esm:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitor = store.monitors.get(Number(ctx.match[1]));
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageReplyMarkup({ reply_markup: sellerMenuKeyboard(monitor, lang) });
+    } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
+  });
+
+  // Edit-card reports submenu open: erm:<id> → explainer text + Rezumat/Raport toggles.
+  bot.callbackQuery(/^erm:(\d+)$/, async (ctx) => {
+    const lang = langFor(store, ctx.chat?.id ?? 0);
+    try {
+      const monitor = store.monitors.get(Number(ctx.match[1]));
+      if (!monitor || !canManage(monitor, ctx.chat?.id)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageText(tr(lang).reports_menu_intro, { reply_markup: reportsMenuKeyboard(monitor, lang) });
     } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
   });
 
@@ -1610,7 +1637,7 @@ export function buildBot(
       else monitor.filters.digest = next;
       store.monitors.update(monitor);
       await ctx.answerCallbackQuery(tr(lang).cb_digest_set);
-      await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) });
+      await ctx.editMessageReplyMarkup({ reply_markup: reportsMenuKeyboard(monitor, lang) });
     } catch (err) {
       await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
     }
@@ -1633,7 +1660,7 @@ export function buildBot(
       if (on) store.reportState.enable(monitor.id, monitor.chatId);
       else store.reportState.disable(monitor.id);
       await ctx.answerCallbackQuery(tr(lang).cb_report_set);
-      await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(monitor, lang) });
+      await ctx.editMessageReplyMarkup({ reply_markup: reportsMenuKeyboard(monitor, lang) });
     } catch (err) {
       await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
     }
@@ -1698,11 +1725,15 @@ export function buildBot(
   });
 
   // Edit done: ed — acknowledge and collapse the editor (clear its keyboard).
+  // Done (Gata) → navigate back to the /start index/home menu.
   bot.callbackQuery(/^ed$/, async (ctx) => {
-    const lang = langFor(store, ctx.chat?.id ?? 0);
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
     try {
       await ctx.answerCallbackQuery(tr(lang).cb_edit_done);
-      try { await ctx.editMessageReplyMarkup(); } catch { /* already cleared / expired */ }
+      const markup = { reply_markup: homeKeyboard(lang, hasAccess(chatId ?? 0)) };
+      try { await ctx.editMessageText(tr(lang).start_welcome, markup); }
+      catch { try { await ctx.reply(tr(lang).start_welcome, markup); } catch { /* expired */ } }
     } catch { /* expired */ }
   });
 

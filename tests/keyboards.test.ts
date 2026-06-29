@@ -8,6 +8,8 @@ import {
   pickerKeyboard,
   frequencyPickerKeyboard,
   homeKeyboard,
+  sellerMenuKeyboard,
+  reportsMenuKeyboard,
   type PickerSession,
 } from '../src/gateway/keyboards';
 import { tr } from '../src/gateway/strings';
@@ -168,7 +170,8 @@ describe('editKeyboard', () => {
 
   it('search watch: seller + interval + exclusion + rename + pause + remove + done, no Start', () => {
     const d = dataOf(editKeyboard(monitor({ id: 4, type: 'search' }), 'en'));
-    expect(d).toContain('esv:4:both');     // seller (edit-scoped callback)
+    expect(d).toContain('esm:4');          // seller submenu opener (options behind it)
+    expect(d.some((x) => x.startsWith('esv:'))).toBe(false); // seller options are behind esm now
     expect(d).toContain('efi:4');          // check-interval button (opens the freq picker)
     expect(d.some((x) => x.startsWith('efq:'))).toBe(false); // presets are behind the picker now
     expect(d).toContain('ex:4');           // exclusion (reuses registration callback)
@@ -209,7 +212,25 @@ describe('editKeyboard', () => {
       editKeyboard(m, 'en').inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
     const l = labels(monitor({ intervalMs: 30 * 60000, filters: { sellerVisibility: 'private', exclusionKeywords: [] } }));
     expect(l).toContain(tr('en').btn_interval('30m')); // current interval on the collapsed button
-    expect(l).toContain(`✅ ${tr('en').btn_private}`);
+    expect(l).toContain(tr('en').btn_seller_menu(tr('en').btn_private)); // seller opener shows current value
+  });
+
+  it('seller submenu lists the 3 options with the active one ticked + a back button', () => {
+    const d = dataOf(sellerMenuKeyboard(monitor({ id: 7, type: 'search', filters: { sellerVisibility: 'company', exclusionKeywords: [] } }), 'en'));
+    expect(d).toContain('esv:7:private');
+    expect(d).toContain('esv:7:company');
+    expect(d).toContain('esv:7:both');
+    expect(d).toContain('efb:7'); // back to the edit card
+    const l = sellerMenuKeyboard(monitor({ id: 7, type: 'search', filters: { sellerVisibility: 'company', exclusionKeywords: [] } }), 'en')
+      .inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
+    expect(l).toContain(`✅ ${tr('en').btn_company}`);
+  });
+
+  it('reports submenu has digest + report toggles and a back button', () => {
+    const d = dataOf(reportsMenuKeyboard(monitor({ id: 8, type: 'search' }), 'en'));
+    expect(d).toContain('edg:8'); // digest cycle
+    expect(d).toContain('erp:8'); // weekly report toggle
+    expect(d).toContain('efb:8'); // back to the edit card
   });
 });
 

@@ -360,21 +360,51 @@ export function registrationKeyboard(
  * edit-specific `esv:`/`efq:` so a change re-renders THIS keyboard (not the
  * registration card); `ed` closes the editor.
  */
+/** The localized seller-visibility label for the current value. */
+function sellerLabel(v: SellerVisibility, lang: Lang): string {
+  const t = tr(lang);
+  return v === 'private' ? t.btn_private : v === 'company' ? t.btn_company : t.btn_both;
+}
+
+/** Seller-visibility submenu (3 options marked) + back to the edit card. */
+export function sellerMenuKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  const id = monitor.id;
+  const v = monitor.filters.sellerVisibility;
+  const mk = (label: string, val: SellerVisibility): string => (val === v ? `✅ ${label}` : label);
+  return new InlineKeyboard()
+    .text(mk(t.btn_private, 'private'), `esv:${id}:private`)
+    .text(mk(t.btn_company, 'company'), `esv:${id}:company`)
+    .text(mk(t.btn_both, 'both'), `esv:${id}:both`)
+    .row()
+    .text('◀️', `efb:${id}`);
+}
+
+/** Reports submenu: Rezumat (off/1d/7d) + Raport (on/off) toggles + back. */
+export function reportsMenuKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  const id = monitor.id;
+  const dg = monitor.filters.digest ? (monitor.filters.digest === 'weekly' ? '7d' : '1d') : '✖️';
+  const rp = monitor.filters.weeklyReport === true ? '✅' : '✖️';
+  return new InlineKeyboard()
+    .text(`${t.btn_digest}: ${dg}`, `edg:${id}`)
+    .row()
+    .text(`${t.btn_report}: ${rp}`, `erp:${id}`)
+    .row()
+    .text('◀️', `efb:${id}`);
+}
+
 export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
   const t = tr(lang);
   const id = monitor.id;
   const isSearch = monitor.type === 'search';
   const activeMinutes = Math.round(monitor.intervalMs / 60000);
   const mark = (on: boolean, label: string): string => (on ? `✅ ${label}` : label);
-  const markSeller = (label: string, value: SellerVisibility): string =>
-    mark(value === monitor.filters.sellerVisibility, label);
 
   const kb = new InlineKeyboard();
   if (isSearch) {
-    kb.text(markSeller(t.btn_private, 'private'), `esv:${id}:private`)
-      .text(markSeller(t.btn_company, 'company'), `esv:${id}:company`)
-      .text(markSeller(t.btn_both, 'both'), `esv:${id}:both`)
-      .row();
+    // Seller visibility — collapsed behind one button (opens the seller submenu).
+    kb.text(t.btn_seller_menu(sellerLabel(monitor.filters.sellerVisibility, lang)), `esm:${id}`).row();
   }
   // Check interval — collapsed behind one button (opens the freq picker).
   kb.text(t.btn_interval(fmtInterval(activeMinutes)), `efi:${id}`).row();
@@ -384,15 +414,8 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
       .text(t.btn_required, `eq:${id}`)
       .text(t.btn_block, `eb:${id}`)
       .row()
-      // Digest cycles off → daily (1d) → weekly (7d). The period suffix is
-      // language-neutral so it needs no extra catalog string.
-      .text(
-        monitor.filters.digest
-          ? `✅ ${t.btn_digest} · ${monitor.filters.digest === 'weekly' ? '7d' : '1d'}`
-          : t.btn_digest,
-        `edg:${id}`,
-      )
-      .text(mark(monitor.filters.weeklyReport === true, t.btn_report), `erp:${id}`)
+      // Rezumat (digest) + Raport (report) collapsed into one Reports submenu.
+      .text(t.btn_reports_menu, `erm:${id}`)
       .row();
   } else {
     // A single tracked listing: a target-price alert is the meaningful control.
