@@ -27,7 +27,7 @@ import type { MessageRef, Monitor, Notification, SellerVisibility } from '../con
 import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
 import { parseExclusionInput, phoneKey, snapshotHidden } from '../pipeline';
-import { renderNotification, renderRegistrationCard, renderBrowseCard, renderDelistCard, renderBrowseScope, renderEditCard, renderListRow, renderPicker } from './render';
+import { renderNotification, renderRegistrationCard, renderBrowseCard, renderDelistCard, renderBrowseScope, renderEditCard, renderListRow, listSummaryLine, renderPicker } from './render';
 import { computeTrend, renderTrendBadge } from '../features/trend';
 import { buildWeeklyReport } from '../features/weeklyReport';
 import { runBackup, stageRestore } from '../features/backup';
@@ -39,7 +39,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, listKeyboard, listDetailKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -500,35 +500,40 @@ export function buildBot(
     }
   });
 
+  /** Trend badge for a watch (search-only; a product watch tracks one listing). */
+  const trendBadgeFor = (m: Monitor, now: number): string =>
+    m.type === 'search' ? renderTrendBadge(computeTrend(store.priceHistory, m.id, now)) : '';
+
+  /**
+   * Build the /list picker rows: one per watch, label = its summary line + trend
+   * badge. Ungrouped first, then grouped (collection name sorted) with a 📁 prefix
+   * so collection membership survives the flattening into a button list.
+   */
+  const listRowsFor = (chatId: number, lang: Lang, now: number): Array<{ id: number; label: string }> => {
+    const monitors = store.monitors.listByChat(chatId);
+    const mk = (m: Monitor, prefix = ''): { id: number; label: string } => ({
+      id: m.id,
+      label: prefix + listSummaryLine(m, lang, trendBadgeFor(m, now)),
+    });
+    const ungrouped = monitors.filter((m) => !m.collection).map((m) => mk(m));
+    const grouped = monitors
+      .filter((m) => !!m.collection)
+      .sort((a, b) => (a.collection ?? '').localeCompare(b.collection ?? ''))
+      .map((m) => mk(m, `📁 ${m.collection} · `));
+    return [...ungrouped, ...grouped];
+  };
+
   const runList = async (ctx: IdCtx, chatId: number): Promise<void> => {
     const lang = langFor(store, chatId);
     try {
-      const monitors = store.monitors.listByChat(chatId);
-      if (monitors.length === 0) {
+      const rows = listRowsFor(chatId, lang, Date.now());
+      if (rows.length === 0) {
         await ctx.reply(tr(lang).list_empty);
         return;
       }
-      // Intro, then one message per watch carrying its inline action row
-      // (Edit / Pause / Remove) so the user can manage it without typing ids.
-      await ctx.reply(tr(lang).list_intro);
-      const now = Date.now();
-      const emit = async (m: typeof monitors[number]): Promise<void> => {
-        // Market trend is a per-search-query signal; a product watch tracks one item.
-        const badge = m.type === 'search' ? renderTrendBadge(computeTrend(store.priceHistory, m.id, now)) : '';
-        const row = renderListRow(m, lang, badge);
-        await ctx.reply(row.text, row.keyboard ? { reply_markup: row.keyboard } : undefined);
-      };
-      // Ungrouped watches first, then each named collection under a 📁 header.
-      const groups = new Map<string, typeof monitors>();
-      for (const m of monitors) {
-        if (!m.collection) continue;
-        (groups.get(m.collection) ?? groups.set(m.collection, []).get(m.collection)!).push(m);
-      }
-      for (const m of monitors) if (!m.collection) await emit(m);
-      for (const name of [...groups.keys()].sort()) {
-        await ctx.reply(`📁 ${name}`);
-        for (const m of groups.get(name)!) await emit(m);
-      }
+      // One compact index: a button per watch (no more one-card-per-watch spam).
+      // Tapping a button opens that watch's detail + action row (lw:<id>).
+      await ctx.reply(tr(lang).list_intro, { reply_markup: listKeyboard(rows) });
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -1897,6 +1902,30 @@ export function buildBot(
   });
 
   // /list row → open the edit card: le:<monitorId>.
+  // /list picker: lw:<id> opens a watch's detail + action row; lw:back returns to
+  // the watch list. Both edit the single /list message in place (no new cards).
+  bot.callbackQuery(/^lw:(back|\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      if (ctx.match[1] === 'back') {
+        await ctx.answerCallbackQuery();
+        const rows = listRowsFor(chatId, lang, Date.now());
+        if (rows.length === 0) { await ctx.editMessageText(tr(lang).list_empty); return; }
+        await ctx.editMessageText(tr(lang).list_intro, { reply_markup: listKeyboard(rows) });
+        return;
+      }
+      const monitor = store.monitors.get(Number(ctx.match[1]));
+      if (!monitor || !canManage(monitor, chatId)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
+      await ctx.answerCallbackQuery();
+      const view = renderListRow(monitor, lang, trendBadgeFor(monitor, Date.now()));
+      await ctx.editMessageText(view.text, { reply_markup: listDetailKeyboard(monitor, lang) });
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
   bot.callbackQuery(/^le:(\d+)$/, async (ctx) => {
     const lang = langFor(store, ctx.chat?.id ?? 0);
     try {
@@ -1929,8 +1958,9 @@ export function buildBot(
       if (!nowPaused) store.monitors.setSchedule(monitorId, Date.now(), monitor.fastTier);
       monitor.paused = nowPaused;
       await ctx.answerCallbackQuery(nowPaused ? tr(lang).cb_paused : tr(lang).cb_resumed);
-      const row = renderListRow(monitor, lang);
-      await ctx.editMessageText(row.text, row.keyboard ? { reply_markup: row.keyboard } : undefined);
+      // Re-render the detail view in place (paused state shows in text + button).
+      const view = renderListRow(monitor, lang, trendBadgeFor(monitor, Date.now()));
+      await ctx.editMessageText(view.text, { reply_markup: listDetailKeyboard(monitor, lang) });
     } catch {
       try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }

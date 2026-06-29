@@ -203,6 +203,31 @@ export function listRowKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
     .text(t.btn_remove, `rm:${monitor.id}`);
 }
 
+/**
+ * The /list watch picker: one button per watch (its summary line), routing to
+ * `lw:<id>` which opens that watch's detail + action row. Replaces the old
+ * one-card-per-watch spam with a single compact, app-style index.
+ */
+export function listKeyboard(rows: ReadonlyArray<{ id: number; label: string }>): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  for (const r of rows) kb.text(r.label, `lw:${r.id}`).row();
+  return kb;
+}
+
+/**
+ * The per-watch detail action row reached from the /list picker: Edit / Pause /
+ * Remove (same callbacks as before) plus a back arrow to the watch list.
+ */
+export function listDetailKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
+  const t = tr(lang);
+  return new InlineKeyboard()
+    .text(t.btn_edit, `le:${monitor.id}`)
+    .text(monitor.paused ? t.btn_resume : t.btn_pause, `lp:${monitor.id}`)
+    .text(t.btn_remove, `rm:${monitor.id}`)
+    .row()
+    .text('◀️', 'lw:back');
+}
+
 /** Max options per picker page (paginated when more). */
 export const PICKER_PAGE_SIZE = 15;
 

@@ -114,13 +114,19 @@ describe('workflow commands', () => {
   let h: ReturnType<typeof harness>;
   beforeEach(() => { h = harness(); });
 
-  it('/list emits one row per watch with Edit/Pause/Remove buttons', async () => {
+  it('/list shows a button per watch; tapping it reveals Edit/Pause/Remove', async () => {
     const m = mkSearch(h.store);
     await cmd(h.bot, '/list');
-    const row = h.sent.at(-1)!;
-    expect(row.data).toContain(`le:${m.id}`);
-    expect(row.data).toContain(`lp:${m.id}`);
-    expect(row.data).toContain(`rm:${m.id}`);
+    const list = h.sent.at(-1)!;
+    expect(list.data).toContain(`lw:${m.id}`); // a picker button, not N cards
+    expect(list.data.some((d) => d.startsWith('le:'))).toBe(false); // actions are behind the button
+
+    await tap(h.bot, `lw:${m.id}`); // open the watch's detail
+    const detail = h.sent.at(-1)!;
+    expect(detail.data).toContain(`le:${m.id}`);
+    expect(detail.data).toContain(`lp:${m.id}`);
+    expect(detail.data).toContain(`rm:${m.id}`);
+    expect(detail.data).toContain('lw:back'); // back to the list
   });
 
   it('le opens the edit card; lp toggles pause in place', async () => {
