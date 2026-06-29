@@ -114,29 +114,29 @@ describe('workflow commands', () => {
   let h: ReturnType<typeof harness>;
   beforeEach(() => { h = harness(); });
 
-  it('/list shows a button per watch; tapping it reveals Edit/Pause/Remove', async () => {
+  it('/list shows a button per watch; tapping it opens the edit card in place', async () => {
     const m = mkSearch(h.store);
     await cmd(h.bot, '/list');
     const list = h.sent.at(-1)!;
     expect(list.data).toContain(`lw:${m.id}`); // a picker button, not N cards
-    expect(list.data).toContain('idx:home'); // Done → home index
-    expect(list.data.some((d) => d.startsWith('le:'))).toBe(false); // actions are behind the button
+    expect(list.data).toContain('idx:home'); // back → home index
+    expect(list.data.some((d) => d.startsWith('le:'))).toBe(false);
 
-    await tap(h.bot, `lw:${m.id}`); // open the watch's detail
-    const detail = h.sent.at(-1)!;
-    expect(detail.data).toContain(`le:${m.id}`);
-    expect(detail.data).toContain(`lp:${m.id}`);
-    expect(detail.data).toContain(`rm:${m.id}`);
-    expect(detail.data).toContain('lw:back'); // back to the list
+    await tap(h.bot, `lw:${m.id}`); // opens the edit card directly (merged with the list detail)
+    const card = h.sent.at(-1)!;
+    expect(card.data).toContain(`efi:${m.id}`); // interval
+    expect(card.data).toContain(`ep:${m.id}`); // pause (under interval)
+    expect(card.data).toContain(`rm:${m.id}`); // remove
+    expect(card.data).toContain('lw:back'); // Gata → back to the picker
   });
 
-  it('le opens the edit card; lp toggles pause in place', async () => {
+  it('ep toggles pause in place on the edit card', async () => {
     const m = mkSearch(h.store);
     await cmd(h.bot, '/list');
-    await tap(h.bot, `le:${m.id}`);
-    expect(h.sent.at(-1)!.data.some((d) => d.startsWith('efi:'))).toBe(true); // edit card
+    await tap(h.bot, `lw:${m.id}`); // open the edit card
+    expect(h.sent.at(-1)!.data.some((d) => d.startsWith('efi:'))).toBe(true);
 
-    await tap(h.bot, `lp:${m.id}`);
+    await tap(h.bot, `ep:${m.id}`);
     expect(h.store.monitors.get(m.id)!.paused).toBe(true);
     expect(h.answered.some((a) => /paused/i.test(a))).toBe(true);
   });

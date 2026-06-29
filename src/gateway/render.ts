@@ -29,7 +29,6 @@ import {
   quickActionsKeyboard,
   registrationKeyboard,
   editKeyboard,
-  listRowKeyboard,
   openOnlyKeyboard,
   browseKeyboard,
   delistBrowseKeyboard,
@@ -588,17 +587,6 @@ export function listItemParams(monitor: Monitor): Parameters<Catalog['list_item'
   };
 }
 
-/**
- * Render one /list watch as its own message: the watch line plus an inline action
- * row (Edit / Pause-Resume / Remove) so the user can manage it without typing ids.
- */
-export function renderListRow(monitor: Monitor, lang: Lang, trendBadge = ''): RenderedMessage {
-  const base = tr(lang).list_item(listItemParams(monitor));
-  return {
-    text: trendBadge ? `${base}\n${trendBadge}` : base,
-    keyboard: listRowKeyboard(monitor, lang),
-  };
-}
 
 /**
  * A SHORT one-line label for a /list picker button: id + status marks + name
@@ -614,19 +602,15 @@ export function listSummaryLine(monitor: Monitor, lang: Lang, trendBadge = ''): 
 }
 
 /**
- * Render the /edit tuning card for an existing watch: a one-line summary
- * (id · vendor · type · current cadence) plus the {@link editKeyboard} controls.
+ * Render the /edit tuning card for an existing watch. The text is the SAME rich
+ * summary as a /list row (id · name · type · filters + URL + trend badge), so the
+ * edit screen and the list speak the same language; the controls are the
+ * {@link editKeyboard}. `trendBadge` is optional (caller computes it from store).
  */
-export function renderEditCard(monitor: Monitor, lang: Lang): RenderedMessage {
+export function renderEditCard(monitor: Monitor, lang: Lang, trendBadge = ''): RenderedMessage {
+  const base = tr(lang).list_item(listItemParams(monitor));
   return {
-    text: tr(lang).edit_card({
-      id: monitor.id,
-      vendor: monitor.vendor,
-      type: monitor.type,
-      minutes: Math.round(monitor.intervalMs / 60000),
-      paused: monitor.paused,
-      ...(monitor.label ? { label: monitor.label } : {}),
-    }),
+    text: trendBadge ? `${base}\n${trendBadge}` : base,
     keyboard: editKeyboard(monitor, lang),
   };
 }

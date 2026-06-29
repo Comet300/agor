@@ -187,7 +187,7 @@ describe('editKeyboard', () => {
     expect(d).toContain('er:4');           // rename
     expect(d).toContain('ep:4');           // pause/resume
     expect(d).toContain('rm:4');           // remove
-    expect(d).toContain('ed');             // done
+    expect(d).toContain('lw:back');        // Gata is now a back arrow → list picker
     expect(d.some((x) => x.startsWith('et:'))).toBe(false); // target price is product-only
     expect(d.some((x) => x.startsWith('go:'))).toBe(false); // no "Start" on an existing watch
   });
@@ -199,7 +199,7 @@ describe('editKeyboard', () => {
     expect(d).toContain('er:9');           // rename works for any watch
     expect(d).toContain('ep:9');           // pause works for any watch
     expect(d).toContain('rm:9');
-    expect(d).toContain('ed');
+    expect(d).toContain('lw:back'); // Gata is now a back arrow → list picker
     expect(d.some((x) => x.startsWith('esv:'))).toBe(false); // seller filter N/A to one listing
     expect(d.some((x) => x.startsWith('ex:'))).toBe(false);  // exclusions N/A
     expect(d.some((x) => x.startsWith('eq:'))).toBe(false);  // required keywords N/A
