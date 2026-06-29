@@ -709,17 +709,12 @@ export function buildBot(
    * is its own message (a media carousel can't reliably edit photo↔text in place),
    * so nav sends a fresh card and answers the callback to clear the spinner.
    */
-  const sendBrowseItem = async (
-    ctx: { reply: (t: string, o?: object) => Promise<unknown>; replyWithPhoto: (p: InputFile, o?: object) => Promise<unknown> },
-    chatId: number,
-    index: number,
-  ): Promise<void> => {
+  /** Render the browse card for `index` in the chat's session (clamped), or
+   * undefined when the session is empty. Pure of any send/edit side effect. */
+  const browseViewFor = (chatId: number, index: number): ReturnType<typeof renderBrowseCard> | undefined => {
     const lang = langFor(store, chatId);
     const items = browseSessions.get(chatId);
-    if (!items || items.length === 0) {
-      await ctx.reply(tr(lang).browse_empty);
-      return;
-    }
+    if (!items || items.length === 0) return undefined;
     const i = Math.max(0, Math.min(index, items.length - 1));
     // Offer the scope "Switch" affordance only when there's more than one watch
     // to switch between (otherwise browse-all is the only scope).
@@ -737,7 +732,19 @@ export function buildBot(
       ? hedonicFairValue(snap.attributes, snap.lastPrice, snap.currency, pool, store.valuation.get(cat, snap.currency), Date.now())
       : null;
     const saved = store.itemFlags.has(chatId, snap.itemId, 'saved');
-    const view = renderBrowseCard(snap, i, items.length, lang, canSwitch, rating, fairValue, saved);
+    return renderBrowseCard(snap, i, items.length, lang, canSwitch, rating, fairValue, saved);
+  };
+
+  const sendBrowseItem = async (
+    ctx: { reply: (t: string, o?: object) => Promise<unknown>; replyWithPhoto: (p: InputFile, o?: object) => Promise<unknown> },
+    chatId: number,
+    index: number,
+  ): Promise<void> => {
+    const view = browseViewFor(chatId, index);
+    if (!view) {
+      await ctx.reply(tr(langFor(store, chatId)).browse_empty);
+      return;
+    }
     const markup = view.keyboard ? { reply_markup: view.keyboard } : undefined;
     if (view.photoUrl) {
       try {
@@ -749,6 +756,46 @@ export function buildBot(
       }
     }
     await ctx.reply(view.text, markup);
+  };
+
+  /**
+   * Navigate the carousel by EDITING the current card in place (so prev/next
+   * don't spam new messages). A photo card swaps via editMessageMedia, a text
+   * card via editMessageText. When the message TYPE would have to change
+   * (photo↔text — adjacent items differ in having an image) an in-place edit is
+   * impossible, so it falls back to sending a fresh card.
+   */
+  const editBrowseItem = async (
+    ctx: {
+      reply: (t: string, o?: object) => Promise<unknown>;
+      replyWithPhoto: (p: InputFile, o?: object) => Promise<unknown>;
+      editMessageText: (t: string, o?: object) => Promise<unknown>;
+    },
+    chatId: number,
+    index: number,
+  ): Promise<void> => {
+    const view = browseViewFor(chatId, index);
+    if (!view) {
+      await ctx.reply(tr(langFor(store, chatId)).browse_empty);
+      return;
+    }
+    const markup = view.keyboard ? { reply_markup: view.keyboard } : undefined;
+    try {
+      if (view.photoUrl) {
+        // editMessageMedia's InputMedia typing is narrower than this structural
+        // ctx; the payload below is a valid InputMediaPhoto.
+        const editMedia = (ctx as unknown as {
+          editMessageMedia: (media: object, o?: object) => Promise<unknown>;
+        }).editMessageMedia;
+        await editMedia({ type: 'photo', media: view.photoUrl, caption: view.text }, markup);
+      } else {
+        await ctx.editMessageText(view.text, markup);
+      }
+      return;
+    } catch {
+      // Type mismatch (photo↔text) or unreachable image → post a fresh card.
+      await sendBrowseItem(ctx, chatId, index);
+    }
   };
 
   /**
@@ -2202,7 +2249,7 @@ export function buildBot(
         await ctx.reply(tr(lang).browse_empty);
         return;
       }
-      await sendBrowseItem(ctx, chatId, Number(ctx.match[1]));
+      await editBrowseItem(ctx, chatId, Number(ctx.match[1]));
     } catch {
       try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
     }
