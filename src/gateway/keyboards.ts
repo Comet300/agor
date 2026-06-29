@@ -154,6 +154,19 @@ export function backHomeKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text('◀️', 'idx:home');
 }
 
+/** /stats keyboard: open the best-deals view, then back to home. */
+export function statsKeyboard(lang: Lang): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(tr(lang).btn_best_deals, 'stats:deals')
+    .row()
+    .text('◀️', 'idx:home');
+}
+
+/** Best-deals view keyboard: ◀️ back to the stats summary. */
+export function bestDealsKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text('◀️', 'stats:back');
+}
+
 /**
  * Language picker shown from the home menu's "Limbă" button. Each language in
  * its own name (Română / English / …), the active one ticked, 2 per row, plus a

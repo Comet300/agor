@@ -73,6 +73,16 @@ export interface Catalog {
     saved: number;
     vendors: string;
   }) => string;
+  /** Extra /stats lines (recency, seller split, price range, availability). Empty when no data. */
+  stats_extra: (p: { new24: number; new7: number; priv: number; comp: number; inStock: number; total: number; priceRange: string }) => string;
+  /** /stats button opening the best-deals view. */
+  btn_best_deals: string;
+  /** Header of the best-deals view. */
+  best_deals_intro: string;
+  /** Shown when the pool has no statistically-good deals yet. */
+  best_deals_empty: string;
+  /** One best-deal line. */
+  best_deals_line: (p: { rank: number; title: string; price: string; discount: number; n: number; url: string }) => string;
   /** Browse notice: how many items the watches' filters hid, with a per-watch breakdown. */
   browse_filtered_notice: (p: { total: number; breakdown: string }) => string;
   /** /list folder button for starred single listings (count). */
@@ -427,6 +437,18 @@ const ro: Catalog = {
     (saved ? `• ⭐ Salvate: ${saved}\n` : '') +
     (filtered ? `• Ascunse de filtre: ${filtered}\n` : '') +
     (vendors ? `• Site-uri: ${vendors}` : ''),
+  stats_extra: ({ new24, new7, priv, comp, inStock, total, priceRange }) =>
+    [
+      new7 ? `• 🆕 Noi: 24h ${new24} · 7 zile ${new7}` : '',
+      (priv || comp) ? `• 👤 Privați ${priv} · Firme ${comp}` : '',
+      priceRange ? `• 💶 ${priceRange}` : '',
+      total ? `• 🟢 Disponibile: ${inStock}/${total}` : '',
+    ].filter(Boolean).join('\n'),
+  btn_best_deals: '🏆 Cele mai bune oferte',
+  best_deals_intro: '🏆 Cele mai bune oferte (din anunțurile colectate):',
+  best_deals_empty: 'Încă nu sunt destule date pentru oferte.',
+  best_deals_line: ({ rank, title, price, discount, n, url }) =>
+    `${rank}. ${title} — ${price} · −${discount}% sub medie (din ${n})${url ? `\n${url}` : ''}`,
   browse_filtered_notice: ({ total, breakdown }) =>
     `🔕 ${total} anunț${total === 1 ? '' : 'uri'} ascuns${total === 1 ? '' : 'e'} de filtrele tale (cuvinte incluse/excluse, vânzător):\n${breakdown}`,
   btn_favorites: (count) => `⭐ Favorite (${count})`,
@@ -755,6 +777,18 @@ const en: Catalog = {
     (saved ? `• ⭐ Saved: ${saved}\n` : '') +
     (filtered ? `• Hidden by filters: ${filtered}\n` : '') +
     (vendors ? `• Sites: ${vendors}` : ''),
+  stats_extra: ({ new24, new7, priv, comp, inStock, total, priceRange }) =>
+    [
+      new7 ? `• 🆕 New: 24h ${new24} · 7d ${new7}` : '',
+      (priv || comp) ? `• 👤 Private ${priv} · Companies ${comp}` : '',
+      priceRange ? `• 💶 ${priceRange}` : '',
+      total ? `• 🟢 Available: ${inStock}/${total}` : '',
+    ].filter(Boolean).join('\n'),
+  btn_best_deals: '🏆 Best deals',
+  best_deals_intro: '🏆 Best deals (from your collected listings):',
+  best_deals_empty: 'Not enough data for deals yet.',
+  best_deals_line: ({ rank, title, price, discount, n, url }) =>
+    `${rank}. ${title} — ${price} · −${discount}% below median (of ${n})${url ? `\n${url}` : ''}`,
   browse_filtered_notice: ({ total, breakdown }) =>
     `🔕 ${total} listing${total === 1 ? '' : 's'} hidden by your filters (included/excluded words, seller):\n${breakdown}`,
   btn_favorites: (count) => `⭐ Favorites (${count})`,
@@ -1078,6 +1112,18 @@ const de: Catalog = {
     (saved ? `• ⭐ Gemerkt: ${saved}\n` : '') +
     (filtered ? `• Durch Filter ausgeblendet: ${filtered}\n` : '') +
     (vendors ? `• Seiten: ${vendors}` : ''),
+  stats_extra: ({ new24, new7, priv, comp, inStock, total, priceRange }) =>
+    [
+      new7 ? `• 🆕 Neu: 24h ${new24} · 7 Tage ${new7}` : '',
+      (priv || comp) ? `• 👤 Privat ${priv} · Firmen ${comp}` : '',
+      priceRange ? `• 💶 ${priceRange}` : '',
+      total ? `• 🟢 Verfügbar: ${inStock}/${total}` : '',
+    ].filter(Boolean).join('\n'),
+  btn_best_deals: '🏆 Top-Angebote',
+  best_deals_intro: '🏆 Top-Angebote (aus den gesammelten Anzeigen):',
+  best_deals_empty: 'Noch nicht genug Daten für Angebote.',
+  best_deals_line: ({ rank, title, price, discount, n, url }) =>
+    `${rank}. ${title} — ${price} · −${discount}% unter dem Median (von ${n})${url ? `\n${url}` : ''}`,
   browse_filtered_notice: ({ total, breakdown }) =>
     `🔕 ${total} Anzeige${total === 1 ? '' : 'n'} durch deine Filter ausgeblendet (ein-/ausgeschlossene Wörter, Verkäufer):\n${breakdown}`,
   btn_favorites: (count) => `⭐ Favoriten (${count})`,
@@ -1401,6 +1447,18 @@ const it: Catalog = {
     (saved ? `• ⭐ Salvati: ${saved}\n` : '') +
     (filtered ? `• Nascosti dai filtri: ${filtered}\n` : '') +
     (vendors ? `• Siti: ${vendors}` : ''),
+  stats_extra: ({ new24, new7, priv, comp, inStock, total, priceRange }) =>
+    [
+      new7 ? `• 🆕 Nuovi: 24h ${new24} · 7 giorni ${new7}` : '',
+      (priv || comp) ? `• 👤 Privati ${priv} · Aziende ${comp}` : '',
+      priceRange ? `• 💶 ${priceRange}` : '',
+      total ? `• 🟢 Disponibili: ${inStock}/${total}` : '',
+    ].filter(Boolean).join('\n'),
+  btn_best_deals: '🏆 Migliori offerte',
+  best_deals_intro: '🏆 Migliori offerte (dagli annunci raccolti):',
+  best_deals_empty: 'Non ci sono ancora abbastanza dati per le offerte.',
+  best_deals_line: ({ rank, title, price, discount, n, url }) =>
+    `${rank}. ${title} — ${price} · −${discount}% sotto la mediana (su ${n})${url ? `\n${url}` : ''}`,
   browse_filtered_notice: ({ total, breakdown }) =>
     `🔕 ${total} ${total === 1 ? 'annuncio nascosto' : 'annunci nascosti'} dai tuoi filtri (parole incluse/escluse, venditore):\n${breakdown}`,
   btn_favorites: (count) => `⭐ Preferiti (${count})`,
@@ -1724,6 +1782,18 @@ const es: Catalog = {
     (saved ? `• ⭐ Guardados: ${saved}\n` : '') +
     (filtered ? `• Ocultos por filtros: ${filtered}\n` : '') +
     (vendors ? `• Sitios: ${vendors}` : ''),
+  stats_extra: ({ new24, new7, priv, comp, inStock, total, priceRange }) =>
+    [
+      new7 ? `• 🆕 Nuevos: 24h ${new24} · 7 días ${new7}` : '',
+      (priv || comp) ? `• 👤 Particulares ${priv} · Empresas ${comp}` : '',
+      priceRange ? `• 💶 ${priceRange}` : '',
+      total ? `• 🟢 Disponibles: ${inStock}/${total}` : '',
+    ].filter(Boolean).join('\n'),
+  btn_best_deals: '🏆 Mejores ofertas',
+  best_deals_intro: '🏆 Mejores ofertas (de los anuncios recopilados):',
+  best_deals_empty: 'Aún no hay datos suficientes para ofertas.',
+  best_deals_line: ({ rank, title, price, discount, n, url }) =>
+    `${rank}. ${title} — ${price} · −${discount}% bajo la mediana (de ${n})${url ? `\n${url}` : ''}`,
   browse_filtered_notice: ({ total, breakdown }) =>
     `🔕 ${total} anuncio${total === 1 ? '' : 's'} oculto${total === 1 ? '' : 's'} por tus filtros (palabras incluidas/excluidas, vendedor):\n${breakdown}`,
   btn_favorites: (count) => `⭐ Favoritos (${count})`,
@@ -2047,6 +2117,18 @@ const fr: Catalog = {
     (saved ? `• ⭐ Enregistrés : ${saved}\n` : '') +
     (filtered ? `• Masquées par les filtres : ${filtered}\n` : '') +
     (vendors ? `• Sites : ${vendors}` : ''),
+  stats_extra: ({ new24, new7, priv, comp, inStock, total, priceRange }) =>
+    [
+      new7 ? `• 🆕 Nouvelles : 24h ${new24} · 7 jours ${new7}` : '',
+      (priv || comp) ? `• 👤 Particuliers ${priv} · Pros ${comp}` : '',
+      priceRange ? `• 💶 ${priceRange}` : '',
+      total ? `• 🟢 Disponibles : ${inStock}/${total}` : '',
+    ].filter(Boolean).join('\n'),
+  btn_best_deals: '🏆 Meilleures offres',
+  best_deals_intro: '🏆 Meilleures offres (parmi les annonces collectées) :',
+  best_deals_empty: 'Pas encore assez de données pour des offres.',
+  best_deals_line: ({ rank, title, price, discount, n, url }) =>
+    `${rank}. ${title} — ${price} · −${discount}% sous la médiane (sur ${n})${url ? `\n${url}` : ''}`,
   browse_filtered_notice: ({ total, breakdown }) =>
     `🔕 ${total} annonce${total === 1 ? '' : 's'} masquée${total === 1 ? '' : 's'} par vos filtres (mots inclus/exclus, vendeur) :\n${breakdown}`,
   btn_favorites: (count) => `⭐ Favoris (${count})`,

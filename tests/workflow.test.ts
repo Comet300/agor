@@ -187,6 +187,16 @@ describe('workflow commands', () => {
     expect(h.sent.at(-1)!.text).toMatch(/Saved: 1/);
   });
 
+  it('/stats offers a best-deals view (stats:deals) and back', async () => {
+    mkSearch(h.store);
+    await cmd(h.bot, '/stats');
+    expect(h.sent.at(-1)!.data).toContain('stats:deals'); // best-deals button
+    await tap(h.bot, 'stats:deals');
+    const deals = h.sent.at(-1)!;
+    expect(deals.text).toMatch(/best deals|not enough data/i);
+    expect(deals.data).toContain('stats:back'); // back to the summary
+  });
+
   it('/export sends a CSV document, or says empty', async () => {
     await cmd(h.bot, '/export');
     expect(h.sent.at(-1)!.text).toMatch(/nothing to export/i);
