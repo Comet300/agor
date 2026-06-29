@@ -7,6 +7,7 @@ import {
   browseScopeLabel,
   pickerKeyboard,
   frequencyPickerKeyboard,
+  homeKeyboard,
   type PickerSession,
 } from '../src/gateway/keyboards';
 import { tr } from '../src/gateway/strings';
@@ -241,3 +242,16 @@ describe('pickerKeyboard', () => {
   });
 });
 
+
+describe('homeKeyboard (/start index)', () => {
+  it('routes core actions, and shows Request access only when not allowed', () => {
+    const allowed = homeKeyboard('en', true);
+    const dAllowed = allowed.inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : ''));
+    expect(dAllowed).toEqual(expect.arrayContaining(['idx:list', 'idx:browse', 'idx:saved', 'idx:stats', 'idx:lang', 'idx:help']));
+    expect(dAllowed).not.toContain('idx:access'); // already allowed → no request button
+
+    const guest = homeKeyboard('en', false);
+    const dGuest = guest.inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : ''));
+    expect(dGuest).toContain('idx:access'); // not allowed → offer request access
+  });
+});
