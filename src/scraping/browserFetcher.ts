@@ -17,12 +17,20 @@ import type { Fetcher } from './engine';
 import { log } from '../logging/logger';
 
 /** The minimal slice of the Playwright API this module uses. */
+interface ContextOptions {
+  userAgent?: string;
+  locale?: string;
+  timezoneId?: string;
+  viewport?: { width: number; height: number };
+}
 interface BrowserHandle {
-  newContext(opts: { userAgent?: string; locale?: string }): Promise<ContextHandle>;
+  newContext(opts: ContextOptions): Promise<ContextHandle>;
   close(): Promise<void>;
 }
 interface ContextHandle {
   newPage(): Promise<PageHandle>;
+  /** Run a script in every page before its own scripts (fingerprint hardening). */
+  addInitScript?(script: string): Promise<void>;
   close(): Promise<void>;
 }
 interface PageHandle {
@@ -56,7 +64,36 @@ export interface BrowserFetcherOptions {
   maxBodyBytes?: number;
   /** Browser launcher seam; defaults to the lazy Playwright import. */
   launcher?: BrowserLauncher;
+  /** IANA timezone for the browser context (default Europe/Bucharest). */
+  timezoneId?: string;
+  /** Context locale (default ro-RO). */
+  locale?: string;
 }
+
+/**
+ * Fingerprint-hardening script injected into every page before its own scripts
+ * run. The stealth plugin covers `navigator.webdriver` and the headless-Chrome
+ * tells; this reinforces a consistent, plausible identity (languages, core/RAM
+ * counts, WebGL vendor) so an anti-bot script that probes those surfaces sees a
+ * coherent desktop browser rather than a default headless profile. Best-effort:
+ * each patch is isolated so a locked-down property cannot abort the rest.
+ */
+const HARDENING_SCRIPT = `
+(() => {
+  const def = (obj, prop, get) => { try { Object.defineProperty(obj, prop, { get }); } catch (e) {} };
+  def(navigator, 'languages', () => ['ro-RO', 'ro', 'en-US', 'en']);
+  def(navigator, 'hardwareConcurrency', () => 8);
+  def(navigator, 'deviceMemory', () => 8);
+  try {
+    const gp = WebGLRenderingContext.prototype.getParameter;
+    WebGLRenderingContext.prototype.getParameter = function (p) {
+      if (p === 37445) return 'Intel Inc.';          // UNMASKED_VENDOR_WEBGL
+      if (p === 37446) return 'Intel Iris OpenGL Engine'; // UNMASKED_RENDERER_WEBGL
+      return gp.call(this, p);
+    };
+  } catch (e) {}
+})();
+`;
 
 /** Generous body cap — far above any real listing page (~30 MB). */
 const MAX_BODY_BYTES = 30 * 1024 * 1024;
@@ -117,7 +154,12 @@ async function launchBrowser(): Promise<BrowserHandle> {
     }
     return chromium.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+      args: [
+        '--no-sandbox',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-dev-shm-usage', // avoid /dev/shm exhaustion on small hosts (Pi)
+        '--lang=ro-RO',
+      ],
     });
   })().catch((err) => {
     // Clear the cache so a transient failure does not permanently reject every
@@ -138,14 +180,22 @@ export function createBrowserFetcher(options: BrowserFetcherOptions = {}): Fetch
   const waitUntil = options.waitUntil ?? 'domcontentloaded';
   const maxBodyBytes = options.maxBodyBytes ?? MAX_BODY_BYTES;
   const launcher = options.launcher ?? launchBrowser;
+  const timezoneId = options.timezoneId ?? 'Europe/Bucharest';
+  const locale = options.locale ?? 'ro-RO';
 
   return async (url, { headers }) => {
     const browser = await launcher();
+    // A coherent desktop identity: UA + locale + timezone + a real viewport so a
+    // fingerprint probe sees a consistent profile, not a default headless one.
     const context = await browser.newContext({
       userAgent: headers['User-Agent'],
-      locale: 'ro-RO',
+      locale,
+      timezoneId,
+      viewport: { width: 1920, height: 1080 },
     });
     try {
+      // Reinforce the JS fingerprint before any page script runs (best-effort).
+      await context.addInitScript?.(HARDENING_SCRIPT);
       const page = await context.newPage();
       // Carry the same accept/client-hint headers the HTTP path sends.
       await page.setExtraHTTPHeaders(headers);

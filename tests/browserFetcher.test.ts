@@ -75,4 +75,33 @@ describe('createBrowserFetcher resilience', () => {
     const r = await fetch('https://x', { headers });
     expect(r.body).toBe('<html>ok</html>');
   });
+
+  it('creates a hardened context (locale, timezone, viewport) and injects a fingerprint script', async () => {
+    let ctxOpts: Record<string, unknown> | undefined;
+    let initScript: string | undefined;
+    const launcher: BrowserLauncher = async () =>
+      ({
+        newContext: async (opts: Record<string, unknown>) => {
+          ctxOpts = opts;
+          return {
+            newPage: async () => fakePage(),
+            addInitScript: async (s: string) => { initScript = s; },
+            close: async () => {},
+          };
+        },
+        close: async () => {},
+      }) as never;
+
+    const fetch = createBrowserFetcher({ launcher });
+    await fetch('https://x', { headers });
+
+    expect(ctxOpts).toMatchObject({
+      userAgent: 'UA',
+      locale: 'ro-RO',
+      timezoneId: 'Europe/Bucharest',
+      viewport: { width: 1920, height: 1080 },
+    });
+    expect(initScript).toContain('navigator');
+    expect(initScript).toContain('WebGLRenderingContext'); // WebGL vendor spoof present
+  });
 });
