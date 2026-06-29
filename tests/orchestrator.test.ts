@@ -1361,6 +1361,32 @@ describe("watch health: failure surfacing and /check semantics", () => {
     expect(h.notes.filter((n) => n.kind === "watch_failing")).toHaveLength(1);
   });
 
+  it("does NOT flag a watch whose required filter removes everything (scrape still finds items)", async () => {
+    const id = await registerSearch(); // baseline item stored → priorListings > 0
+
+    // Add a required keyword that matches no listing.
+    const m = h.store.monitors.get(id)!;
+    m.filters.requiredKeywords = ["zzzznomatch"];
+    h.store.monitors.update(m);
+
+    // The scrape keeps returning items; the filter just removes them all.
+    h.setBody(
+      searchDoc([
+        { id: "A", title: "Toyota Corolla", price: 2000, currency: "RON", url: "https://www.synth.test/A", city: "Cluj" },
+      ]),
+    );
+    for (let i = 0; i < 5; i++) {
+      h.setNow(3_000 + i);
+      const r = await h.orchestrator.runMonitorOnce(id);
+      expect(r.ok).toBe(true);
+      expect(r.itemsActive).toBe(0); // filtered to nothing
+      expect(r.itemsFound).toBeGreaterThan(0); // but the scrape DID find listings
+    }
+    // The vendor isn't blocked — a strict required keyword must not alarm.
+    expect(h.notes.filter((n) => n.kind === "watch_failing")).toHaveLength(0);
+    expect(h.store.monitors.get(id)!.consecutiveFailures).toBe(0);
+  });
+
   it("does NOT alarm for a brand-new search that is legitimately empty", async () => {
     h.setBody(searchDoc([])); // empty baseline, no prior listings
     const res = await h.orchestrator.register({
