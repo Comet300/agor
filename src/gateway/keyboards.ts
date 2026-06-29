@@ -210,11 +210,24 @@ export function browseKeyboard(
  * `lw:<id>` which opens that watch's detail + action row. Replaces the old
  * one-card-per-watch spam with a single compact, app-style index.
  */
-export function listKeyboard(rows: ReadonlyArray<{ id: number; label: string }>, lang: Lang): InlineKeyboard {
-  void lang;
+export function listKeyboard(
+  rows: ReadonlyArray<{ id: number; label: string }>,
+  lang: Lang,
+  favCount = 0,
+): InlineKeyboard {
   const kb = new InlineKeyboard();
+  // Starred single listings live in their own folder, listed first.
+  if (favCount > 0) kb.text(tr(lang).btn_favorites(favCount), 'lw:fav').row();
   for (const r of rows) kb.text(r.label, `lw:${r.id}`).row();
   kb.text('◀️', 'idx:home'); // back to the /start home index
+  return kb;
+}
+
+/** The Favorites sub-list: each starred listing as a button, ◀️ back to /list. */
+export function favoritesKeyboard(rows: ReadonlyArray<{ id: number; label: string }>): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  for (const r of rows) kb.text(r.label, `lw:${r.id}`).row();
+  kb.text('◀️', 'lw:back');
   return kb;
 }
 
