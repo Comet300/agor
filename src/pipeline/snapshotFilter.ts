@@ -12,12 +12,13 @@
  * never diverge.
  */
 import type { FilterConfig } from '../contracts';
-import { buildExclusionRegex } from './exclusionKeywords';
+import { buildExclusionRegex, keywordHaystack } from './exclusionKeywords';
 import { phoneKey } from './sellerBlocklist';
 
 /** The snapshot fields the filters read (structural subset of ItemSnapshot). */
 export interface FilterableSnapshot {
   title?: string;
+  description?: string;
   sellerPrivate?: boolean;
   sellerName?: string;
   phone?: string;
@@ -29,15 +30,16 @@ export interface FilterableSnapshot {
  * / applySellerFilter / applyBlocklist.
  */
 export function snapshotHidden(snap: FilterableSnapshot, filters: FilterConfig): boolean {
-  const title = snap.title ?? '';
+  // Keyword filters match title AND description (mirrors the live pipeline).
+  const text = keywordHaystack(snap);
 
-  // Exclusion: any excluded keyword in the title hides it.
+  // Exclusion: any excluded keyword in title/description hides it.
   const exclude = buildExclusionRegex(filters.exclusionKeywords ?? []);
-  if (exclude && exclude.test(title)) return true;
+  if (exclude && exclude.test(text)) return true;
 
-  // Required (whitelist): when set, a title matching none is hidden.
+  // Required (whitelist): when set, title/description matching none is hidden.
   const required = buildExclusionRegex(filters.requiredKeywords ?? []);
-  if (required && !required.test(title)) return true;
+  if (required && !required.test(text)) return true;
 
   // Seller visibility: a non-'both' preference hides the other type — and an
   // unknown seller type too, matching applySellerFilter's strict equality.

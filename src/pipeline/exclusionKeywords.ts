@@ -49,22 +49,30 @@ export function buildExclusionRegex(keywords: string[]): RegExp | null {
 }
 
 /**
- * Drop items whose title matches any exclusion keyword. With no keywords the
- * list passes through unchanged.
+ * The text a keyword filter matches against: title AND description joined, so a
+ * keyword that lives only in the body (e.g. "swace") still counts.
+ */
+export function keywordHaystack(item: { title?: string; description?: string }): string {
+  return `${item.title ?? ''}\n${item.description ?? ''}`;
+}
+
+/**
+ * Drop items whose title or description matches any exclusion keyword. With no
+ * keywords the list passes through unchanged.
  */
 export function applyExclusion(items: IScrapedItem[], keywords: string[]): IScrapedItem[] {
   const re = buildExclusionRegex(keywords);
   if (re === null) return items;
-  return items.filter((item) => !re.test(item.title));
+  return items.filter((item) => !re.test(keywordHaystack(item)));
 }
 
 /**
  * Required-keyword (whitelist) filter: when `keywords` is non-empty, keep only
- * items whose title matches AT LEAST ONE keyword (same word-boundary regex as
- * exclusions). An empty list means "no requirement" — everything passes.
+ * items whose title OR description matches AT LEAST ONE keyword (same
+ * word-boundary regex as exclusions). An empty list means "no requirement".
  */
 export function applyRequired(items: IScrapedItem[], keywords: string[]): IScrapedItem[] {
   const re = buildExclusionRegex(keywords);
   if (re === null) return items;
-  return items.filter((item) => re.test(item.title));
+  return items.filter((item) => re.test(keywordHaystack(item)));
 }
