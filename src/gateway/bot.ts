@@ -39,7 +39,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, backHomeKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, listKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, backHomeKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, listKeyboard, favoritesKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -517,7 +517,7 @@ export function buildBot(
    * so collection membership survives the flattening into a button list.
    */
   const listRowsFor = (chatId: number, lang: Lang, now: number): Array<{ id: number; label: string }> => {
-    const monitors = store.monitors.listByChat(chatId);
+    const monitors = store.monitors.listByChat(chatId).filter((m) => m.type === 'search');
     const mk = (m: Monitor, prefix = ''): { id: number; label: string } => ({
       id: m.id,
       label: prefix + listSummaryLine(m, lang, trendBadgeFor(m, now)),
@@ -530,17 +530,31 @@ export function buildBot(
     return [...ungrouped, ...grouped];
   };
 
+  /** Tracked (⭐ starred) watches in the chat. */
+  const favoriteMonitors = (chatId: number): Monitor[] =>
+    store.monitors.listByChat(chatId).filter((m) => m.type !== 'search');
+
+  /** Favorites sub-list rows: tracked watches with a DETAILED label (the saved
+   *  listing's title, not just the vendor — so each is identifiable). */
+  const favoriteRowsFor = (chatId: number): Array<{ id: number; label: string }> =>
+    favoriteMonitors(chatId).map((m) => {
+      const snap = store.items.browseByMonitor(m.id, 1, 0)[0];
+      const title = m.label ?? snap?.title ?? m.vendor;
+      return { id: m.id, label: `📌 ${title}` };
+    });
+
   const runList = async (ctx: IdCtx, chatId: number): Promise<void> => {
     const lang = langFor(store, chatId);
     try {
       const rows = listRowsFor(chatId, lang, Date.now());
-      if (rows.length === 0) {
+      const favCount = favoriteMonitors(chatId).length;
+      if (rows.length === 0 && favCount === 0) {
         await ctx.reply(tr(lang).list_empty);
         return;
       }
-      // One compact index: a button per watch (no more one-card-per-watch spam).
-      // Tapping a button opens that watch's detail + action row (lw:<id>).
-      await ctx.reply(tr(lang).list_intro, { reply_markup: listKeyboard(rows, lang) });
+      // One compact index: a ⭐ Favorites folder (starred singles) first, then a
+      // button per search watch. Tapping opens the edit card (lw:<id>).
+      await ctx.reply(tr(lang).list_intro, { reply_markup: listKeyboard(rows, lang, favCount) });
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -555,10 +569,25 @@ export function buildBot(
     lang: Lang,
   ): Promise<void> => {
     const rows = listRowsFor(chatId, lang, Date.now());
-    const markup = rows.length ? { reply_markup: listKeyboard(rows, lang) } : undefined;
-    const text = rows.length ? tr(lang).list_intro : tr(lang).list_empty;
+    const favCount = favoriteMonitors(chatId).length;
+    const hasAny = rows.length > 0 || favCount > 0;
+    const markup = hasAny ? { reply_markup: listKeyboard(rows, lang, favCount) } : undefined;
+    const text = hasAny ? tr(lang).list_intro : tr(lang).list_empty;
     try { await ctx.editMessageText(text, markup); }
     catch { try { await ctx.reply(text, markup); } catch { /* expired */ } }
+  };
+
+  /** Render the Favorites sub-list (starred singles) in place. */
+  const editFavorites = async (
+    ctx: { editMessageText: (t: string, o?: object) => Promise<unknown>; reply: (t: string, o?: object) => Promise<unknown> },
+    chatId: number,
+    lang: Lang,
+  ): Promise<void> => {
+    const rows = favoriteRowsFor(chatId);
+    if (rows.length === 0) { await editListPicker(ctx, chatId, lang); return; }
+    const markup = { reply_markup: favoritesKeyboard(rows) };
+    try { await ctx.editMessageText(tr(lang).favorites_intro, markup); }
+    catch { try { await ctx.reply(tr(lang).favorites_intro, markup); } catch { /* expired */ } }
   };
 
   // /group <pause|resume|remove> <name> — bulk action on every watch in a collection.
@@ -1965,7 +1994,7 @@ export function buildBot(
   // /list picker: lw:<id> opens the watch's edit card directly (rich summary +
   // controls — the list detail and the edit card are now one screen); lw:back
   // returns to the picker. Both edit the single message in place (no new cards).
-  bot.callbackQuery(/^lw:(back|\d+)$/, async (ctx) => {
+  bot.callbackQuery(/^lw:(back|fav|\d+)$/, async (ctx) => {
     const chatId = ctx.chat?.id;
     const lang = langFor(store, chatId ?? 0);
     try {
@@ -1973,6 +2002,11 @@ export function buildBot(
       if (ctx.match[1] === 'back') {
         await ctx.answerCallbackQuery();
         await editListPicker(ctx, chatId, lang);
+        return;
+      }
+      if (ctx.match[1] === 'fav') {
+        await ctx.answerCallbackQuery();
+        await editFavorites(ctx, chatId, lang);
         return;
       }
       const monitor = store.monitors.get(Number(ctx.match[1]));

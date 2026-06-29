@@ -75,6 +75,10 @@ export interface Catalog {
   }) => string;
   /** Browse notice: how many items the watches' filters hid, with a per-watch breakdown. */
   browse_filtered_notice: (p: { total: number; breakdown: string }) => string;
+  /** /list folder button for starred single listings (count). */
+  btn_favorites: (count: number) => string;
+  /** Header of the Favorites sub-list. */
+  favorites_intro: string;
   /** Caption on the exported CSV document. */
   export_caption: (rows: number) => string;
   /** Reply when there's nothing to export. */
@@ -425,6 +429,8 @@ const ro: Catalog = {
     (vendors ? `• Site-uri: ${vendors}` : ''),
   browse_filtered_notice: ({ total, breakdown }) =>
     `🔕 ${total} anunț${total === 1 ? '' : 'uri'} ascuns${total === 1 ? '' : 'e'} de filtrele tale (cuvinte incluse/excluse, vânzător):\n${breakdown}`,
+  btn_favorites: (count) => `⭐ Favorite (${count})`,
+  favorites_intro: '⭐ Anunțuri salvate:',
   export_caption: (rows) => `📄 ${rows} anunț${rows === 1 ? '' : 'uri'} exportate.`,
   export_empty: 'Niciun anunț de exportat încă.',
   rate_usage: 'Folosire: /rate <link>',
@@ -751,6 +757,8 @@ const en: Catalog = {
     (vendors ? `• Sites: ${vendors}` : ''),
   browse_filtered_notice: ({ total, breakdown }) =>
     `🔕 ${total} listing${total === 1 ? '' : 's'} hidden by your filters (included/excluded words, seller):\n${breakdown}`,
+  btn_favorites: (count) => `⭐ Favorites (${count})`,
+  favorites_intro: '⭐ Your saved listings:',
   export_caption: (rows) => `📄 Exported ${rows} listing${rows === 1 ? '' : 's'}.`,
   export_empty: 'Nothing to export yet.',
   rate_usage: 'Usage: /rate <url>',
@@ -1072,6 +1080,8 @@ const de: Catalog = {
     (vendors ? `• Seiten: ${vendors}` : ''),
   browse_filtered_notice: ({ total, breakdown }) =>
     `🔕 ${total} Anzeige${total === 1 ? '' : 'n'} durch deine Filter ausgeblendet (ein-/ausgeschlossene Wörter, Verkäufer):\n${breakdown}`,
+  btn_favorites: (count) => `⭐ Favoriten (${count})`,
+  favorites_intro: '⭐ Gespeicherte Anzeigen:',
   export_caption: (rows) => `📄 ${rows} Anzeige${rows === 1 ? '' : 'n'} exportiert.`,
   export_empty: 'Noch nichts zum Exportieren.',
   rate_usage: 'Verwendung: /rate <url>',
@@ -1393,6 +1403,8 @@ const it: Catalog = {
     (vendors ? `• Siti: ${vendors}` : ''),
   browse_filtered_notice: ({ total, breakdown }) =>
     `🔕 ${total} ${total === 1 ? 'annuncio nascosto' : 'annunci nascosti'} dai tuoi filtri (parole incluse/escluse, venditore):\n${breakdown}`,
+  btn_favorites: (count) => `⭐ Preferiti (${count})`,
+  favorites_intro: '⭐ Annunci salvati:',
   export_caption: (rows) => `📄 Esportati ${rows} ${rows === 1 ? 'annuncio' : 'annunci'}.`,
   export_empty: 'Niente da esportare per ora.',
   rate_usage: 'Uso: /rate <url>',
@@ -1714,6 +1726,8 @@ const es: Catalog = {
     (vendors ? `• Sitios: ${vendors}` : ''),
   browse_filtered_notice: ({ total, breakdown }) =>
     `🔕 ${total} anuncio${total === 1 ? '' : 's'} oculto${total === 1 ? '' : 's'} por tus filtros (palabras incluidas/excluidas, vendedor):\n${breakdown}`,
+  btn_favorites: (count) => `⭐ Favoritos (${count})`,
+  favorites_intro: '⭐ Anuncios guardados:',
   export_caption: (rows) => `📄 Exportado${rows === 1 ? '' : 's'} ${rows} anuncio${rows === 1 ? '' : 's'}.`,
   export_empty: 'Aún no hay nada que exportar.',
   rate_usage: 'Uso: /rate <url>',
@@ -2035,6 +2049,8 @@ const fr: Catalog = {
     (vendors ? `• Sites : ${vendors}` : ''),
   browse_filtered_notice: ({ total, breakdown }) =>
     `🔕 ${total} annonce${total === 1 ? '' : 's'} masquée${total === 1 ? '' : 's'} par vos filtres (mots inclus/exclus, vendeur) :\n${breakdown}`,
+  btn_favorites: (count) => `⭐ Favoris (${count})`,
+  favorites_intro: '⭐ Annonces enregistrées :',
   export_caption: (rows) => `📄 Export de ${rows} annonce${rows === 1 ? '' : 's'}.`,
   export_empty: 'Rien à exporter pour l’instant.',
   rate_usage: 'Utilisation : /rate <url>',

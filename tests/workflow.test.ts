@@ -129,6 +129,27 @@ describe('workflow commands', () => {
     expect(card.data).toContain('lw:back'); // Gata → back to the picker
   });
 
+  it('/list groups starred singles under a Favorites folder, search watches stay in the list', async () => {
+    const search = mkSearch(h.store);
+    const tracked = h.store.monitors.create({
+      type: 'product', chatId: USER, vendor: 'synth', url: 'https://synth.test/star', origin: 'tracked',
+      filters: { sellerVisibility: 'both', exclusionKeywords: [] }, intervalMs: 60_000, nextDueAt: 0,
+    });
+    h.store.items.upsert(tracked.id, item({ id: 'star', title: 'Starred Corolla', url: 'https://synth.test/star' }), 1_000);
+
+    await cmd(h.bot, '/list');
+    const list = h.sent.at(-1)!;
+    expect(list.data).toContain('lw:fav'); // Favorites folder, listed first
+    expect(list.data).toContain(`lw:${search.id}`); // search watch in the main list
+    expect(list.data.some((d) => d === `lw:${tracked.id}`)).toBe(false); // tracked single not in the main list
+
+    await tap(h.bot, 'lw:fav');
+    const fav = h.sent.at(-1)!;
+    expect(fav.text).toMatch(/saved listings/i); // favorites_intro
+    expect(fav.data).toContain(`lw:${tracked.id}`); // the starred single lives here
+    expect(fav.data).toContain('lw:back'); // back to /list
+  });
+
   it('ep toggles pause in place on the edit card', async () => {
     const m = mkSearch(h.store);
     await cmd(h.bot, '/list');
