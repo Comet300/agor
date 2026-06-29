@@ -419,16 +419,19 @@ export class MonitorCycle {
     // Feed the fair-value models with this listing's attributes (v2).
     this.feedValuation([item], at);
 
-    // Became-a-deal: rate the item against the chat's collected pool and alert
-    // once when it crosses INTO a great deal (wasn't great last cycle). Runs after
-    // the upsert so the pool is current; ratePrice excludes the item itself.
+    // Became-a-deal: rate the item against the chat's collected pool. Alert only
+    // when the item's OWN price actually DROPPED this cycle AND that drop crossed
+    // it into a great deal — so a static-price item never alarms just because the
+    // comparable pool shifted (which felt like a "nothing changed" alert). Runs
+    // after the upsert so the pool is current; ratePrice excludes the item itself.
     const rating = ratePrice(
       { itemId: item.id, title: item.title, price: item.price, currency: item.currency, ...(item.url ? { url: item.url } : {}) },
       this.deps.store.items.browse(monitor.chatId, RATING_POOL_CAP, 0),
     );
     if (rating.tag !== 'unknown') {
       const priorTag = this.deps.store.items.getRating(monitor.id, item.id);
-      if (rating.tag === 'great_deal' && priorTag !== 'great_deal' && rating.percentile !== undefined) {
+      const priceDropped = prevPrice !== undefined && item.price < prevPrice;
+      if (rating.tag === 'great_deal' && priorTag !== 'great_deal' && rating.percentile !== undefined && priceDropped) {
         notifications.push({
           kind: 'became_deal',
           chatId: monitor.chatId,

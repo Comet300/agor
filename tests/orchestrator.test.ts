@@ -647,27 +647,34 @@ describe("10.2 product registration + price-drop detection", () => {
     expect(drop2[0]!.priceDrop?.savings).toBe(200);
   });
 
-  it("fires became_deal once when a tracked item rates a great deal vs the chat pool", async () => {
-    const base: RawNode = { id: "W", title: "Watched widget", price: 800, currency: "RON", url: PRODUCT_URL, available: true };
+  it("fires became_deal only when a real price DROP crosses into a great deal", async () => {
+    // Register at a non-deal price (1600, dearer than the comps below).
+    const base: RawNode = { id: "W", title: "Watched widget", price: 1600, currency: "RON", url: PRODUCT_URL, available: true };
     h.setBody(productDoc(base));
     const res = await h.orchestrator.register({ chatId: 7, rawUrl: PRODUCT_URL, type: "product" });
     expect(res.ok).toBe(true);
     if (!res.ok) throw new Error("register failed");
 
-    // Seed 6 pricier comparables in the same chat (a separate search watch).
+    // Seed 6 comparables (1000–1500) in the same chat (a separate search watch).
     const s = h.store.monitors.create({ type: "search", chatId: 7, vendor: "synth", url: "https://www.synth.test/s",
       filters: { sellerVisibility: "both", exclusionKeywords: [] }, intervalMs: 60_000, nextDueAt: 0 });
     [1000, 1100, 1200, 1300, 1400, 1500].forEach((p, i) =>
       h.store.items.upsert(s.id, { id: `g${i}`, title: "Watched widget", price: p, currency: "RON", url: `https://x/g${i}`, isPrivateOwner: true, inStock: true }, 1_000 + i));
 
-    h.setNow(2_000); h.setBody(productDoc({ ...base, price: 800 }));
+    // Same price (1600) → not a deal, and no drop → no became_deal.
+    h.setNow(2_000); h.setBody(productDoc({ ...base, price: 1600 }));
     let notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+    expect(notes.some((n) => n.kind === "became_deal")).toBe(false);
+
+    // Price DROPS 1600 → 800, now cheaper than every comp → became_deal fires once.
+    h.setNow(3_000); h.setBody(productDoc({ ...base, price: 800 }));
+    notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     const hit = notes.filter((n) => n.kind === "became_deal");
     expect(hit).toHaveLength(1);
     expect(hit[0]!.becameDeal!.n).toBe(6);
 
-    // Still a great deal next cycle → no repeat (already alerted).
-    h.setNow(3_000); h.setBody(productDoc({ ...base, price: 800 }));
+    // Still a great deal next cycle but NO further drop → no repeat.
+    h.setNow(4_000); h.setBody(productDoc({ ...base, price: 800 }));
     notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     expect(notes.some((n) => n.kind === "became_deal")).toBe(false);
   });
