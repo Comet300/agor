@@ -65,6 +65,16 @@ const EnvSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  // Opt-in TLS/JA3 impersonation: front the undici transport with a
+  // curl-impersonate binary so the page fetch presents a real Chrome
+  // fingerprint. Off by default; the base install never needs the binary.
+  ENABLE_TLS_IMPERSONATION: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  // Path/name of the curl-impersonate binary (e.g. `curl_chrome116`). Only used
+  // when ENABLE_TLS_IMPERSONATION is true.
+  CURL_IMPERSONATE_PATH: z.string().default("curl_chrome116"),
   // Consecutive blocked/failed cycles before a vendor is circuit-broken (polling
   // paused until manual re-enable). Deliberately higher than
   // FAILURE_ALERT_THRESHOLD: telling the user a watch is failing is cheap and
@@ -131,6 +141,10 @@ export interface AppConfig {
   failureAlertThreshold: number;
   /** When true, attach the headless-browser fallback for opted-in manifests. */
   enableBrowserFallback: boolean;
+  /** When true, front undici with a curl-impersonate (TLS/JA3) transport. */
+  enableTlsImpersonation: boolean;
+  /** Path/name of the curl-impersonate binary (used when impersonation is on). */
+  curlImpersonatePath: string;
   /** Consecutive blocked/failed cycles before a vendor is circuit-broken. */
   circuitBreakerThreshold: number;
   /** Cooldown (ms) before an open vendor breaker auto-probes (half-open). */
@@ -185,6 +199,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     monitorCycleTimeoutMs: parsed.MONITOR_CYCLE_TIMEOUT_MS,
     failureAlertThreshold: parsed.FAILURE_ALERT_THRESHOLD,
     enableBrowserFallback: parsed.ENABLE_BROWSER_FALLBACK,
+    enableTlsImpersonation: parsed.ENABLE_TLS_IMPERSONATION,
+    curlImpersonatePath: parsed.CURL_IMPERSONATE_PATH,
     circuitBreakerThreshold: parsed.CIRCUIT_BREAKER_THRESHOLD,
     circuitBreakerCooldownMs: parsed.CIRCUIT_BREAKER_COOLDOWN_MS,
     backupIntervalMs: parsed.BACKUP_INTERVAL_MS,

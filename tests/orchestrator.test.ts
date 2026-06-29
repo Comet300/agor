@@ -122,6 +122,8 @@ function makeConfig(over: Partial<AppConfig> = {}): AppConfig {
     monitorCycleTimeoutMs: 120_000,
     failureAlertThreshold: 3,
     enableBrowserFallback: false,
+    enableTlsImpersonation: false,
+    curlImpersonatePath: 'curl_chrome116',
     circuitBreakerThreshold: 10,
     circuitBreakerCooldownMs: 30 * 60_000,
     backupIntervalMs: 7 * 24 * 60 * 60_000,
