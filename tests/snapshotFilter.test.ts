@@ -20,6 +20,13 @@ describe('snapshotHidden', () => {
     expect(snapshotHidden({ title: 'VW Passat' }, f)).toBe(true);
   });
 
+  it('matches keywords in the description, not only the title', () => {
+    // Required word only in the body → kept (not hidden).
+    expect(snapshotHidden({ title: 'Apartament', description: 'are swace' }, { ...base, requiredKeywords: ['swace'] })).toBe(false);
+    // Excluded word only in the body → hidden.
+    expect(snapshotHidden({ title: 'Apartament', description: 'mobilat avariat' }, { ...base, exclusionKeywords: ['avariat'] })).toBe(true);
+  });
+
   it('applies seller visibility (and hides unknown sellers under a non-both pref)', () => {
     const priv = { ...base, sellerVisibility: 'private' as const };
     expect(snapshotHidden({ title: 'x', sellerPrivate: true }, priv)).toBe(false);

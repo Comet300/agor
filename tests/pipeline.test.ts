@@ -86,6 +86,8 @@ function item(partial: Partial<IScrapedItem> = {}): IScrapedItem {
     ...(partial.location !== undefined ? { location: partial.location } : {}),
     ...(partial.imageUrl !== undefined ? { imageUrl: partial.imageUrl } : {}),
     ...(partial.phone !== undefined ? { phone: partial.phone } : {}),
+    ...(partial.description !== undefined ? { description: partial.description } : {}),
+    ...(partial.sellerName !== undefined ? { sellerName: partial.sellerName } : {}),
   };
 }
 
@@ -401,6 +403,14 @@ describe('exclusion keywords', () => {
     const kept = applyExclusion(items, ['bmw']);
     expect(kept.map((i) => i.id)).toEqual(['2', '3']);
   });
+
+  it('matches a keyword in the DESCRIPTION too, not just the title', () => {
+    const items = [
+      item({ id: '1', title: 'Apartament 3 camere', description: 'mobilat, swace inclus' }),
+      item({ id: '2', title: 'Garsonieră', description: 'fără nimic' }),
+    ];
+    expect(applyExclusion(items, ['swace']).map((i) => i.id)).toEqual(['2']); // body match excludes #1
+  });
 });
 
 describe('required keywords (whitelist)', () => {
@@ -420,6 +430,15 @@ describe('required keywords (whitelist)', () => {
 
   it('matches on a word boundary like exclusions', () => {
     expect(applyRequired([item({ id: 'x', title: 'Embmwedded' })], ['bmw'])).toHaveLength(0);
+  });
+
+  it('keeps an item when the required word is only in the DESCRIPTION', () => {
+    const items = [
+      item({ id: '1', title: 'Apartament', description: 'are swace' }),
+      item({ id: '2', title: 'Garsonieră', description: 'fără' }),
+    ];
+    // "swace" lives in the body, not the title — it must still satisfy the whitelist.
+    expect(applyRequired(items, ['swace']).map((i) => i.id)).toEqual(['1']);
   });
 });
 
