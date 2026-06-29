@@ -236,16 +236,20 @@ export function listKeyboard(
   rows: ReadonlyArray<{ id: number; label: string }>,
   lang: Lang,
   favCount = 0,
+  collections: ReadonlyArray<{ name: string; count: number }> = [],
 ): InlineKeyboard {
   const kb = new InlineKeyboard();
   // Starred single listings live in their own folder, listed first.
   if (favCount > 0) kb.text(tr(lang).btn_favorites(favCount), 'lw:fav').row();
+  // Each collection is a 📁 folder (entered like Favorites); selection is by index.
+  collections.forEach((c, i) => kb.text(`📁 ${c.name} (${c.count})`, `lcf:${i}`).row());
+  // Ungrouped search watches as direct buttons.
   for (const r of rows) kb.text(r.label, `lw:${r.id}`).row();
   kb.text('◀️', 'idx:home'); // back to the /start home index
   return kb;
 }
 
-/** The Favorites sub-list: each starred listing as a button, ◀️ back to /list. */
+/** A /list sub-list (Favorites or a collection folder): rows + ◀️ back to /list. */
 export function favoritesKeyboard(rows: ReadonlyArray<{ id: number; label: string }>): InlineKeyboard {
   const kb = new InlineKeyboard();
   for (const r of rows) kb.text(r.label, `lw:${r.id}`).row();

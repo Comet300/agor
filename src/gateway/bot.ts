@@ -517,19 +517,30 @@ export function buildBot(
    * badge. Ungrouped first, then grouped (collection name sorted) with a 📁 prefix
    * so collection membership survives the flattening into a button list.
    */
-  const listRowsFor = (chatId: number, lang: Lang, now: number): Array<{ id: number; label: string }> => {
-    const monitors = store.monitors.listByChat(chatId).filter((m) => m.type === 'search');
-    const mk = (m: Monitor, prefix = ''): { id: number; label: string } => ({
-      id: m.id,
-      label: prefix + listSummaryLine(m, lang, trendBadgeFor(m, now)),
-    });
-    const ungrouped = monitors.filter((m) => !m.collection).map((m) => mk(m));
-    const grouped = monitors
-      .filter((m) => !!m.collection)
-      .sort((a, b) => (a.collection ?? '').localeCompare(b.collection ?? ''))
-      .map((m) => mk(m, `📁 ${m.collection} · `));
-    return [...ungrouped, ...grouped];
+  const mkRow = (m: Monitor, lang: Lang, now: number): { id: number; label: string } => ({
+    id: m.id,
+    label: listSummaryLine(m, lang, trendBadgeFor(m, now)),
+  });
+
+  const listRowsFor = (chatId: number, lang: Lang, now: number): Array<{ id: number; label: string }> =>
+    store.monitors.listByChat(chatId)
+      .filter((m) => m.type === 'search' && !m.collection)
+      .map((m) => mkRow(m, lang, now));
+
+  /** Distinct collections (search watches), sorted — each becomes a 📁 folder. */
+  const listCollections = (chatId: number): Array<{ name: string; count: number }> => {
+    const counts = new Map<string, number>();
+    for (const m of store.monitors.listByChat(chatId)) {
+      if (m.type === 'search' && m.collection) counts.set(m.collection, (counts.get(m.collection) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([name, count]) => ({ name, count }));
   };
+
+  /** Rows for one collection folder: its search watches. */
+  const collectionRowsFor = (chatId: number, name: string, lang: Lang, now: number): Array<{ id: number; label: string }> =>
+    store.monitors.listByChat(chatId)
+      .filter((m) => m.type === 'search' && m.collection === name)
+      .map((m) => mkRow(m, lang, now));
 
   /** Tracked (⭐ starred) watches in the chat. */
   const favoriteMonitors = (chatId: number): Monitor[] =>
@@ -549,13 +560,14 @@ export function buildBot(
     try {
       const rows = listRowsFor(chatId, lang, Date.now());
       const favCount = favoriteMonitors(chatId).length;
-      if (rows.length === 0 && favCount === 0) {
+      const collections = listCollections(chatId);
+      if (rows.length === 0 && favCount === 0 && collections.length === 0) {
         await ctx.reply(tr(lang).list_empty);
         return;
       }
-      // One compact index: a ⭐ Favorites folder (starred singles) first, then a
-      // button per search watch. Tapping opens the edit card (lw:<id>).
-      await ctx.reply(tr(lang).list_intro, { reply_markup: listKeyboard(rows, lang, favCount) });
+      // One compact index: ⭐ Favorites + 📁 collection folders first, then a button
+      // per ungrouped search watch. Tapping opens the edit card (lw:<id>).
+      await ctx.reply(tr(lang).list_intro, { reply_markup: listKeyboard(rows, lang, favCount, collections) });
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -571,11 +583,27 @@ export function buildBot(
   ): Promise<void> => {
     const rows = listRowsFor(chatId, lang, Date.now());
     const favCount = favoriteMonitors(chatId).length;
-    const hasAny = rows.length > 0 || favCount > 0;
-    const markup = hasAny ? { reply_markup: listKeyboard(rows, lang, favCount) } : undefined;
+    const collections = listCollections(chatId);
+    const hasAny = rows.length > 0 || favCount > 0 || collections.length > 0;
+    const markup = hasAny ? { reply_markup: listKeyboard(rows, lang, favCount, collections) } : undefined;
     const text = hasAny ? tr(lang).list_intro : tr(lang).list_empty;
     try { await ctx.editMessageText(text, markup); }
     catch { try { await ctx.reply(text, markup); } catch { /* expired */ } }
+  };
+
+  /** Render a collection folder's sub-list (its search watches) in place. */
+  const editCollection = async (
+    ctx: { editMessageText: (t: string, o?: object) => Promise<unknown>; reply: (t: string, o?: object) => Promise<unknown> },
+    chatId: number,
+    lang: Lang,
+    index: number,
+  ): Promise<void> => {
+    const name = listCollections(chatId)[index]?.name;
+    if (name === undefined) { await editListPicker(ctx, chatId, lang); return; }
+    const rows = collectionRowsFor(chatId, name, lang, Date.now());
+    const markup = { reply_markup: favoritesKeyboard(rows) }; // rows + ◀️ back to /list
+    try { await ctx.editMessageText(`📁 ${name}`, markup); }
+    catch { try { await ctx.reply(`📁 ${name}`, markup); } catch { /* expired */ } }
   };
 
   /** Render the Favorites sub-list (starred singles) in place. */
@@ -2044,6 +2072,19 @@ export function buildBot(
   // /list picker: lw:<id> opens the watch's edit card directly (rich summary +
   // controls — the list detail and the edit card are now one screen); lw:back
   // returns to the picker. Both edit the single message in place (no new cards).
+  // /list collection folder: lcf:<index> opens that collection's sub-list.
+  bot.callbackQuery(/^lcf:(\d+)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      await ctx.answerCallbackQuery();
+      await editCollection(ctx, chatId, lang, Number(ctx.match[1]));
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
+
   bot.callbackQuery(/^lw:(back|fav|\d+)$/, async (ctx) => {
     const chatId = ctx.chat?.id;
     const lang = langFor(store, chatId ?? 0);
