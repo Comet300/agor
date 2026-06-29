@@ -601,14 +601,16 @@ export function renderListRow(monitor: Monitor, lang: Lang, trendBadge = ''): Re
 }
 
 /**
- * The one-line watch summary used as a /list button label: the first line of
- * {@link renderListRow}'s text (id · name · type · filters), WITHOUT the URL line,
- * plus the trend badge. Inline buttons can't carry links/newlines, so the URL
- * lives in the per-watch detail view instead.
+ * A SHORT one-line label for a /list picker button: id + status marks + name
+ * (+ vendor) + trend badge. Deliberately omits the type/seller/keyword filters
+ * (which would overflow and truncate in a single-line button) — the full summary
+ * with filters and the URL lives in the per-watch detail view (renderListRow).
  */
 export function listSummaryLine(monitor: Monitor, lang: Lang, trendBadge = ''): string {
-  const first = tr(lang).list_item(listItemParams(monitor)).split('\n')[0] ?? '';
-  return trendBadge ? `${first} ${trendBadge}` : first;
+  const marks = `${monitor.origin === 'tracked' ? '📌 ' : ''}${monitor.paused ? '⏸ ' : ''}`;
+  const name = monitor.label ? `„${monitor.label}” (${monitor.vendor})` : monitor.vendor;
+  const base = `#${monitor.id} · ${marks}${name}`;
+  return trendBadge ? `${base} ${trendBadge}` : base;
 }
 
 /**

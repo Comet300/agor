@@ -533,7 +533,7 @@ export function buildBot(
       }
       // One compact index: a button per watch (no more one-card-per-watch spam).
       // Tapping a button opens that watch's detail + action row (lw:<id>).
-      await ctx.reply(tr(lang).list_intro, { reply_markup: listKeyboard(rows) });
+      await ctx.reply(tr(lang).list_intro, { reply_markup: listKeyboard(rows, lang) });
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -1913,7 +1913,7 @@ export function buildBot(
         await ctx.answerCallbackQuery();
         const rows = listRowsFor(chatId, lang, Date.now());
         if (rows.length === 0) { await ctx.editMessageText(tr(lang).list_empty); return; }
-        await ctx.editMessageText(tr(lang).list_intro, { reply_markup: listKeyboard(rows) });
+        await ctx.editMessageText(tr(lang).list_intro, { reply_markup: listKeyboard(rows, lang) });
         return;
       }
       const monitor = store.monitors.get(Number(ctx.match[1]));
