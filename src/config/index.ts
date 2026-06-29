@@ -44,11 +44,12 @@ const EnvSchema = z.object({
   // Comma-separated Telegram chat ids that bootstrap as admins (always allowed,
   // can grant/revoke others). Unset ⇒ no admins ⇒ access control is fail-open.
   ADMIN_CHAT_IDS: z.string().optional(),
+  // Default check cadence for a new watch — 6h (changeable per-watch in /edit).
   DEFAULT_CHECK_INTERVAL_MS: z.coerce
     .number()
     .int()
     .positive()
-    .default(600_000),
+    .default(21_600_000),
   OOS_FAST_INTERVAL_MS: z.coerce.number().int().positive().default(120_000),
   DEDUP_WINDOW_MS: z.coerce.number().int().positive().default(86_400_000),
   BENCHMARK_MIN_SAMPLE: z.coerce.number().int().positive().default(4),

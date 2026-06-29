@@ -278,4 +278,16 @@ export function migrate(db: DB): void {
   if (subCols.length > 0 && !subCols.some((c) => c.name === 'can_edit')) {
     db.exec(`ALTER TABLE watch_subscribers ADD COLUMN can_edit INTEGER DEFAULT 0`);
   }
+
+  // One-time data backfill (guarded by PRAGMA user_version so it runs ONCE and
+  // never clobbers a later manual interval change): re-tier existing watches now
+  // that the default cadence is 6h — search listings poll faster (2h), tracked
+  // single items (⭐ stars) slower (12h).
+  const SCHEMA_VERSION = 1;
+  const userVersion = db.pragma('user_version', { simple: true }) as number;
+  if (userVersion < SCHEMA_VERSION) {
+    db.exec(`UPDATE monitors SET interval_ms = 7200000  WHERE type = 'search'`);  // 2h
+    db.exec(`UPDATE monitors SET interval_ms = 43200000 WHERE type = 'product'`); // 12h
+    db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  }
 }
