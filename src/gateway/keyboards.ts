@@ -209,9 +209,10 @@ export function listRowKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
  * one-card-per-watch spam with a single compact, app-style index.
  */
 export function listKeyboard(rows: ReadonlyArray<{ id: number; label: string }>, lang: Lang): InlineKeyboard {
+  void lang;
   const kb = new InlineKeyboard();
   for (const r of rows) kb.text(r.label, `lw:${r.id}`).row();
-  kb.text(tr(lang).btn_done, 'idx:home'); // Done → back to the /start home index
+  kb.text('◀️', 'idx:home'); // back to the /start home index
   return kb;
 }
 
@@ -310,11 +311,12 @@ export interface BrowseScope {
  * `bs:<monitorId>`, which loads that scope into the chat's browse session.
  */
 export function browseScopeKeyboard(scopes: readonly BrowseScope[], lang: Lang): InlineKeyboard {
-  void lang; // labels are pre-localized by the caller
+  void lang; // scope labels are pre-localized by the caller
   const kb = new InlineKeyboard();
   for (const s of scopes) {
     kb.text(`${s.label} (${s.count})`, `bs:${s.target}`).row();
   }
+  kb.text('◀️', 'idx:home'); // back to the /start home index
   return kb;
 }
 

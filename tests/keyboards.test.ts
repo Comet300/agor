@@ -157,6 +157,7 @@ describe('browseScopeKeyboard / browseScopeLabel', () => {
     expect(cell(0).text).toContain('(42)');
     expect(cell(1).data).toBe('bs:7');
     expect(cell(1).text).toContain('(27)');
+    expect(cell(2).data).toBe('idx:home'); // back-to-home row after the scopes
   });
 
   it('derives a vendor · query hint from a q-<slug> path or query param', () => {
