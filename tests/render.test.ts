@@ -74,6 +74,15 @@ describe('renderNotification — new_listing', () => {
     expect((pg as { callback_data: string }).callback_data).toBe('pg:olx.ro:i1');
   });
 
+  it('a new_listing with a monitorId offers ⭐ Save (nsv:) instead of price history', () => {
+    const item = makeItem();
+    const msg = renderNotification({ kind: 'new_listing', chatId: 1, monitorId: 7, item }, 'en');
+    const btns = msg.keyboard!.inline_keyboard.flat();
+    const datas = btns.map((b) => ('callback_data' in b ? b.callback_data : ''));
+    expect(datas).toContain(`nsv:7:${item.id}`); // ⭐ Save (save + track) from the alert
+    expect(datas.some((d) => d.startsWith('pg:'))).toBe(false); // no useless price history
+  });
+
   it('omits the call button when no phone is present', () => {
     const item = makeItem({ phone: undefined });
     const msg = renderNotification({ kind: 'new_listing', chatId: 1, item }, 'en');

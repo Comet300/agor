@@ -188,6 +188,7 @@ export class MonitorCycle {
     const notifications: Notification[] = out.newEnriched.map((item) => ({
       kind: 'new_listing',
       chatId: monitor.chatId,
+      monitorId: monitor.id,
       item,
     }));
 
