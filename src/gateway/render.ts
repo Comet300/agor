@@ -601,6 +601,17 @@ export function renderListRow(monitor: Monitor, lang: Lang, trendBadge = ''): Re
 }
 
 /**
+ * The one-line watch summary used as a /list button label: the first line of
+ * {@link renderListRow}'s text (id · name · type · filters), WITHOUT the URL line,
+ * plus the trend badge. Inline buttons can't carry links/newlines, so the URL
+ * lives in the per-watch detail view instead.
+ */
+export function listSummaryLine(monitor: Monitor, lang: Lang, trendBadge = ''): string {
+  const first = tr(lang).list_item(listItemParams(monitor)).split('\n')[0] ?? '';
+  return trendBadge ? `${first} ${trendBadge}` : first;
+}
+
+/**
  * Render the /edit tuning card for an existing watch: a one-line summary
  * (id · vendor · type · current cadence) plus the {@link editKeyboard} controls.
  */
