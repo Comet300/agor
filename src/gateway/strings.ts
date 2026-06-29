@@ -67,8 +67,12 @@ export interface Catalog {
     paused: number;
     tracked: number;
     items: number;
+    /** Stored items the current filters would now hide. */
+    filtered: number;
     vendors: string;
   }) => string;
+  /** Browse notice: how many items the watches' filters hid, with a per-watch breakdown. */
+  browse_filtered_notice: (p: { total: number; breakdown: string }) => string;
   /** Caption on the exported CSV document. */
   export_caption: (rows: number) => string;
   /** Reply when there's nothing to export. */
@@ -409,12 +413,15 @@ const ro: Catalog = {
   remove_usage: 'Folosire: /remove <id>',
   remove_done: (id) => `Urmărirea #${id} a fost oprită.`,
   remove_not_found: 'Urmărirea nu există sau nu îți aparține.',
-  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, vendors }) =>
     `📊 Rezumat\n` +
     `• Urmăriri: ${watches} (${search} căutări, ${product} produse)\n` +
     `• Urmărite (📌): ${tracked} · pe pauză (⏸): ${paused}\n` +
     `• Anunțuri colectate: ${items}\n` +
+    (filtered ? `• Ascunse de filtre: ${filtered}\n` : '') +
     (vendors ? `• Site-uri: ${vendors}` : ''),
+  browse_filtered_notice: ({ total, breakdown }) =>
+    `🔕 ${total} anunț${total === 1 ? '' : 'uri'} ascuns${total === 1 ? '' : 'e'} de filtrele tale (cuvinte incluse/excluse, vânzător):\n${breakdown}`,
   export_caption: (rows) => `📄 ${rows} anunț${rows === 1 ? '' : 'uri'} exportate.`,
   export_empty: 'Niciun anunț de exportat încă.',
   rate_usage: 'Folosire: /rate <link>',
@@ -731,12 +738,15 @@ const en: Catalog = {
   remove_usage: 'Usage: /remove <id>',
   remove_done: (id) => `Watch #${id} stopped.`,
   remove_not_found: 'That watch does not exist or is not yours.',
-  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, vendors }) =>
     `📊 Summary\n` +
     `• Watches: ${watches} (${search} searches, ${product} products)\n` +
     `• Tracked (📌): ${tracked} · paused (⏸): ${paused}\n` +
     `• Listings collected: ${items}\n` +
+    (filtered ? `• Hidden by filters: ${filtered}\n` : '') +
     (vendors ? `• Sites: ${vendors}` : ''),
+  browse_filtered_notice: ({ total, breakdown }) =>
+    `🔕 ${total} listing${total === 1 ? '' : 's'} hidden by your filters (included/excluded words, seller):\n${breakdown}`,
   export_caption: (rows) => `📄 Exported ${rows} listing${rows === 1 ? '' : 's'}.`,
   export_empty: 'Nothing to export yet.',
   rate_usage: 'Usage: /rate <url>',
@@ -1048,12 +1058,15 @@ const de: Catalog = {
   remove_usage: 'Verwendung: /remove <id>',
   remove_done: (id) => `Beobachtung #${id} gestoppt.`,
   remove_not_found: 'Diese Beobachtung existiert nicht oder gehört dir nicht.',
-  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, vendors }) =>
     `📊 Übersicht\n` +
     `• Beobachtungen: ${watches} (${search} Suchen, ${product} Produkte)\n` +
     `• Verfolgt (📌): ${tracked} · pausiert (⏸): ${paused}\n` +
     `• Gesammelte Anzeigen: ${items}\n` +
+    (filtered ? `• Durch Filter ausgeblendet: ${filtered}\n` : '') +
     (vendors ? `• Seiten: ${vendors}` : ''),
+  browse_filtered_notice: ({ total, breakdown }) =>
+    `🔕 ${total} Anzeige${total === 1 ? '' : 'n'} durch deine Filter ausgeblendet (ein-/ausgeschlossene Wörter, Verkäufer):\n${breakdown}`,
   export_caption: (rows) => `📄 ${rows} Anzeige${rows === 1 ? '' : 'n'} exportiert.`,
   export_empty: 'Noch nichts zum Exportieren.',
   rate_usage: 'Verwendung: /rate <url>',
@@ -1365,12 +1378,15 @@ const it: Catalog = {
   remove_usage: 'Uso: /remove <id>',
   remove_done: (id) => `Monitoraggio #${id} interrotto.`,
   remove_not_found: 'Quel monitoraggio non esiste o non è tuo.',
-  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, vendors }) =>
     `📊 Riepilogo\n` +
     `• Monitoraggi: ${watches} (${search} ricerche, ${product} prodotti)\n` +
     `• Monitorati (📌): ${tracked} · in pausa (⏸): ${paused}\n` +
     `• Annunci raccolti: ${items}\n` +
+    (filtered ? `• Nascosti dai filtri: ${filtered}\n` : '') +
     (vendors ? `• Siti: ${vendors}` : ''),
+  browse_filtered_notice: ({ total, breakdown }) =>
+    `🔕 ${total} ${total === 1 ? 'annuncio nascosto' : 'annunci nascosti'} dai tuoi filtri (parole incluse/escluse, venditore):\n${breakdown}`,
   export_caption: (rows) => `📄 Esportati ${rows} ${rows === 1 ? 'annuncio' : 'annunci'}.`,
   export_empty: 'Niente da esportare per ora.',
   rate_usage: 'Uso: /rate <url>',
@@ -1682,12 +1698,15 @@ const es: Catalog = {
   remove_usage: 'Uso: /remove <id>',
   remove_done: (id) => `Seguimiento #${id} detenido.`,
   remove_not_found: 'Ese seguimiento no existe o no es tuyo.',
-  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, vendors }) =>
     `📊 Resumen\n` +
     `• Seguimientos: ${watches} (${search} búsquedas, ${product} productos)\n` +
     `• Seguidos (📌): ${tracked} · pausados (⏸): ${paused}\n` +
     `• Anuncios recopilados: ${items}\n` +
+    (filtered ? `• Ocultos por filtros: ${filtered}\n` : '') +
     (vendors ? `• Sitios: ${vendors}` : ''),
+  browse_filtered_notice: ({ total, breakdown }) =>
+    `🔕 ${total} anuncio${total === 1 ? '' : 's'} oculto${total === 1 ? '' : 's'} por tus filtros (palabras incluidas/excluidas, vendedor):\n${breakdown}`,
   export_caption: (rows) => `📄 Exportado${rows === 1 ? '' : 's'} ${rows} anuncio${rows === 1 ? '' : 's'}.`,
   export_empty: 'Aún no hay nada que exportar.',
   rate_usage: 'Uso: /rate <url>',
@@ -1999,12 +2018,15 @@ const fr: Catalog = {
   remove_usage: 'Utilisation : /remove <id>',
   remove_done: (id) => `Suivi #${id} arrêté.`,
   remove_not_found: 'Ce suivi n’existe pas ou ne vous appartient pas.',
-  stats_summary: ({ watches, search, product, paused, tracked, items, vendors }) =>
+  stats_summary: ({ watches, search, product, paused, tracked, items, filtered, vendors }) =>
     `📊 Résumé\n` +
     `• Suivis : ${watches} (${search} recherches, ${product} produits)\n` +
     `• Épinglés (📌) : ${tracked} · en pause (⏸) : ${paused}\n` +
     `• Annonces collectées : ${items}\n` +
+    (filtered ? `• Masquées par les filtres : ${filtered}\n` : '') +
     (vendors ? `• Sites : ${vendors}` : ''),
+  browse_filtered_notice: ({ total, breakdown }) =>
+    `🔕 ${total} annonce${total === 1 ? '' : 's'} masquée${total === 1 ? '' : 's'} par vos filtres (mots inclus/exclus, vendeur) :\n${breakdown}`,
   export_caption: (rows) => `📄 Export de ${rows} annonce${rows === 1 ? '' : 's'}.`,
   export_empty: 'Rien à exporter pour l’instant.',
   rate_usage: 'Utilisation : /rate <url>',

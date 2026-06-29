@@ -142,6 +142,27 @@ describe('/browse carousel', () => {
     expect(h.sent.at(-1)!.text).toMatch(/no items/i);
   });
 
+  it('hides filtered items in /browse and reports the count per watch (by nickname)', async () => {
+    const m = h.store.monitors.create({
+      type: 'search', chatId: USER, vendor: 'synth', url: 'https://synth.test/s',
+      filters: { sellerVisibility: 'both', exclusionKeywords: ['avariat'] }, intervalMs: 60_000, nextDueAt: 0,
+    });
+    h.store.monitors.setLabel(m.id, 'Golfuri'); // a watch nickname
+    h.store.items.upsert(m.id, item({ id: 'a', title: 'VW Golf', url: 'https://synth.test/a' }), 1_000);
+    h.store.items.upsert(m.id, item({ id: 'b', title: 'VW Golf avariat', url: 'https://synth.test/b' }), 2_000);
+
+    await cmd(h.bot, '/browse');
+
+    const notice = h.sent.find((s) => /hidden by your filters/i.test(s.text));
+    expect(notice).toBeDefined();
+    expect(notice!.text).toContain('Golfuri'); // names the search by its nickname
+    expect(notice!.text).toContain('1'); // one item hidden
+
+    const card = h.sent.at(-1)!;
+    expect(card.text).toContain('item 1 of 1'); // only the non-excluded item remains
+    expect(card.text).not.toContain('avariat');
+  });
+
   it('shows the newest item first with a Track + Next button (no Prev at index 0)', async () => {
     seedItems([
       item({ id: 'a', title: 'Oldest', url: 'https://synth.test/a' }),

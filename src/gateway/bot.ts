@@ -26,7 +26,7 @@ import { Bot, InlineKeyboard, InputFile } from 'grammy';
 import type { MessageRef, Monitor, Notification, SellerVisibility } from '../contracts';
 import type { ItemSnapshot, Store } from '../persistence';
 import type { Orchestrator } from '../orchestrator';
-import { parseExclusionInput, phoneKey } from '../pipeline';
+import { parseExclusionInput, phoneKey, snapshotHidden } from '../pipeline';
 import { renderNotification, renderRegistrationCard, renderBrowseCard, renderDelistCard, renderBrowseScope, renderEditCard, renderListRow, renderPicker } from './render';
 import { computeTrend, renderTrendBadge } from '../features/trend';
 import { buildWeeklyReport } from '../features/weeklyReport';
@@ -570,6 +570,14 @@ export function buildBot(
     try {
       const monitors = store.monitors.listByChat(chatId);
       const vendors = [...new Set(monitors.map((m) => m.vendor))].sort().join(', ');
+      // How many stored items the current filters would now hide (exclusion /
+      // required words, seller block / visibility) — re-applied per owning watch.
+      const filtersByMonitor = new Map(monitors.map((m) => [m.id, m.filters]));
+      let filtered = 0;
+      for (const s of store.items.browse(chatId, EXPORT_ROW_CAP, 0)) {
+        const f = filtersByMonitor.get(s.monitorId);
+        if (f && snapshotHidden(s, f)) filtered++;
+      }
       await ctx.reply(
         tr(lang).stats_summary({
           watches: monitors.length,
@@ -578,6 +586,7 @@ export function buildBot(
           paused: monitors.filter((m) => m.paused).length,
           tracked: monitors.filter((m) => m.origin === 'tracked').length,
           items: store.items.countForChat(chatId),
+          filtered,
           vendors,
         }),
       );
@@ -767,9 +776,36 @@ export function buildBot(
     chatId: number,
     items: ItemSnapshot[],
   ): Promise<void> => {
-    // Hide listings the user has dismissed.
+    const lang = langFor(store, chatId);
+    // Hide listings the user has dismissed, plus any that the owning watch's
+    // current filters (exclusion / required words, seller block / visibility)
+    // would now drop — and tally how many were hidden, per watch.
     const dismissed = store.itemFlags.dismissedIds(chatId);
-    browseSessions.set(chatId, items.filter((s) => !dismissed.has(s.itemId)));
+    const monitorsById = new Map(store.monitors.listByChat(chatId).map((m) => [m.id, m]));
+    const visible: ItemSnapshot[] = [];
+    const hiddenByMonitor = new Map<number, number>();
+    for (const s of items) {
+      if (dismissed.has(s.itemId)) continue;
+      const monitor = monitorsById.get(s.monitorId);
+      if (monitor && snapshotHidden(s, monitor.filters)) {
+        hiddenByMonitor.set(s.monitorId, (hiddenByMonitor.get(s.monitorId) ?? 0) + 1);
+        continue;
+      }
+      visible.push(s);
+    }
+    browseSessions.set(chatId, visible);
+
+    if (hiddenByMonitor.size > 0) {
+      let total = 0;
+      const lines: string[] = [];
+      for (const [monitorId, n] of hiddenByMonitor) {
+        total += n;
+        const m = monitorsById.get(monitorId);
+        const name = m?.label ?? (m ? `${m.vendor} · ${m.type}` : String(monitorId));
+        lines.push(`• ${name}: ${n}`);
+      }
+      await ctx.reply(tr(lang).browse_filtered_notice({ total, breakdown: lines.join('\n') }));
+    }
     await sendBrowseItem(ctx, chatId, 0);
   };
 
