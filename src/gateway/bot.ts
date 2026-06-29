@@ -1709,7 +1709,7 @@ export function buildBot(
       const monitor = store.monitors.get(Number(ctx.match[1]));
       if (!monitor || !canManage(monitor, ctx.chat?.id)) { await ctx.answerCallbackQuery(tr(lang).cb_watch_gone); return; }
       await ctx.answerCallbackQuery();
-      await ctx.editMessageReplyMarkup({ reply_markup: frequencyPickerKeyboard(monitor.id, curMinutes(monitor), lang, 'edit') });
+      await ctx.editMessageReplyMarkup({ reply_markup: frequencyPickerKeyboard(monitor.id, curMinutes(monitor), lang, 'edit', monitor.paused) });
     } catch { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); }
   });
   bot.callbackQuery(/^fqb:(\d+)$/, async (ctx) => {
@@ -1819,10 +1819,12 @@ export function buildBot(
       if (!nowPaused) store.monitors.setSchedule(monitorId, Date.now(), monitor.fastTier);
       monitor.paused = nowPaused;
       await ctx.answerCallbackQuery(nowPaused ? tr(lang).cb_paused : tr(lang).cb_resumed);
-      // Re-render the whole card: the ⏸ marker in the summary text + the button
-      // label both reflect the new state.
-      const view = renderEditCard(monitor, lang, trendBadgeFor(monitor, Date.now()));
-      await ctx.editMessageText(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
+      // ep: lives inside the interval picker now — re-render the picker in place so
+      // the Pause/Resume label flips and the user stays on that screen. (The ⏸
+      // marker in the card text refreshes when they tap back, via renderEditCard.)
+      await ctx.editMessageReplyMarkup({
+        reply_markup: frequencyPickerKeyboard(monitorId, curMinutes(monitor), lang, 'edit', nowPaused),
+      });
     } catch (err) {
       await ctx.answerCallbackQuery(tr(lang).cb_setting_error);
     }

@@ -124,8 +124,7 @@ describe('workflow commands', () => {
 
     await tap(h.bot, `lw:${m.id}`); // opens the edit card directly (merged with the list detail)
     const card = h.sent.at(-1)!;
-    expect(card.data).toContain(`efi:${m.id}`); // interval
-    expect(card.data).toContain(`ep:${m.id}`); // pause (under interval)
+    expect(card.data).toContain(`efi:${m.id}`); // interval (pause is inside its picker)
     expect(card.data).toContain(`rm:${m.id}`); // remove
     expect(card.data).toContain('lw:back'); // Gata → back to the picker
   });

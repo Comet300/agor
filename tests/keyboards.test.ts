@@ -185,7 +185,7 @@ describe('editKeyboard', () => {
     expect(d).toContain('eq:4');           // required keywords
     expect(d).toContain('eb:4');           // block seller
     expect(d).toContain('er:4');           // rename
-    expect(d).toContain('ep:4');           // pause/resume
+    expect(d.some((x) => x === 'ep:4')).toBe(false); // pause moved into the interval picker
     expect(d).toContain('rm:4');           // remove
     expect(d).toContain('lw:back');        // Gata is now a back arrow → list picker
     expect(d.some((x) => x.startsWith('et:'))).toBe(false); // target price is product-only
@@ -197,7 +197,7 @@ describe('editKeyboard', () => {
     expect(d).toContain('efi:9');          // check-interval button
     expect(d).toContain('et:9');           // target price (product only)
     expect(d).toContain('er:9');           // rename works for any watch
-    expect(d).toContain('ep:9');           // pause works for any watch
+    expect(d.some((x) => x === 'ep:9')).toBe(false); // pause moved into the interval picker
     expect(d).toContain('rm:9');
     expect(d).toContain('lw:back'); // Gata is now a back arrow → list picker
     expect(d.some((x) => x.startsWith('esv:'))).toBe(false); // seller filter N/A to one listing
@@ -207,11 +207,17 @@ describe('editKeyboard', () => {
     expect(d.some((x) => x.startsWith('go:'))).toBe(false);
   });
 
-  it('pause button label flips to Resume when the watch is paused', () => {
-    const labelsOf = (m: Monitor): string[] =>
-      editKeyboard(m, 'en').inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
-    expect(labelsOf(monitor({ paused: false }))).toContain(tr('en').btn_pause);
-    expect(labelsOf(monitor({ paused: true }))).toContain(tr('en').btn_resume);
+  it('the interval picker (edit scope) holds pause/resume, label flips with state', () => {
+    const labelsOf = (paused: boolean): string[] =>
+      frequencyPickerKeyboard(4, 30, 'en', 'edit', paused).inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
+    const dataOfPicker = (paused: boolean): string[] =>
+      frequencyPickerKeyboard(4, 30, 'en', 'edit', paused).inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : ''));
+    expect(dataOfPicker(false)).toContain('ep:4'); // pause lives in the picker now
+    expect(labelsOf(false)).toContain(tr('en').btn_pause);
+    expect(labelsOf(true)).toContain(tr('en').btn_resume);
+    // Registration-scope picker has no pause (the watch doesn't exist yet).
+    const regData = frequencyPickerKeyboard(4, 30, 'en', 'reg').inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : ''));
+    expect(regData.some((x) => x.startsWith('ep:'))).toBe(false);
   });
 
   it('shows the active seller and the current interval on the card', () => {

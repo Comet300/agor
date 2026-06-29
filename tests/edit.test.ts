@@ -100,8 +100,8 @@ describe('/edit', () => {
     expect(card.text).toMatch(new RegExp(`#${m.id} ·`)); // rich list-style summary (merged with the list)
     expect(card.data).toContain(`esm:${m.id}`); // seller submenu opener
     expect(card.data).toContain(`erm:${m.id}`); // reports submenu opener
-    expect(card.data).toContain(`efi:${m.id}`); // collapsed check-interval button
-    expect(card.data).toContain(`ep:${m.id}`); // pause/resume (under interval)
+    expect(card.data).toContain(`efi:${m.id}`); // interval button (pause lives inside its picker)
+    expect(card.data.some((d) => d === `ep:${m.id}`)).toBe(false); // pause is in the interval picker, not the card
     expect(card.data).toContain(`ex:${m.id}`);
     expect(card.data).toContain(`rm:${m.id}`);
     expect(card.data).toContain('lw:back'); // Gata → back to the list picker
