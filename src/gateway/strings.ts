@@ -184,6 +184,12 @@ export interface Catalog {
   btn_freq: (minutes: number) => string;
   /** Collapsed check-interval button on the registration / edit card (current value). */
   btn_interval: (current: string) => string;
+  /** Edit-card seller submenu opener (shows current visibility). */
+  btn_seller_menu: (current: string) => string;
+  /** Edit-card reports submenu opener (digest + weekly report). */
+  btn_reports_menu: string;
+  /** Explainer shown atop the reports submenu (what rezumat vs raport mean). */
+  reports_menu_intro: string;
   // Browse carousel.
   btn_prev: string;
   btn_next: string;
@@ -505,6 +511,9 @@ const ro: Catalog = {
   btn_price_history: '📊 Istoric preț',
   btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
   btn_interval: (current) => `⏱ Interval verificare: ${current}`,
+  btn_seller_menu: (current) => `👤 Vânzător: ${current}`,
+  btn_reports_menu: '📊 Rapoarte',
+  reports_menu_intro: '📊 Rapoarte\n\n• Rezumat — în loc de notificări individuale, primești toate anunțurile noi grupate o dată pe zi sau pe săptămână.\n• Raport săptămânal — sinteză de piață: număr de anunțuri, preț mediu și tendință pe ultima săptămână.',
   btn_prev: '◀️ Înapoi',
   btn_next: 'Înainte ▶️',
   btn_track: '📌 Urmărește',
@@ -822,6 +831,9 @@ const en: Catalog = {
   btn_price_history: '📊 Price history',
   btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
   btn_interval: (current) => `⏱ Check interval: ${current}`,
+  btn_seller_menu: (current) => `👤 Seller: ${current}`,
+  btn_reports_menu: '📊 Reports',
+  reports_menu_intro: '📊 Reports\n\n• Digest — instead of individual alerts, get all new listings bundled once a day or week.\n• Weekly report — market summary: listing count, average price and trend over the past week.',
   btn_prev: '◀️ Prev',
   btn_next: 'Next ▶️',
   btn_track: '📌 Track',
@@ -1134,6 +1146,9 @@ const de: Catalog = {
   btn_price_history: '📊 Preisverlauf',
   btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
   btn_interval: (current) => `⏱ Prüfintervall: ${current}`,
+  btn_seller_menu: (current) => `👤 Verkäufer: ${current}`,
+  btn_reports_menu: '📊 Berichte',
+  reports_menu_intro: '📊 Berichte\n\n• Zusammenfassung — statt einzelner Benachrichtigungen alle neuen Anzeigen einmal täglich oder wöchentlich gebündelt.\n• Wochenbericht — Marktüberblick: Anzahl der Anzeigen, Durchschnittspreis und Trend der letzten Woche.',
   btn_prev: '◀️ Zurück',
   btn_next: 'Weiter ▶️',
   btn_track: '📌 Verfolgen',
@@ -1446,6 +1461,9 @@ const it: Catalog = {
   btn_price_history: '📊 Cronologia prezzi',
   btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
   btn_interval: (current) => `⏱ Intervallo di controllo: ${current}`,
+  btn_seller_menu: (current) => `👤 Venditore: ${current}`,
+  btn_reports_menu: '📊 Report',
+  reports_menu_intro: '📊 Report\n\n• Riepilogo — invece di avvisi singoli, ricevi tutti i nuovi annunci raggruppati una volta al giorno o alla settimana.\n• Report settimanale — sintesi di mercato: numero di annunci, prezzo medio e tendenza dell’ultima settimana.',
   btn_prev: '◀️ Indietro',
   btn_next: 'Avanti ▶️',
   btn_track: '📌 Monitora',
@@ -1758,6 +1776,9 @@ const es: Catalog = {
   btn_price_history: '📊 Historial de precios',
   btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
   btn_interval: (current) => `⏱ Intervalo de comprobación: ${current}`,
+  btn_seller_menu: (current) => `👤 Vendedor: ${current}`,
+  btn_reports_menu: '📊 Informes',
+  reports_menu_intro: '📊 Informes\n\n• Resumen — en lugar de avisos individuales, recibe todos los anuncios nuevos agrupados una vez al día o a la semana.\n• Informe semanal — síntesis de mercado: número de anuncios, precio medio y tendencia de la última semana.',
   btn_prev: '◀️ Anterior',
   btn_next: 'Siguiente ▶️',
   btn_track: '📌 Seguir',
@@ -2070,6 +2091,9 @@ const fr: Catalog = {
   btn_price_history: '📊 Historique des prix',
   btn_freq: (m) => m < 60 ? `⏱ ${m}m` : `⏱ ${m / 60}h`,
   btn_interval: (current) => `⏱ Intervalle de vérification : ${current}`,
+  btn_seller_menu: (current) => `👤 Vendeur : ${current}`,
+  btn_reports_menu: '📊 Rapports',
+  reports_menu_intro: '📊 Rapports\n\n• Résumé — au lieu d’alertes individuelles, recevez toutes les nouvelles annonces regroupées une fois par jour ou par semaine.\n• Rapport hebdomadaire — synthèse du marché : nombre d’annonces, prix moyen et tendance de la semaine écoulée.',
   btn_prev: '◀️ Préc.',
   btn_next: 'Suiv. ▶️',
   btn_track: '📌 Suivre',

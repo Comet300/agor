@@ -98,7 +98,8 @@ describe('/edit', () => {
     await cmd(h.bot, `/edit ${m.id}`);
     const card = h.sent.at(-1)!;
     expect(card.text).toMatch(new RegExp(`Editing watch #${m.id}`));
-    expect(card.data).toContain(`esv:${m.id}:both`);
+    expect(card.data).toContain(`esm:${m.id}`); // seller submenu opener
+    expect(card.data).toContain(`erm:${m.id}`); // reports submenu opener
     expect(card.data).toContain(`efi:${m.id}`); // collapsed check-interval button
     expect(card.data).toContain(`ex:${m.id}`);
     expect(card.data).toContain(`rm:${m.id}`);
