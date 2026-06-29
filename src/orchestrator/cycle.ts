@@ -247,14 +247,10 @@ export class MonitorCycle {
     const absentIds = [...knownBefore].filter((id) => !activeIds.has(id));
     const crossed = this.deps.store.items.markAbsent(monitor.id, absentIds, at, SEARCH_ABSENT_THRESHOLD);
     if (crossed.length > 0) {
-      const titles = crossed
-        .map((id) => this.deps.store.items.getSnapshot(monitor.id, id)?.title)
-        .filter((t): t is string => Boolean(t))
-        .slice(0, 5);
       notifications.push({
         kind: 'listings_dropped',
         chatId: monitor.chatId,
-        dropped: { monitorId: monitor.id, vendor: monitor.vendor, count: crossed.length, titles },
+        dropped: { monitorId: monitor.id, vendor: monitor.vendor, count: crossed.length, itemIds: crossed },
       });
     }
 

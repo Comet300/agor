@@ -558,7 +558,7 @@ describe("10.1 search registration + new-listing detection", () => {
     notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     const dropped = notes.find((n) => n.kind === "listings_dropped");
     expect(dropped?.dropped?.count).toBe(1);
-    expect(dropped?.dropped?.titles).toContain("Beta");
+    expect(dropped?.dropped?.itemIds).toContain("B"); // the gone item's id (snapshots fetched at send)
 
     h.setNow(4_000); h.setBody(searchDoc([A, B])); // B returns
     notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;

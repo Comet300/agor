@@ -340,8 +340,9 @@ export interface DroppedSummary {
   vendor: string;
   /** Total listings that dropped off this cycle. */
   count: number;
-  /** A few representative titles (capped) for the message body. */
-  titles: string[];
+  /** Ids of the dropped items — the bot loads their snapshots to show a
+   *  browse-style card (photo + specs) per gone listing. */
+  itemIds: string[];
 }
 
 /** Identifies an already-sent Telegram message so it can be edited in place. */

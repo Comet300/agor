@@ -32,6 +32,7 @@ import {
   listRowKeyboard,
   openOnlyKeyboard,
   browseKeyboard,
+  delistBrowseKeyboard,
   browseScopeKeyboard,
   pickerKeyboard,
   PICKER_PAGE_SIZE,
@@ -403,12 +404,35 @@ function renderDelisted(
   return { text: lines.join('\n'), keyboard: openOnlyKeyboard(item, lang) };
 }
 
-/** Render a search monitor's roll-up of listings that dropped off this cycle. */
+/** Render a search monitor's roll-up of dropped listings (text fallback when no
+ *  snapshots are available; the bot normally shows a browse-style card instead). */
 function renderListingsDropped(dropped: Notification['dropped'], lang: Lang): RenderedMessage {
   const t = tr(lang);
-  if (!dropped) return { text: t.listings_dropped_title(0, '') };
-  const sample = dropped.titles.slice(0, 5).map((x) => `• ${x}`).join('\n');
-  return { text: t.listings_dropped_title(dropped.count, dropped.vendor) + (sample ? `\n${sample}` : '') };
+  return { text: t.listings_dropped_title(dropped?.count ?? 0, dropped?.vendor ?? '') };
+}
+
+/**
+ * Render one delisted item as a browse-style card (photo + title + price + specs),
+ * paginated with prev/next so the user can review exactly which listings are gone.
+ */
+export function renderDelistCard(snap: ItemSnapshot, index: number, total: number, lang: Lang): BrowseView {
+  const t = tr(lang);
+  const lines: string[] = [t.delisted_card_title, `🏷️ ${snap.title ?? snap.itemId}`, `💰 ${formatMoney(snap.lastPrice, snap.currency)}`];
+  const specs = snapshotSpecs(snap);
+  if (specs) lines.push(t.specs_line(specs));
+  const bits: string[] = [];
+  if (snap.location) bits.push(`📍 ${snap.location}`);
+  if (snap.sellerPrivate !== undefined) bits.push(snap.sellerPrivate ? t.seller_private : t.seller_company);
+  if (bits.length > 0) lines.push(bits.join(' · '));
+  if (snap.postedAt !== undefined) {
+    const d = new Date(snap.postedAt);
+    if (!Number.isNaN(d.getTime())) lines.push(t.posted_line(d.toISOString().slice(0, 10)));
+  }
+  lines.push('');
+  lines.push(t.browse_position(index + 1, total));
+  const view: BrowseView = { text: lines.join('\n'), keyboard: delistBrowseKeyboard(index, total, lang) };
+  if (snap.imageUrl) view.photoUrl = snap.imageUrl;
+  return view;
 }
 
 /** Render a re-listing alert (a delisted item reappeared). */
