@@ -356,11 +356,12 @@ describe('renderBrowseCard', () => {
     expect(view.text).toContain('item 3 of 37');        // 0-based index 2 → "3 of 37"
     expect(view.photoUrl).toBe('https://img/snap.jpg'); // image surfaced for a photo send
 
-    // Carousel: Prev (idx>0), Track, Next (idx<total-1) on row 1; Open on row 2.
+    // Carousel: Prev (idx>0), Next (idx<total-1) on row 1; ⭐ star + Open below.
     const flat = view.keyboard!.inline_keyboard.flat();
     const datas = flat.map((b) => ('callback_data' in b ? b.callback_data : `url:${'url' in b ? b.url : ''}`));
     expect(datas).toContain('br:1'); // Prev → index-1
-    expect(datas).toContain('tk:2'); // Track → this index
+    expect(datas).toContain('bsv:2'); // ⭐ star (save + track) → this index
+    expect(datas.some((d) => d.startsWith('tk:'))).toBe(false); // separate Track button gone
     expect(datas).toContain('br:3'); // Next → index+1
     expect(datas.some((d) => d.startsWith('url:https://www.olx.ro/d/snap'))).toBe(true);
   });
