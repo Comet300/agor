@@ -208,9 +208,10 @@ export function listRowKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
  * `lw:<id>` which opens that watch's detail + action row. Replaces the old
  * one-card-per-watch spam with a single compact, app-style index.
  */
-export function listKeyboard(rows: ReadonlyArray<{ id: number; label: string }>): InlineKeyboard {
+export function listKeyboard(rows: ReadonlyArray<{ id: number; label: string }>, lang: Lang): InlineKeyboard {
   const kb = new InlineKeyboard();
   for (const r of rows) kb.text(r.label, `lw:${r.id}`).row();
+  kb.text(tr(lang).btn_done, 'idx:home'); // Done → back to the /start home index
   return kb;
 }
 

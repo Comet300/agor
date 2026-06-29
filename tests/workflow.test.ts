@@ -119,6 +119,7 @@ describe('workflow commands', () => {
     await cmd(h.bot, '/list');
     const list = h.sent.at(-1)!;
     expect(list.data).toContain(`lw:${m.id}`); // a picker button, not N cards
+    expect(list.data).toContain('idx:home'); // Done → home index
     expect(list.data.some((d) => d.startsWith('le:'))).toBe(false); // actions are behind the button
 
     await tap(h.bot, `lw:${m.id}`); // open the watch's detail

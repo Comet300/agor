@@ -12,8 +12,10 @@ import {
   groupPickerKeyboard,
   sellerMenuKeyboard,
   reportsMenuKeyboard,
+  listKeyboard,
   type PickerSession,
 } from '../src/gateway/keyboards';
+import { listSummaryLine } from '../src/gateway/render';
 import { tr } from '../src/gateway/strings';
 import type { Monitor } from '../src/contracts';
 
@@ -228,6 +230,26 @@ describe('editKeyboard', () => {
     const l = sellerMenuKeyboard(monitor({ id: 7, type: 'search', filters: { sellerVisibility: 'company', exclusionKeywords: [] } }), 'en')
       .inline_keyboard.flat().map((b) => ('text' in b ? b.text : ''));
     expect(l).toContain(`✅ ${tr('en').btn_company}`);
+  });
+
+  it('list picker: a button per watch + a Done→home row', () => {
+    const rows = [{ id: 1, label: 'A' }, { id: 6, label: 'B' }];
+    const d = dataOf(listKeyboard(rows, 'ro'));
+    expect(d).toContain('lw:1');
+    expect(d).toContain('lw:6');
+    expect(d).toContain('idx:home'); // Done → home
+  });
+
+  it('list button label is short (id + name + badge), no filter suffix', () => {
+    const label = listSummaryLine(
+      monitor({ id: 1, label: 'Swace OLX', filters: { sellerVisibility: 'both', exclusionKeywords: ['avariat'] } }),
+      'ro',
+      '➡️ 💶 7d +2%',
+    );
+    expect(label).toContain('#1');
+    expect(label).toContain('„Swace OLX” (OLX)');
+    expect(label).toContain('7d +2%');
+    expect(label).not.toMatch(/vânzător|excluse|avariat/); // filters stay in the detail view
   });
 
   it('language picker lists all 6 langs (active ticked) + back to home, via setlang', () => {
