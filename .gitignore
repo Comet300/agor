@@ -12,3 +12,4 @@ coverage/
 
 # graphify knowledge-graph output (regenerated via `graphify update .`)
 graphify-out/
+server.log
