@@ -37,9 +37,10 @@ import { toCsv } from '../util/csv';
 import { formatMoney } from '../util/money';
 import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
+import { bestDeals } from '../features/bestDeals';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, backHomeKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, listKeyboard, favoritesKeyboard, quickActionsKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, backHomeKeyboard, statsKeyboard, bestDealsKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, listKeyboard, favoritesKeyboard, quickActionsKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -449,7 +450,7 @@ export function buildBot(
           catch { await runSaved(ctx, chatId); }
           break;
         }
-        case 'stats': await ctx.editMessageText(buildStatsText(chatId, lang), { reply_markup: backHomeKeyboard() }); break;
+        case 'stats': await ctx.editMessageText(buildStatsText(chatId, lang), { reply_markup: statsKeyboard(lang) }); break;
         case 'help': await ctx.editMessageText(tr(lang).help_body, { reply_markup: backHomeKeyboard() }); break;
         // Language is a fixed set → show a button picker in place, not a text hint.
         case 'lang': await ctx.editMessageText(tr(lang).lang_pick_intro, { reply_markup: langPickerKeyboard(lang) }); break;
@@ -625,17 +626,36 @@ export function buildBot(
     const monitors = store.monitors.listByChat(chatId);
     const filtersByMonitor = new Map(monitors.map((m) => [m.id, m.filters]));
     const vendorByMonitor = new Map(monitors.map((m) => [m.id, m.vendor]));
-    // One pass over stored items: filtered-out count + a per-vendor breakdown.
-    let filtered = 0;
+    const now = Date.now();
+    const DAY = 86_400_000;
+    // One pass over stored items: filtered count, per-vendor + per-currency breakdown,
+    // recency (24h/7d), seller split and availability.
+    let filtered = 0, new24 = 0, new7 = 0, priv = 0, comp = 0, inStock = 0, total = 0;
     const perVendor = new Map<string, number>();
+    const pricesByCcy = new Map<string, number[]>();
     for (const s of store.items.browse(chatId, EXPORT_ROW_CAP, 0)) {
+      total++;
       const f = filtersByMonitor.get(s.monitorId);
       if (f && snapshotHidden(s, f)) filtered++;
       const v = vendorByMonitor.get(s.monitorId);
       if (v) perVendor.set(v, (perVendor.get(v) ?? 0) + 1);
+      if (s.firstSeen >= now - DAY) new24++;
+      if (s.firstSeen >= now - 7 * DAY) new7++;
+      if (s.sellerPrivate === true) priv++; else if (s.sellerPrivate === false) comp++;
+      if (s.inStock) inStock++;
+      if (s.lastPrice > 0) (pricesByCcy.get(s.currency) ?? pricesByCcy.set(s.currency, []).get(s.currency)!).push(s.lastPrice);
     }
     const vendors = [...perVendor.entries()].sort((a, b) => b[1] - a[1]).map(([v, n]) => `${v}: ${n}`).join(' · ');
-    return tr(lang).stats_summary({
+    // Price range in the dominant (most-collected) currency.
+    const dom = [...pricesByCcy.entries()].sort((a, b) => b[1].length - a[1].length)[0];
+    let priceRange = '';
+    if (dom) {
+      const sorted = [...dom[1]].sort((a, b) => a - b);
+      const med = sorted[Math.floor(sorted.length / 2)]!;
+      priceRange = `${dom[0]} ${formatMoney(sorted[0]!, dom[0])} – ${formatMoney(sorted[sorted.length - 1]!, dom[0])} (med ${formatMoney(med, dom[0])})`;
+    }
+
+    const summary = tr(lang).stats_summary({
       watches: monitors.length,
       search: monitors.filter((m) => m.type === 'search').length,
       product: monitors.filter((m) => m.type === 'product').length,
@@ -646,17 +666,47 @@ export function buildBot(
       saved: store.itemFlags.listSaved(chatId).length,
       vendors,
     });
+    const extra = tr(lang).stats_extra({ new24, new7, priv, comp, inStock, total, priceRange });
+    return extra ? `${summary}\n${extra}` : summary;
+  };
+
+  /** The "best deals" view: statistically cheapest listings in the pool. */
+  const buildBestDealsText = (chatId: number, lang: Lang): string => {
+    const deals = bestDeals(store.items.browse(chatId, EXPORT_ROW_CAP, 0), 8);
+    if (deals.length === 0) return tr(lang).best_deals_empty;
+    const lines = deals.map((d, i) =>
+      tr(lang).best_deals_line({ rank: i + 1, title: d.title, price: formatMoney(d.price, d.currency), discount: d.discountPct, n: d.n, url: d.url ?? '' }),
+    );
+    return `${tr(lang).best_deals_intro}\n\n${lines.join('\n\n')}`;
   };
 
   const runStats = async (ctx: IdCtx, chatId: number): Promise<void> => {
     const lang = langFor(store, chatId);
     try {
-      await ctx.reply(buildStatsText(chatId, lang), { reply_markup: backHomeKeyboard() });
+      await ctx.reply(buildStatsText(chatId, lang), { reply_markup: statsKeyboard(lang) });
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
   };
   bot.command('stats', (ctx) => runStats(ctx, ctx.chat.id));
+
+  // Stats screen: stats:deals opens the best-deals view, stats:back returns to
+  // the summary. Both edit the message in place.
+  bot.callbackQuery(/^stats:(deals|back)$/, async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const lang = langFor(store, chatId ?? 0);
+    try {
+      if (chatId === undefined) { await ctx.answerCallbackQuery(); return; }
+      await ctx.answerCallbackQuery();
+      if (ctx.match[1] === 'deals') {
+        await ctx.editMessageText(buildBestDealsText(chatId, lang), { reply_markup: bestDealsKeyboard() });
+      } else {
+        await ctx.editMessageText(buildStatsText(chatId, lang), { reply_markup: statsKeyboard(lang) });
+      }
+    } catch {
+      try { await ctx.answerCallbackQuery(tr(lang).cb_setting_error); } catch { /* expired */ }
+    }
+  });
 
   bot.command('export', async (ctx) => {
     const chatId = ctx.chat.id;
