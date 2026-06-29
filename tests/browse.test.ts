@@ -64,6 +64,7 @@ function harness() {
 
   const sent: Sent[] = [];
   const answered: string[] = [];
+  const methods: string[] = [];
   const bot = buildBot(orchestrator, store, 'fake-token', { adminChatIds: [USER] });
   (bot as unknown as { botInfo: unknown }).botInfo = {
     id: 1, is_bot: true, first_name: 'agor', username: 'agor_bot',
@@ -74,6 +75,7 @@ function harness() {
     return kb.flat().map((b) => b.callback_data ?? `url:${b.url ?? ''}`);
   };
   bot.api.config.use(async (_prev, method, payload) => {
+    methods.push(method);
     if (method === 'sendMessage') {
       const p = payload as { text: string; reply_markup?: unknown };
       sent.push({ kind: 'text', text: p.text, data: kbData(p.reply_markup) });
@@ -84,6 +86,18 @@ function harness() {
       sent.push({ kind: 'photo', text: p.caption ?? '', data: kbData(p.reply_markup) });
       return { ok: true, result: { message_id: 1 } } as never;
     }
+    // In-place carousel navigation edits the existing card; capture those too so
+    // content assertions see the resulting card, not just freshly-sent ones.
+    if (method === 'editMessageText') {
+      const p = payload as { text: string; reply_markup?: unknown };
+      sent.push({ kind: 'text', text: p.text, data: kbData(p.reply_markup) });
+      return { ok: true, result: { message_id: 1 } } as never;
+    }
+    if (method === 'editMessageMedia') {
+      const p = payload as { media?: { caption?: string }; reply_markup?: unknown };
+      sent.push({ kind: 'photo', text: p.media?.caption ?? '', data: kbData(p.reply_markup) });
+      return { ok: true, result: { message_id: 1 } } as never;
+    }
     if (method === 'answerCallbackQuery') {
       const p = payload as { text?: string };
       answered.push(p.text ?? '');
@@ -91,7 +105,7 @@ function harness() {
     }
     return { ok: true, result: {} } as never;
   });
-  return { store, bot, sent, answered };
+  return { store, bot, sent, answered, methods };
 }
 
 function cmd(bot: Bot, text: string): Promise<void> {
@@ -179,13 +193,17 @@ describe('/browse carousel', () => {
     expect(first.data.some((d) => d.startsWith('br:-'))).toBe(false); // no Prev at the start
   });
 
-  it('navigates with br:<index> to the next card', async () => {
+  it('navigates with br:<index> by EDITING the card in place (no new message)', async () => {
     seedItems([
-      item({ id: 'a', title: 'Oldest', url: 'https://synth.test/a' }),
+      item({ id: 'a', title: 'Oldest', url: 'https://synth.test/a' }), // text card (no image)
       item({ id: 'b', title: 'Newest', url: 'https://synth.test/b' }),
     ]);
     await cmd(h.bot, '/browse');
+    const before = h.methods.filter((m) => m === 'sendMessage' || m === 'sendPhoto').length;
     await tap(h.bot, 'br:1'); // → second item (the older one)
+    const after = h.methods.filter((m) => m === 'sendMessage' || m === 'sendPhoto').length;
+    expect(after).toBe(before); // edited, not re-sent
+    expect(h.methods).toContain('editMessageText'); // both are text cards here
     const card = h.sent.at(-1)!;
     expect(card.text).toContain('Oldest');
     expect(card.text).toContain('item 2 of 2');
