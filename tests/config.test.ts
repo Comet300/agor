@@ -38,6 +38,15 @@ describe('loadConfig', () => {
     expect(loadConfig({ ENABLE_BROWSER_FALLBACK: 'false' }).enableBrowserFallback).toBe(false);
   });
 
+  it('TLS impersonation defaults off, with a default binary name', () => {
+    const def = loadConfig({});
+    expect(def.enableTlsImpersonation).toBe(false);
+    expect(def.curlImpersonatePath).toBe('curl_chrome116');
+    const on = loadConfig({ ENABLE_TLS_IMPERSONATION: 'true', CURL_IMPERSONATE_PATH: 'curl_chrome120' });
+    expect(on.enableTlsImpersonation).toBe(true);
+    expect(on.curlImpersonatePath).toBe('curl_chrome120');
+  });
+
   it('parses ADMIN_CHAT_IDS into a numeric list (empty when unset)', () => {
     expect(loadConfig({}).adminChatIds).toEqual([]);
     expect(loadConfig({ ADMIN_CHAT_IDS: '111, 222 ,333' }).adminChatIds).toEqual([111, 222, 333]);

@@ -164,9 +164,24 @@ async function main(): Promise<void> {
     closeBrowser = mod.closeBrowser;
     log("boot").info("browser fallback enabled for opted-in manifests");
   }
+  // TLS/JA3 impersonation: front undici with a curl-impersonate transport so the
+  // page fetch carries a real Chrome fingerprint. Falls back to undici per-request
+  // if the binary is missing/errors, so enabling it can never harden into an outage.
+  let httpFetcher: Fetcher | undefined;
+  if (config.enableTlsImpersonation) {
+    const { createImpersonateFetcher, composeFetcher } = await import('./scraping/impersonateFetcher');
+    const { defaultFetcher } = await import('./scraping/engine');
+    httpFetcher = composeFetcher(
+      createImpersonateFetcher({ binary: config.curlImpersonatePath }),
+      defaultFetcher,
+    );
+    log('boot').info({ binary: config.curlImpersonatePath }, 'TLS impersonation enabled (curl-impersonate → undici fallback)');
+  }
+
   const engine = new ScrapingEngine({
     pool,
     cooldownMs: config.proxyBenchCooldownMs,
+    ...(httpFetcher ? { fetcher: httpFetcher } : {}),
     browserFetcher,
     // Self-healing for dom-selector manifests: relocate broken selectors from a
     // stored structural fingerprint instead of silently yielding zero items.
