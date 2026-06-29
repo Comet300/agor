@@ -124,6 +124,40 @@ describe('domExtractSearch', () => {
   });
 });
 
+describe('domExtractSearch — text-anchored fields (~re / ~text)', () => {
+  // Price has no stable class; only its text identifies it.
+  const HTML = `<ul>
+    <li class="card" data-id="A1">
+      <h2 class="title">VW Golf</h2>
+      <div><span>Preț:</span><span>4.300 lei</span></div>
+      <a class="link" href="https://x/A1">view</a>
+    </li>
+  </ul>`;
+  const plugin = (priceSel: string): IVendorPlugin => ({
+    ...DOM_PLUGIN,
+    search_mapping: {
+      payload_locator: '',
+      json_path_to_items: 'li.card',
+      fields: { id: '@data-id', title: 'h2.title', price: priceSel, url: 'a.link@href' },
+    },
+  });
+
+  it('~re returns capture group 1 from the most specific matching descendant', () => {
+    const { records } = domExtractSearch(HTML, plugin('~re:([\\d.,]+)\\s*lei'));
+    expect(records[0]).toMatchObject({ id: 'A1', price: '4.300' });
+  });
+
+  it('~text returns the shortest descendant text containing the needle', () => {
+    const { records } = domExtractSearch(HTML, plugin('~text:lei'));
+    expect(records[0]!.price).toBe('4.300 lei'); // the inner span, not the whole card
+  });
+
+  it('a malformed ~re pattern yields no value (not a throw)', () => {
+    const { records } = domExtractSearch(HTML, plugin('~re:(['));
+    expect(records[0]!.price).toBeUndefined();
+  });
+});
+
 describe('dom-selector engine end-to-end (engine -> pipeline)', () => {
   function engineFor(html: string) {
     const fetcher: Fetcher = async () => ({ status: 200, body: html });

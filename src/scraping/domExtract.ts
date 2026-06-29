@@ -9,7 +9,13 @@
  *         (e.g. `url: "a.title@href"`),
  *       · a leading `!` yields the NEGATED presence of the selected element
  *         (e.g. `inStock: "!.sold-out"`, `isPrivateOwner: "!.badge-company"`),
- *       · an empty selector (e.g. `"@data-id"`) targets the item element itself.
+ *       · an empty selector (e.g. `"@data-id"`) targets the item element itself,
+ *       · a `~re:<pattern>` prefix finds the most specific descendant whose text
+ *         matches the (case-insensitive) regex and returns capture group 1 (or
+ *         the whole match) — a class-independent, text-anchored extraction
+ *         (e.g. `price: "~re:([\\d.,]+)\\s*(?:lei|ron|eur)"`),
+ *       · a `~text:<substring>` prefix returns the text of the most specific
+ *         descendant containing that substring.
  *
  * Each item is emitted as a record keyed by `IScrapedItem` field name; the
  * pipeline normalizer then coerces those values exactly like json-extractor nodes.
@@ -60,8 +66,49 @@ export function parseFieldSelector(raw: string): ParsedSelector {
  * with `=` is a literal constant (mirrors the json-extractor convention) for
  * fields the page lacks (e.g. `currency: "=EUR"`, `isPrivateOwner: "=private"`).
  */
+/**
+ * Find the most specific descendant of `el` whose collapsed text matches, and
+ * return a value from it. `pick` maps the matched element's text to the result;
+ * "most specific" = the matching element with the SHORTEST text, so a price node
+ * wins over the whole card that also contains it. The item element itself is the
+ * last-resort candidate.
+ */
+function findByText(
+  el: HTMLElement,
+  matches: (text: string) => string | undefined,
+): string | undefined {
+  let best: { len: number; value: string } | undefined;
+  const consider = (node: HTMLElement): void => {
+    const text = node.text.replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    const value = matches(text);
+    if (value === undefined) return;
+    if (!best || text.length < best.len) best = { len: text.length, value };
+  };
+  for (const node of el.querySelectorAll('*')) consider(node);
+  if (!best) consider(el);
+  return best?.value;
+}
+
 function extractField(el: HTMLElement, raw: string): string | boolean | undefined {
   if (raw.startsWith('=')) return raw.slice(1);
+  // Text-anchored operators: locate by content, independent of class/structure.
+  if (raw.startsWith('~re:')) {
+    let re: RegExp;
+    try {
+      re = new RegExp(raw.slice(4), 'i');
+    } catch {
+      return undefined; // a malformed manifest regex yields no value, not a throw
+    }
+    return findByText(el, (text) => {
+      const m = re.exec(text);
+      return m ? (m[1] ?? m[0]) : undefined;
+    });
+  }
+  if (raw.startsWith('~text:')) {
+    const needle = raw.slice(6).toLowerCase();
+    return findByText(el, (text) => (text.toLowerCase().includes(needle) ? text : undefined));
+  }
   const { selector, attr, negate } = parseFieldSelector(raw);
   const target = selector === '' ? el : el.querySelector(selector);
 
