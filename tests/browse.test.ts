@@ -156,6 +156,23 @@ describe('/browse carousel', () => {
     expect(h.sent.at(-1)!.text).toMatch(/no items/i);
   });
 
+  it('browse excludes tracked single items (only search listings)', async () => {
+    const search = seedItems([item({ id: 'a', title: 'Search Hit', url: 'https://synth.test/a' })]);
+    // A starred/tracked single listing — must NOT show up in browse.
+    const tracked = h.store.monitors.create({
+      type: 'product', chatId: USER, vendor: 'synth', url: 'https://synth.test/star', origin: 'tracked',
+      filters: { sellerVisibility: 'both', exclusionKeywords: [] }, intervalMs: 60_000, nextDueAt: 0,
+    });
+    h.store.items.upsert(tracked.id, item({ id: 'star', title: 'Starred Single', url: 'https://synth.test/star' }), 2_000);
+    void search;
+
+    await cmd(h.bot, '/browse'); // one search watch ⇒ browse-all directly
+    const card = h.sent.at(-1)!;
+    expect(card.text).toContain('Search Hit');
+    expect(card.text).not.toContain('Starred Single');
+    expect(card.text).toContain('item 1 of 1'); // the tracked single is not in the pool
+  });
+
   it('hides filtered items in /browse and reports the count per watch (by nickname)', async () => {
     const m = h.store.monitors.create({
       type: 'search', chatId: USER, vendor: 'synth', url: 'https://synth.test/s',

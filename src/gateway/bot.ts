@@ -39,7 +39,7 @@ import { findCheaperEquivalents, titleTokens } from '../features/cheaperFinder';
 import { ratePrice } from '../features/priceRating';
 import { marketInsight } from '../features/marketInsight';
 import { parseNumericAttrs, inferCategory, hedonicFairValue } from '../features/fairValue';
-import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, listKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
+import { registrationKeyboard, editKeyboard, confirmKeyboard, browseScopeLabel, browseKeyboard, frequencyPickerKeyboard, homeKeyboard, backHomeKeyboard, langPickerKeyboard, groupPickerKeyboard, sellerMenuKeyboard, reportsMenuKeyboard, listKeyboard, type BrowseScope, type PickerSession, type PickerOption, type IdCommand } from './keyboards';
 import { renderPriceHistory } from '../features/priceGraph';
 import { type Lang, tr, isLang } from './strings';
 import { resolveLang } from './lang';
@@ -441,9 +441,16 @@ export function buildBot(
         case 'home': await renderHome(ctx, chatId, lang); break;
         case 'list': await editListPicker(ctx, chatId, langFor(store, chatId)); break;
         case 'browse': await runBrowse(ctx, chatId); break;
-        case 'saved': await runSaved(ctx, chatId); break;
-        case 'stats': await runStats(ctx, chatId); break;
-        case 'help': await ctx.reply(tr(lang).help_body); break;
+        case 'saved': {
+          // Edit the home message into the saved list (back arrow → home). Long
+          // lists fall back to a fresh chunked reply.
+          const text = buildSavedText(chatId, lang) ?? tr(lang).saved_empty;
+          try { await ctx.editMessageText(text, { reply_markup: backHomeKeyboard() }); }
+          catch { await runSaved(ctx, chatId); }
+          break;
+        }
+        case 'stats': await ctx.editMessageText(buildStatsText(chatId, lang), { reply_markup: backHomeKeyboard() }); break;
+        case 'help': await ctx.editMessageText(tr(lang).help_body, { reply_markup: backHomeKeyboard() }); break;
         // Language is a fixed set → show a button picker in place, not a text hint.
         case 'lang': await ctx.editMessageText(tr(lang).lang_pick_intro, { reply_markup: langPickerKeyboard(lang) }); break;
         case 'access': await runRequestAccess(ctx, chatId); break;
@@ -472,7 +479,7 @@ export function buildBot(
 
   bot.command('help', async (ctx) => {
     const lang = langFor(store, ctx.chat.id);
-    await ctx.reply(tr(lang).help_body);
+    await ctx.reply(tr(lang).help_body, { reply_markup: backHomeKeyboard() });
   });
 
   bot.command('track', async (ctx) => {
@@ -584,31 +591,38 @@ export function buildBot(
     }
   });
 
+  /** Build the (rich) /stats summary text for a chat. */
+  const buildStatsText = (chatId: number, lang: Lang): string => {
+    const monitors = store.monitors.listByChat(chatId);
+    const filtersByMonitor = new Map(monitors.map((m) => [m.id, m.filters]));
+    const vendorByMonitor = new Map(monitors.map((m) => [m.id, m.vendor]));
+    // One pass over stored items: filtered-out count + a per-vendor breakdown.
+    let filtered = 0;
+    const perVendor = new Map<string, number>();
+    for (const s of store.items.browse(chatId, EXPORT_ROW_CAP, 0)) {
+      const f = filtersByMonitor.get(s.monitorId);
+      if (f && snapshotHidden(s, f)) filtered++;
+      const v = vendorByMonitor.get(s.monitorId);
+      if (v) perVendor.set(v, (perVendor.get(v) ?? 0) + 1);
+    }
+    const vendors = [...perVendor.entries()].sort((a, b) => b[1] - a[1]).map(([v, n]) => `${v}: ${n}`).join(' · ');
+    return tr(lang).stats_summary({
+      watches: monitors.length,
+      search: monitors.filter((m) => m.type === 'search').length,
+      product: monitors.filter((m) => m.type === 'product').length,
+      paused: monitors.filter((m) => m.paused).length,
+      tracked: monitors.filter((m) => m.origin === 'tracked').length,
+      items: store.items.countForChat(chatId),
+      filtered,
+      saved: store.itemFlags.listSaved(chatId).length,
+      vendors,
+    });
+  };
+
   const runStats = async (ctx: IdCtx, chatId: number): Promise<void> => {
     const lang = langFor(store, chatId);
     try {
-      const monitors = store.monitors.listByChat(chatId);
-      const vendors = [...new Set(monitors.map((m) => m.vendor))].sort().join(', ');
-      // How many stored items the current filters would now hide (exclusion /
-      // required words, seller block / visibility) — re-applied per owning watch.
-      const filtersByMonitor = new Map(monitors.map((m) => [m.id, m.filters]));
-      let filtered = 0;
-      for (const s of store.items.browse(chatId, EXPORT_ROW_CAP, 0)) {
-        const f = filtersByMonitor.get(s.monitorId);
-        if (f && snapshotHidden(s, f)) filtered++;
-      }
-      await ctx.reply(
-        tr(lang).stats_summary({
-          watches: monitors.length,
-          search: monitors.filter((m) => m.type === 'search').length,
-          product: monitors.filter((m) => m.type === 'product').length,
-          paused: monitors.filter((m) => m.paused).length,
-          tracked: monitors.filter((m) => m.origin === 'tracked').length,
-          items: store.items.countForChat(chatId),
-          filtered,
-          vendors,
-        }),
-      );
+      await ctx.reply(buildStatsText(chatId, lang), { reply_markup: backHomeKeyboard() });
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -645,18 +659,29 @@ export function buildBot(
     }
   });
 
+  /** The saved-items text for a chat, or undefined when there are none. */
+  const buildSavedText = (chatId: number, lang: Lang): string | undefined => {
+    const lines: string[] = [];
+    for (const s of store.itemFlags.listSaved(chatId)) {
+      const snap = store.items.getSnapshot(s.monitorId, s.itemId);
+      if (!snap) continue;
+      const base = tr(lang).saved_item({ title: snap.title ?? snap.itemId, price: formatMoney(snap.lastPrice, snap.currency), url: snap.url ?? '' });
+      lines.push(s.note ? `${base}\n📝 ${s.note}` : base);
+    }
+    return lines.length === 0 ? undefined : `${tr(lang).saved_intro}\n\n${lines.join('\n\n')}`;
+  };
+
   const runSaved = async (ctx: IdCtx, chatId: number): Promise<void> => {
     const lang = langFor(store, chatId);
     try {
-      const lines: string[] = [];
-      for (const s of store.itemFlags.listSaved(chatId)) {
-        const snap = store.items.getSnapshot(s.monitorId, s.itemId);
-        if (!snap) continue;
-        const base = tr(lang).saved_item({ title: snap.title ?? snap.itemId, price: formatMoney(snap.lastPrice, snap.currency), url: snap.url ?? '' });
-        lines.push(s.note ? `${base}\n📝 ${s.note}` : base);
+      const text = buildSavedText(chatId, lang);
+      if (text === undefined) { await ctx.reply(tr(lang).saved_empty, { reply_markup: backHomeKeyboard() }); return; }
+      // Chunk for length; the back button rides the final chunk.
+      const chunks = splitForTelegram(text);
+      for (let i = 0; i < chunks.length; i++) {
+        const last = i === chunks.length - 1;
+        await ctx.reply(chunks[i]!, last ? { reply_markup: backHomeKeyboard() } : undefined);
       }
-      if (lines.length === 0) { await ctx.reply(tr(lang).saved_empty); return; }
-      await replyChunked((t) => ctx.reply(t), `${tr(lang).saved_intro}\n\n${lines.join('\n\n')}`);
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -822,17 +847,33 @@ export function buildBot(
    * per watch that has browsable items (newest-watch-first, matching /list order).
    * Returns the chat-wide total alongside, so the caller can short-circuit empties.
    */
+  /** Monitor ids that yield browsable result lists — SEARCH watches only. A
+   *  tracked single listing (a ⭐ star) is not a "listing to browse". */
+  const searchMonitorIds = (chatId: number): Set<number> =>
+    new Set(store.monitors.listByChat(chatId).filter((m) => m.type === 'search').map((m) => m.id));
+
+  /** The browse-all pool: newest stored items from SEARCH watches only (capped). */
+  const browseAllPool = (chatId: number): ReturnType<typeof store.items.browse> => {
+    const ids = searchMonitorIds(chatId);
+    return store.items.browse(chatId, EXPORT_ROW_CAP, 0).filter((s) => ids.has(s.monitorId)).slice(0, BROWSE_WINDOW);
+  };
+
   const buildBrowseScopes = (chatId: number): { total: number; scopes: BrowseScope[] } => {
-    const total = store.items.countForChat(chatId);
     const counts = store.items.browseCountsByMonitor(chatId);
-    const scopes: BrowseScope[] = [
-      { target: 'all', label: tr(langFor(store, chatId)).btn_browse_all, count: total },
-    ];
-    for (const m of store.monitors.listByChat(chatId)) {
+    const searchWatches = store.monitors.listByChat(chatId).filter((m) => m.type === 'search');
+    // Browse covers search-result listings only — exclude tracked single items.
+    let total = 0;
+    const watchScopes: BrowseScope[] = [];
+    for (const m of searchWatches) {
       const count = counts.get(m.id) ?? 0;
       if (count === 0) continue; // a watch with nothing browsable isn't worth a button
-      scopes.push({ target: m.id, label: m.label ?? browseScopeLabel(m.vendor, m.url), count });
+      total += count;
+      watchScopes.push({ target: m.id, label: m.label ?? browseScopeLabel(m.vendor, m.url), count });
     }
+    const scopes: BrowseScope[] = [
+      { target: 'all', label: tr(langFor(store, chatId)).btn_browse_all, count: total },
+      ...watchScopes,
+    ];
     return { total, scopes };
   };
 
@@ -1173,14 +1214,14 @@ export function buildBot(
         await ctx.reply(tr(lang).browse_empty);
         return;
       }
-      // With more than one watch, let the user scope to a single watch or all.
-      // With a single watch, the picker would be a one-option no-op — browse all.
-      if (store.monitors.listByChat(chatId).length > 1) {
+      // With more than one search watch, let the user scope to one or all.
+      // With a single one, the picker would be a one-option no-op — browse all.
+      if (scopes.length > 2) {
         const view = renderBrowseScope(scopes, lang);
         await ctx.reply(view.text, view.keyboard ? { reply_markup: view.keyboard } : undefined);
         return;
       }
-      await startBrowseSession(ctx, chatId, store.items.browse(chatId, BROWSE_WINDOW, 0));
+      await startBrowseSession(ctx, chatId, browseAllPool(chatId));
     } catch (err) {
       await ctx.reply(tr(lang).generic_error);
     }
@@ -2398,7 +2439,7 @@ export function buildBot(
       if (chatId === undefined) return;
       const target = ctx.match[1]!;
       if (target === 'all') {
-        await startBrowseSession(ctx, chatId, store.items.browse(chatId, BROWSE_WINDOW, 0));
+        await startBrowseSession(ctx, chatId, browseAllPool(chatId));
         return;
       }
       const monitorId = Number(target);
