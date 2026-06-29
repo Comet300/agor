@@ -34,7 +34,13 @@ export function fmtInterval(minutes: number): string {
  * set callback ('reg' → fq:, 'edit' → efq:, each re-renders its own card), and
  * the back button returns to that card.
  */
-export function frequencyPickerKeyboard(id: number, activeMinutes: number, lang: Lang, scope: 'reg' | 'edit'): InlineKeyboard {
+export function frequencyPickerKeyboard(
+  id: number,
+  activeMinutes: number,
+  lang: Lang,
+  scope: 'reg' | 'edit',
+  paused = false,
+): InlineKeyboard {
   const t = tr(lang);
   const setCb = scope === 'edit' ? 'efq' : 'fq';
   const backCb = scope === 'edit' ? 'efb' : 'fqb';
@@ -43,7 +49,11 @@ export function frequencyPickerKeyboard(id: number, activeMinutes: number, lang:
     if (i > 0 && i % FREQ_PER_ROW === 0) kb.row();
     kb.text(`${m === activeMinutes ? '✅ ' : ''}${t.btn_freq(m)}`, `${setCb}:${id}:${m}`);
   });
-  return kb.row().text('◀️', `${backCb}:${id}`);
+  kb.row();
+  // Pause/resume lives here, as another facet of "how often to check" (off = never).
+  // Only on an existing watch (edit scope) — at registration there's nothing yet.
+  if (scope === 'edit') kb.text(paused ? t.btn_resume : t.btn_pause, `ep:${id}`).row();
+  return kb.text('◀️', `${backCb}:${id}`);
 }
 
 /**
@@ -442,14 +452,12 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
   const mark = (on: boolean, label: string): string => (on ? `✅ ${label}` : label);
 
   const kb = new InlineKeyboard();
+  // Seller + check-interval share a row (interval opens the freq picker, which
+  // also holds pause/resume). A product watch has no seller → interval alone.
   if (isSearch) {
-    // Seller visibility — collapsed behind one button (opens the seller submenu).
-    kb.text(t.btn_seller_menu(sellerLabel(monitor.filters.sellerVisibility, lang)), `esm:${id}`).row();
+    kb.text(t.btn_seller_menu(sellerLabel(monitor.filters.sellerVisibility, lang)), `esm:${id}`);
   }
-  // Check interval — collapsed behind one button (opens the freq picker).
   kb.text(t.btn_interval(fmtInterval(activeMinutes)), `efi:${id}`).row();
-  // Pause/resume sits right under the interval (cadence controls together).
-  kb.text(monitor.paused ? t.btn_resume : t.btn_pause, `ep:${id}`).row();
   // Filters that only make sense for a multi-result search.
   if (isSearch) {
     kb.text(t.btn_exclusion, `ex:${id}`)
@@ -463,11 +471,12 @@ export function editKeyboard(monitor: Monitor, lang: Lang): InlineKeyboard {
     // A single tracked listing: a target-price alert is the meaningful control.
     kb.text(mark(monitor.filters.targetPrice !== undefined, t.btn_target), `et:${id}`).row();
   }
-  // Rename + group, then remove + back (◀️ → the /list picker).
+  // Rename + group, then remove, then a full-width back (◀️ → the /list picker).
   kb.text(t.btn_rename, `er:${id}`)
     .text(t.btn_group, `egr:${id}`)
     .row()
     .text(t.btn_remove, `rm:${id}`)
+    .row()
     .text('◀️', 'lw:back');
   return kb;
 }
