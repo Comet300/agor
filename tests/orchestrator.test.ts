@@ -567,6 +567,55 @@ describe("10.1 search registration + new-listing detection", () => {
     notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
     expect(notes.some((n) => n.kind === "re_listed" && n.item!.id === "B")).toBe(true);
   });
+
+  it("suppresses listings_dropped when the dropped item is reposted under a new id", async () => {
+    const orig = { id: "OLD-1", title: "Toyota Corolla", price: 17490, currency: "EUR", url: "https://www.synth.test/OLD-1", city: "Bucuresti" };
+    const other = { id: "KEEP", title: "Honda Civic", price: 12000, currency: "EUR", url: "https://www.synth.test/KEEP", city: "Cluj" };
+    h.setBody(searchDoc([orig, other]));
+    const res = await h.orchestrator.register({ chatId: 6, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("register failed");
+
+    // Cycle 2: orig absent once (below threshold)
+    h.setNow(2_000); h.setBody(searchDoc([other]));
+    await h.orchestrator.runMonitorOnce(res.monitor.id);
+
+    // Cycle 3: orig absent again AND reposted under a new id (same title/price/city)
+    const repost = { ...orig, id: "NEW-1", url: "https://www.synth.test/NEW-1" };
+    h.setNow(3_000); h.setBody(searchDoc([other, repost]));
+    const notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+
+    // The repost should produce a new_listing…
+    expect(notes.some((n) => n.kind === "new_listing" && n.item!.id === "NEW-1")).toBe(true);
+    // …but the old listing should NOT produce a listings_dropped (it's the same car).
+    expect(notes.some((n) => n.kind === "listings_dropped")).toBe(false);
+  });
+
+  it("still emits listings_dropped for genuinely removed items alongside a repost", async () => {
+    const orig = { id: "OLD-1", title: "Toyota Corolla", price: 17490, currency: "EUR", url: "https://www.synth.test/OLD-1", city: "Bucuresti" };
+    const gone = { id: "GONE", title: "Opel Astra", price: 8000, currency: "EUR", url: "https://www.synth.test/GONE", city: "Timisoara" };
+    const keeper = { id: "KEEP", title: "VW Golf", price: 15000, currency: "EUR", url: "https://www.synth.test/KEEP", city: "Cluj" };
+    h.setBody(searchDoc([orig, gone, keeper]));
+    const res = await h.orchestrator.register({ chatId: 6, rawUrl: SEARCH_URL });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("register failed");
+
+    // Cycle 2: both orig and gone absent
+    h.setNow(2_000); h.setBody(searchDoc([keeper]));
+    await h.orchestrator.runMonitorOnce(res.monitor.id);
+
+    // Cycle 3: orig reposted under new id; gone is truly gone
+    const repost = { ...orig, id: "NEW-1", url: "https://www.synth.test/NEW-1" };
+    h.setNow(3_000); h.setBody(searchDoc([keeper, repost]));
+    const notes = (await h.orchestrator.runMonitorOnce(res.monitor.id)).notifications;
+
+    expect(notes.some((n) => n.kind === "new_listing" && n.item!.id === "NEW-1")).toBe(true);
+    const dropped = notes.find((n) => n.kind === "listings_dropped");
+    expect(dropped).toBeDefined();
+    expect(dropped!.dropped!.count).toBe(1);
+    expect(dropped!.dropped!.itemIds).toContain("GONE");
+    expect(dropped!.dropped!.itemIds).not.toContain("OLD-1");
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
