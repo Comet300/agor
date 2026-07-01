@@ -24,6 +24,7 @@ import {
   applyExclusion,
   DedupBuffer,
 } from '../pipeline';
+import { compositeSignature } from '../util/hash';
 import { marketInsight } from '../features/marketInsight';
 import { ratePrice } from '../features/priceRating';
 import {
@@ -258,11 +259,36 @@ export class MonitorCycle {
     const absentIds = [...knownBefore].filter((id) => !activeIds.has(id));
     const crossed = this.deps.store.items.markAbsent(monitor.id, absentIds, at, SEARCH_ABSENT_THRESHOLD);
     if (crossed.length > 0) {
-      notifications.push({
-        kind: 'listings_dropped',
-        chatId: monitor.chatId,
-        dropped: { monitorId: monitor.id, vendor: monitor.vendor, count: crossed.length, itemIds: crossed },
-      });
+      // Repost detection: a seller takes down a listing and immediately reposts
+      // it under a new marketplace id (same title/price/location). Without this
+      // check the user sees BOTH a "listing withdrawn" and a "new listing" for
+      // the same item. Filter out dropped items whose composite signature matches
+      // a new listing — those are reposts, not genuine removals.
+      let genuinelyDropped = crossed;
+      if (out.newEnriched.length > 0) {
+        const newSigs = new Set(out.newEnriched.map((item) => compositeSignature({
+          title: item.title,
+          price: item.price,
+          location: item.location,
+        })));
+        genuinelyDropped = crossed.filter((itemId) => {
+          const snap = this.deps.store.items.getSnapshot(monitor.id, itemId);
+          if (!snap) return true;
+          const sig = compositeSignature({
+            title: snap.title ?? snap.itemId,
+            price: snap.lastPrice,
+            location: snap.location,
+          });
+          return !newSigs.has(sig);
+        });
+      }
+      if (genuinelyDropped.length > 0) {
+        notifications.push({
+          kind: 'listings_dropped',
+          chatId: monitor.chatId,
+          dropped: { monitorId: monitor.id, vendor: monitor.vendor, count: genuinelyDropped.length, itemIds: genuinelyDropped },
+        });
+      }
     }
 
     this.logPoll(monitor, at, {
